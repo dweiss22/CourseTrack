@@ -620,9 +620,11 @@ kbd {
   right: -28px;
   width: 190px;
   height: 150px;
-  border: 18px solid color-mix(in srgb, var(--brand-light-blue) 13%, transparent);
-  border-radius: 50%;
+  background: var(--brand-light-blue);
   content: "";
+  -webkit-mask: url("/shield.svg") center / contain no-repeat;
+  mask: url("/shield.svg") center / contain no-repeat;
+  opacity: 0.13;
   pointer-events: none;
 }
 
