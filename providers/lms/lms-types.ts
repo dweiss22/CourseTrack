@@ -15,6 +15,8 @@ export interface LmsCourse {
   courseUrl: string | null;
   retrievedAt: string;
   providerName: string;
+  rawPayload: Record<string, unknown>;
+  normalized: NormalizedLmsPayload;
   mappingWarnings: string[];
 }
 
@@ -30,6 +32,12 @@ export interface LmsAccreditation {
   organizationName: string;
   status: string;
   expirationDate: string | null;
+  jurisdiction: string | null;
+  approvalNumber: string | null;
+  topicNumber: string | null;
+  effectiveDate: string | null;
+  rawValues: LmsAccreditationSnapshot["rawValues"];
+  mappingWarnings: string[];
   retrievedAt: string;
 }
 
@@ -58,3 +66,7 @@ export interface PaginatedLmsCourseResponse {
   total: number;
   hasMore: boolean;
 }
+import type {
+  LmsAccreditationSnapshot,
+  NormalizedLmsPayload,
+} from "@/types/course";

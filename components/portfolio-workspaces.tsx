@@ -12,7 +12,6 @@ import {
   RefreshCw,
   ShieldCheck,
   Sparkles,
-  Upload,
   Users,
 } from "lucide-react";
 import Link from "next/link";
@@ -23,6 +22,7 @@ import {
 } from "@/lib/sample-data";
 import { demoUser, rolePermissions } from "@/lib/permissions";
 import { StatusBadge } from "./status-badge";
+import { ImportPreview } from "./import-preview/import-preview";
 
 export function AccreditationWorkspace() {
   const records = sampleCourses.flatMap((course) =>
@@ -341,24 +341,7 @@ export function AdminWorkspace() {
             </>
           )}
           {activeTab === "Import mapping" && (
-            <>
-              <div className="panel-heading"><div><h2>Existing Excel export mapping</h2><p>Source: all_courses_20260715073414 (1).xlsx</p></div><StatusBadge tone="info">16,545 source rows</StatusBadge></div>
-              <div className="mapping-table">
-                {[
-                  ["Course ID", "lms_course_id", "LMS", "Direct"],
-                  ["Course Name", "title", "LMS", "Direct"],
-                  ["Course Description", "description", "LMS", "Direct"],
-                  ["Duration", "duration_minutes", "LMS", "Convert hours"],
-                  ["Public Topics", "course_topics", "Import", "Split / map"],
-                  ["Sites", "lms_availability", "LMS", "Split values"],
-                  ["Last Revision Date", "last_major_revision_date", "LMS", "Parse date"],
-                  ["Accreditation End Date", "expiration_date", "LMS", "Parse date"],
-                ].map(([source, target, provenance, transform]) => (
-                  <div key={source}><span>{source}</span><ArrowRight size={14} /><strong>{target}</strong><StatusBadge tone={provenance === "LMS" ? "info" : "neutral"}>{provenance}</StatusBadge><small>{transform}</small></div>
-                ))}
-              </div>
-              <button className="button button-primary"><Upload size={16} /> Start import preview</button>
-            </>
+            <ImportPreview />
           )}
           {activeTab === "Users & roles" && (
             <>

@@ -63,6 +63,12 @@ test("Supabase runtime, migrations, and Vercel build contract exist", async () =
         root,
       ),
     ),
+    access(
+      new URL(
+        "supabase/migrations/202607310004_source_reconciliation.sql",
+        root,
+      ),
+    ),
     access(new URL("lib/supabase-server.ts", root)),
     access(new URL("vercel.json", root)),
     access(new URL("public/og.png", root)),
@@ -99,6 +105,43 @@ test("Supabase runtime, migrations, and Vercel build contract exist", async () =
     /function public\.update_internal_course_metadata/i,
   );
   assert.match(vercelConfiguration, /npm run build:vercel/);
+
+  const sourceMigration = await readFile(
+    new URL(
+      "supabase/migrations/202607310004_source_reconciliation.sql",
+      root,
+    ),
+    "utf8",
+  );
+  for (const structure of [
+    "content_metadata_import_runs",
+    "content_metadata_records",
+    "field_comparisons",
+    "monitoring_classifications",
+    "topics",
+    "course_topics",
+    "course_relationships",
+    "import_validation_errors",
+  ]) {
+    assert.match(sourceMigration, new RegExp(`create table if not exists public\\.${structure}`));
+  }
+  assert.match(sourceMigration, /raw_payload jsonb/i);
+  assert.match(sourceMigration, /enable row level security/i);
+  assert.match(sourceMigration, /grant execute on function public\.resolve_course_field[\s\S]*to service_role/i);
+});
+
+test("source reconciliation and resolution endpoints preserve LMS read-only boundaries", async () => {
+  const [normalization, resolutionRoute, provider] = await Promise.all([
+    readFile(new URL("lib/source-normalization.ts", root), "utf8"),
+    readFile(new URL("app/api/courses/[id]/resolution/route.ts", root), "utf8"),
+    readFile(new URL("providers/lms/mock-lms-provider.ts", root), "utf8"),
+  ]);
+
+  assert.match(normalization, /reconcileCourseSources/);
+  assert.match(normalization, /applyFieldResolution/);
+  assert.match(resolutionRoute, /readOnlyLms:\s*true/);
+  assert.match(resolutionRoute, /persistFieldResolution/);
+  assert.doesNotMatch(provider, /\b(create|update|delete|remove|publish|assign|enroll)Course/i);
 });
 
 test("Cloudflare D1 is no longer part of the runtime adapter", async () => {

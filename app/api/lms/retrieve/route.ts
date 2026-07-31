@@ -32,6 +32,9 @@ export async function POST(request: Request) {
   }
   const actorEmail = user?.email ?? demoUser.email;
   const provider = new MockLmsProvider(parsed.data.mode as MockLmsMode);
+  const requested = parsed.data.courseId
+    ? 1
+    : sampleCourses.filter((course) => course.lmsSnapshot).length;
 
   try {
     const response = parsed.data.courseId
@@ -58,6 +61,7 @@ export async function POST(request: Request) {
       actorEmail,
       status,
       message,
+      requested,
       received,
       failed: 0,
     });
@@ -66,7 +70,7 @@ export async function POST(request: Request) {
       runId,
       status,
       message,
-      recordsRequested: parsed.data.courseId ? 1 : sampleCourses.length,
+      recordsRequested: requested,
       recordsReceived: received,
       readOnly: true,
     });
@@ -79,8 +83,9 @@ export async function POST(request: Request) {
       actorEmail,
       status: "Retrieval Failed",
       message,
+      requested,
       received: 0,
-      failed: parsed.data.courseId ? 1 : sampleCourses.length,
+      failed: requested,
     });
     return NextResponse.json(
       {

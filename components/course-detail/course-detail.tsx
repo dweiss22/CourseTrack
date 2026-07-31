@@ -8,7 +8,9 @@ import {
   Calendar,
   Check,
   Clock,
+  Database,
   Flag,
+  GitCompareArrows,
   History,
   LockKeyhole,
   MessageSquareText,
@@ -24,11 +26,12 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { type FormEvent, useState } from "react";
-import type { Course } from "@/types/course";
+import type { Course, FieldComparison } from "@/types/course";
 import { StatusBadge } from "../status-badge";
 
 const tabs = [
   "Overview",
+  "Source Comparison",
   "Versions",
   "Accreditation",
   "Topics & Tags",
@@ -40,6 +43,10 @@ const tabs = [
 ] as const;
 
 type Tab = (typeof tabs)[number];
+type ResolutionAction =
+  | "Use LMS value"
+  | "Keep Content Team value"
+  | "Clear resolution and review again";
 
 export function CourseDetail({ course }: { course: Course }) {
   const [activeTab, setActiveTab] = useState<Tab>("Overview");
@@ -127,6 +134,62 @@ export function CourseDetail({ course }: { course: Course }) {
     }
   };
 
+  const resolveField = async (
+    fieldKey: string,
+    action: ResolutionAction,
+  ) => {
+    setSaveState("saving");
+    setMessage("");
+    try {
+      const response = await fetch(
+        `/api/courses/${currentCourse.id}/resolution`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ fieldKey, action }),
+        },
+      );
+      const result = (await response.json()) as {
+        message?: string;
+        comparison?: FieldComparison;
+      };
+      if (!response.ok || !result.comparison) throw new Error(result.message);
+      const resolvedComparison = result.comparison;
+      setCurrentCourse((value) => {
+        const fieldComparisons = value.fieldComparisons.map((comparison) =>
+          comparison.fieldKey === fieldKey
+            ? resolvedComparison
+            : comparison,
+        );
+        return {
+          ...value,
+          fieldComparisons,
+          conflictCount: fieldComparisons.filter(
+            (comparison) =>
+              comparison.comparisonStatus === "Conflict" &&
+              !comparison.selectedSource,
+          ).length,
+          resolvedFields: {
+            ...value.resolvedFields,
+            [fieldKey]: resolvedComparison.resolvedValue,
+          },
+        };
+      });
+      setSaveState("saved");
+      setMessage(
+        result.message ??
+          "CourseTrack field resolution updated. Source records were not changed.",
+      );
+    } catch (error) {
+      setSaveState("error");
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "The field resolution could not be updated.",
+      );
+    }
+  };
+
   return (
     <div className="page-stack">
       <Link href="/courses" className="back-link">
@@ -145,7 +208,19 @@ export function CourseDetail({ course }: { course: Course }) {
           </div>
           <div>
             <div className="course-heading-badges">
-              <StatusBadge tone="sample">Sample</StatusBadge>
+              <StatusBadge
+                tone={
+                  currentCourse.managementClassification === "Lexipol managed"
+                    ? "success"
+                    : currentCourse.managementClassification ===
+                        "Non-Lexipol excluded"
+                      ? "neutral"
+                      : "warning"
+                }
+              >
+                {currentCourse.managementClassification}
+              </StatusBadge>
+              <StatusBadge>{currentCourse.reconciliationStatus}</StatusBadge>
               <StatusBadge>{currentCourse.lifecycleStatus}</StatusBadge>
               <StatusBadge>{currentCourse.healthStatus}</StatusBadge>
             </div>
@@ -204,7 +279,7 @@ export function CourseDetail({ course }: { course: Course }) {
               {retrievalState === "error"
                 ? "Prior snapshot preserved"
                 : saveState === "saved"
-                  ? "Internal metadata updated"
+                  ? "CourseTrack value updated"
                   : "Read-only retrieval complete"}
             </strong>
             {message}
@@ -322,6 +397,13 @@ export function CourseDetail({ course }: { course: Course }) {
           {activeTab === "Overview" && (
             <OverviewTab course={currentCourse} />
           )}
+          {activeTab === "Source Comparison" && (
+            <SourceComparisonTab
+              course={currentCourse}
+              resolving={saveState === "saving"}
+              onResolve={resolveField}
+            />
+          )}
           {activeTab === "Versions" && <VersionsTab course={currentCourse} />}
           {activeTab === "Accreditation" && (
             <AccreditationTab course={currentCourse} />
@@ -397,9 +479,10 @@ function OverviewTab({ course }: { course: Course }) {
         <p className="course-description">{course.description}</p>
         <div className="field-grid">
           <ProvenanceField label="LMS course ID" value={course.lmsCourseId ?? "Not mapped"} source="LMS" locked />
-          <ProvenanceField label="Publication status" value={course.publicationStatus} source="LMS" locked />
-          <ProvenanceField label="Duration" value={`${course.durationMinutes} minutes`} source="LMS" locked />
-          <ProvenanceField label="Authoring tool" value={course.authoringTool} source="LMS" locked />
+          <ProvenanceField label="Management classification" value={course.managementClassification} source="CourseTrack" />
+          <ProvenanceField label="Reconciliation" value={course.reconciliationStatus} source="Calculated" />
+          <ProvenanceField label="Duration" value={`${course.durationMinutes} minutes`} source="Resolved value" />
+          <ProvenanceField label="Authoring tool" value={course.contentMetadata?.authoringTool ?? course.authoringTool} source="Content Metadata" />
           <ProvenanceField label="Primary vertical" value={course.primaryVertical} source="CourseTrack" />
           <ProvenanceField label="Lifecycle status" value={course.lifecycleStatus} source="CourseTrack" />
           <ProvenanceField label="Course owner" value={course.owner ?? "Unassigned"} source="CourseTrack" />
@@ -416,6 +499,218 @@ function OverviewTab({ course }: { course: Course }) {
           <StatusBadge tone="info">CourseTrack</StatusBadge>
         </div>
         <p className="internal-summary">{course.internalSummary}</p>
+      </article>
+    </div>
+  );
+}
+
+function formatSourceValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "Not supplied";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (typeof value === "object") {
+    const credit = value as {
+      rawDisplay?: string | null;
+      amount?: number | null;
+      unit?: string | null;
+    };
+    if (credit.rawDisplay) return credit.rawDisplay;
+    return JSON.stringify(value);
+  }
+  return String(value);
+}
+
+function SourceComparisonTab({
+  course,
+  resolving,
+  onResolve,
+}: {
+  course: Course;
+  resolving: boolean;
+  onResolve: (fieldKey: string, action: ResolutionAction) => void;
+}) {
+  const sourceHistory = [...course.retrievalHistory, ...course.importHistory]
+    .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
+
+  return (
+    <div className="detail-section-stack">
+      <article className="panel">
+        <div className="panel-heading">
+          <div>
+            <h2>Source comparison</h2>
+            <p>Overlapping source values remain separate until CourseTrack resolves them.</p>
+          </div>
+          <StatusBadge
+            tone={course.conflictCount > 0 ? "danger" : "success"}
+          >
+            {course.conflictCount} unresolved conflict{course.conflictCount === 1 ? "" : "s"}
+          </StatusBadge>
+        </div>
+        <div className="readonly-callout">
+          <LockKeyhole size={18} />
+          <span>
+            <strong>LMS snapshot is read-only</strong>
+            Choosing an active CourseTrack value never changes an LMS snapshot or writes back to the LMS.
+          </span>
+        </div>
+        <div className="table-scroll">
+          <table className="data-table comparison-table">
+            <thead>
+              <tr>
+                <th>Field</th>
+                <th>LMS value</th>
+                <th>Content Team value</th>
+                <th>Active CourseTrack value</th>
+                <th>Status</th>
+                <th>Resolution</th>
+              </tr>
+            </thead>
+            <tbody>
+              {course.fieldComparisons.map((comparison) => (
+                <tr key={comparison.fieldKey}>
+                  <td>
+                    <strong>{comparison.fieldLabel}</strong>
+                    <small>Compared {comparison.lastComparedAt.slice(0, 10)}</small>
+                  </td>
+                  <td>
+                    <span>{formatSourceValue(comparison.lmsNormalizedValue)}</span>
+                    <small><LockKeyhole size={11} /> Read-only LMS</small>
+                  </td>
+                  <td>
+                    <span>{formatSourceValue(comparison.contentMetadataNormalizedValue)}</span>
+                    <small>Content Metadata import</small>
+                  </td>
+                  <td>
+                    <strong>{formatSourceValue(comparison.resolvedValue)}</strong>
+                    <small>
+                      {comparison.selectedSource
+                        ? `Selected: ${comparison.selectedSource === "lms" ? "LMS" : "Content Team"}`
+                        : "Awaiting decision"}
+                    </small>
+                  </td>
+                  <td><StatusBadge>{comparison.comparisonStatus}</StatusBadge></td>
+                  <td>
+                    <div className="comparison-actions">
+                      <button
+                        disabled={resolving}
+                        onClick={() => onResolve(comparison.fieldKey, "Use LMS value")}
+                      >
+                        Use LMS
+                      </button>
+                      <button
+                        disabled={resolving}
+                        onClick={() => onResolve(comparison.fieldKey, "Keep Content Team value")}
+                      >
+                        Keep Content Team
+                      </button>
+                      <button
+                        disabled={resolving || !comparison.selectedSource}
+                        onClick={() => onResolve(comparison.fieldKey, "Clear resolution and review again")}
+                      >
+                        Clear
+                      </button>
+                    </div>
+                    {comparison.resolvedBy && (
+                      <small>{comparison.resolvedBy} · {comparison.resolvedAt?.slice(0, 10)}</small>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </article>
+
+      <article className="panel">
+        <div className="panel-heading">
+          <div>
+            <h2>Source records and mappings</h2>
+            <p>Provenance, freshness, classification, and relationship context</p>
+          </div>
+          <GitCompareArrows size={20} className="panel-icon" />
+        </div>
+        <div className="field-grid source-record-grid">
+          <ProvenanceField label="Management classification" value={course.managementClassification} source="CourseTrack" />
+          <ProvenanceField label="Monitoring" value={course.monitoringEnabled ? "Enabled" : "Excluded from normal metrics"} source="CourseTrack" />
+          <ProvenanceField label="LMS snapshot" value={course.lmsSnapshot ? course.lmsSnapshot.retrievedAt : "Missing from LMS"} source="LMS" locked />
+          <ProvenanceField label="Content Metadata" value={course.contentMetadata ? course.contentMetadata.importedAt : "Missing metadata"} source="Import" />
+          <ProvenanceField label="Backend link" value={course.contentMetadata?.backendLink ? "Restricted internal administrative link" : "Not supplied"} source="Content Metadata" />
+          <ProvenanceField label="Frontend link" value={course.contentMetadata?.frontendLink ?? "Not supplied"} source="Content Metadata" />
+          <ProvenanceField label="Topic assignments" value={`${course.topicAssignments.length} assignments from ${new Set(course.topicAssignments.map((item) => item.source)).size} sources`} source="Multiple" />
+          <ProvenanceField label="Vertical assignments" value={`${course.verticalAssignments.length} sourced assignments`} source="Multiple" />
+          <ProvenanceField label="Relationships" value={`${course.relationships.length} parent/child records`} source="Content Metadata" />
+          <ProvenanceField label="Accreditation comparison" value={`${course.lmsSnapshot?.normalized.accreditations.length ?? 0} LMS records · ${course.accreditations.length} active records`} source="LMS / CourseTrack" />
+        </div>
+        {(course.mappingWarnings.length > 0 || course.importValidationErrors.length > 0) && (
+          <div className="source-warning-list">
+            {[...course.mappingWarnings, ...course.importValidationErrors].map((warning) => (
+              <div key={warning}>
+                <AlertTriangle size={15} />
+                <span>{warning}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="source-assignment-grid">
+          <div>
+            <h3>Topics by source</h3>
+            {course.topicAssignments.map((assignment) => (
+              <span key={assignment.id}>
+                <strong>{assignment.topic}</strong>
+                <small>{assignment.source}</small>
+              </span>
+            ))}
+          </div>
+          <div>
+            <h3>Verticals by source</h3>
+            {course.verticalAssignments.map((assignment, index) => (
+              <span key={`${assignment.source}-${assignment.vertical}-${index}`}>
+                <strong>{assignment.vertical}{assignment.isPrimary ? " · Primary" : ""}</strong>
+                <small>{assignment.source} · {assignment.sourceValue}</small>
+              </span>
+            ))}
+          </div>
+          <div>
+            <h3>Parent / child relationships</h3>
+            {course.relationships.length > 0 ? course.relationships.map((relationship) => (
+              <span key={relationship.id}>
+                <strong>{relationship.relationship}: {relationship.relatedCourseTitle ?? relationship.relatedCourseId}</strong>
+                <small>{relationship.validationStatus}</small>
+              </span>
+            )) : <p>No relationships supplied.</p>}
+          </div>
+        </div>
+      </article>
+
+      <article className="panel">
+        <div className="panel-heading">
+          <div>
+            <h2>Import, retrieval, and audit history</h2>
+            <p>Immutable source events and user decisions</p>
+          </div>
+          <Database size={20} className="panel-icon" />
+        </div>
+        <div className="timeline-list">
+          {sourceHistory.map((history) => (
+            <div key={history.id}>
+              <span className="timeline-marker"><History size={14} /></span>
+              <div>
+                <strong>{history.source} · {history.status}</strong>
+                <p>{history.summary}</p>
+                <small>{history.runId} · {history.occurredAt}</small>
+              </div>
+            </div>
+          ))}
+          {course.auditHistory.map((audit) => (
+            <div key={audit.id}>
+              <span className="timeline-marker"><ShieldCheck size={14} /></span>
+              <div>
+                <strong>{audit.action}</strong>
+                <p>{audit.reason ?? "No reason supplied."}</p>
+                <small>{audit.actor} · {audit.occurredAt}</small>
+              </div>
+            </div>
+          ))}
+        </div>
       </article>
     </div>
   );
@@ -642,24 +937,45 @@ function LmsTab({
   course: Course;
   onSimulateOutage: () => void;
 }) {
+  const snapshot = course.lmsSnapshot;
+  if (!snapshot) {
+    return (
+      <div className="empty-state panel">
+        <Database size={28} />
+        <h2>Content Metadata record is missing from the LMS</h2>
+        <p>The imported Course ID is retained, but there is no LMS snapshot to display.</p>
+      </div>
+    );
+  }
+  const lms = snapshot.normalized;
   return (
     <div className="detail-section-stack">
       <article className="panel">
         <div className="panel-heading">
           <div>
             <h2>Current LMS snapshot</h2>
-            <p>Normalized values retrieved from Mock LMS</p>
+            <p>Raw source values are retained with these normalized, read-only fields.</p>
           </div>
           <StatusBadge>{course.retrievalStatus}</StatusBadge>
         </div>
         <div className="readonly-grid">
           {[
-            ["External course ID", course.lmsCourseId ?? "Unmapped"],
-            ["Course title", course.title],
-            ["Publication status", course.publicationStatus],
-            ["Duration", `${course.durationMinutes} minutes`],
-            ["Authoring tool", course.authoringTool],
-            ["Last retrieved", course.lastRetrievedAt ?? "Not retrieved"],
+            ["External course ID", lms.courseId],
+            ["Course type", lms.courseType ?? "Not supplied"],
+            ["Course name", lms.courseName ?? "Not supplied"],
+            ["Duration", lms.durationMinutes === null ? "Not supplied" : `${lms.durationMinutes} minutes`],
+            ["Published", lms.isPublished === null ? "Not supplied" : lms.isPublished ? "Yes" : "No"],
+            ["Published date", lms.publishedDate ?? "Not supplied"],
+            ["LMS author", [lms.author.displayName, lms.author.email].filter(Boolean).join(" · ") || "Not supplied"],
+            ["Owner", lms.owner ?? "Not supplied"],
+            ["Sites", lms.sites.join(" · ") || "Not supplied"],
+            ["Public topics", lms.publicTopics.join(" · ") || "Not supplied"],
+            ["Private topics", lms.privateTopics.join(" · ") || "Not supplied"],
+            ["Surveys", lms.surveys.join(" · ") || "Not supplied"],
+            ["Last revision", lms.lastRevisionDate ?? "Not supplied"],
+            ["Training credits", lms.trainingCredits.rawDisplay ?? "Not supplied"],
+            ["Accreditation records", String(lms.accreditations.length)],
+            ["Last retrieved", snapshot.retrievedAt],
           ].map(([label, value]) => (
             <div key={label}>
               <span><LockKeyhole size={13} /> {label}</span>

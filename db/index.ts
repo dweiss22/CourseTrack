@@ -74,6 +74,13 @@ async function seedSamplePortfolio(client: SupabaseClient): Promise<void> {
       app_id: course.id,
       course_code: course.courseCode,
       lms_course_id: course.lmsCourseId,
+      management_classification: course.managementClassification,
+      monitoring_enabled: course.monitoringEnabled,
+      reconciliation_status: course.reconciliationStatus,
+      resolved_fields: course.resolvedFields,
+      source_timestamps: course.sourceTimestamps,
+      mapping_warnings: course.mappingWarnings,
+      import_validation_errors: course.importValidationErrors,
       title: course.title,
       short_title: course.shortTitle,
       description: course.description,
@@ -294,10 +301,39 @@ export async function updateInternalCourseMetadata(input: {
   return data === true;
 }
 
+export async function persistFieldResolution(input: {
+  courseId: string;
+  actorEmail: string;
+  fieldKey: string;
+  selectedSource: "lms" | "content_metadata" | null;
+  resolvedValue: unknown;
+  resolutionReason: string | null;
+  resolvedAt: string;
+}): Promise<boolean> {
+  const client = getSupabaseAdminClient();
+  if (!client) return false;
+  await ensureDatabase();
+
+  const { data, error } = await client.rpc("resolve_course_field", {
+    p_app_id: input.courseId,
+    p_actor_email: input.actorEmail,
+    p_field_key: input.fieldKey,
+    p_selected_source: input.selectedSource,
+    p_resolved_value: input.resolvedValue,
+    p_resolution_reason: input.resolutionReason,
+    p_resolved_at: input.resolvedAt,
+  });
+  if (error) {
+    throw databaseError("Could not save the CourseTrack field resolution", error);
+  }
+  return data === true;
+}
+
 export async function recordRetrievalRun(input: {
   actorEmail: string;
   status: "Retrieved" | "Retrieved with Warnings" | "Retrieval Failed";
   message: string;
+  requested: number;
   received: number;
   failed: number;
 }): Promise<string | null> {
@@ -315,7 +351,7 @@ export async function recordRetrievalRun(input: {
       started_at: now,
       completed_at: now,
       status: input.status,
-      records_requested: SAMPLE_COURSE_COUNT,
+      records_requested: input.requested,
       records_received: input.received,
       records_failed: input.failed,
       message: input.message,

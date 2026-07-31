@@ -23,8 +23,12 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { useMemo, useState } from "react";
-import type { Course } from "@/types/course";
-import { getVerticalLabel, verticals } from "@/types/course";
+import type { Course, ManagementClassification } from "@/types/course";
+import {
+  getVerticalLabel,
+  managementClassifications,
+  verticals,
+} from "@/types/course";
 import { StatusBadge } from "../status-badge";
 
 const columnHelper = createColumnHelper<Course>();
@@ -45,40 +49,67 @@ const columns = [
     header: "Primary vertical",
     cell: (info) => <span className="vertical-label">{info.getValue()}</span>,
   }),
-  columnHelper.accessor("lifecycleStatus", {
-    header: "Lifecycle",
+  columnHelper.accessor("managementClassification", {
+    header: "Management",
+    cell: (info) => (
+      <StatusBadge
+        tone={
+          info.getValue() === "Lexipol managed"
+            ? "success"
+            : info.getValue() === "Non-Lexipol excluded"
+              ? "neutral"
+              : info.getValue() === "Unclassified"
+                ? "warning"
+                : "info"
+        }
+      >
+        {info.getValue()}
+      </StatusBadge>
+    ),
+  }),
+  columnHelper.accessor("reconciliationStatus", {
+    header: "Reconciliation",
     cell: (info) => <StatusBadge>{info.getValue()}</StatusBadge>,
   }),
-  columnHelper.accessor("currentVersion", {
-    header: "Version",
-    cell: (info) => <span className="mono-cell">v{info.getValue()}</span>,
+  columnHelper.accessor("retrievalStatus", {
+    header: "Source / freshness",
+    cell: ({ row }) => (
+      <div className="source-status-cell">
+        <StatusBadge>{row.original.retrievalStatus}</StatusBadge>
+        <small>{row.original.lastRetrievedAt?.slice(0, 10) ?? "No LMS snapshot"}</small>
+      </div>
+    ),
   }),
-  columnHelper.accessor("nextReviewDate", {
-    header: "Next review",
-    cell: (info) => {
-      const value = info.getValue();
-      return value ? (
-        <span className={value < "2026-07-30" ? "date-overdue" : ""}>
-          {value}
-        </span>
-      ) : (
-        <span className="text-muted">Not set</span>
-      );
-    },
+  columnHelper.accessor("conflictCount", {
+    header: "Conflicts",
+    cell: (info) => (
+      <span className={info.getValue() > 0 ? "conflict-count" : "text-muted"}>
+        {info.getValue()}
+      </span>
+    ),
   }),
-  columnHelper.accessor("accreditationStatus", {
-    header: "Accreditation",
-    cell: (info) => <StatusBadge>{info.getValue()}</StatusBadge>,
-  }),
-  columnHelper.accessor("owner", {
-    header: "Owner",
-    cell: (info) => info.getValue() ?? <span className="text-danger">Unassigned</span>,
+  columnHelper.accessor("topicAssignments", {
+    header: "Topics",
+    cell: (info) => (
+      <span className="topic-summary">
+        {info.getValue().slice(0, 2).map((assignment) => assignment.topic).join(" · ") || "No topics"}
+      </span>
+    ),
   }),
   columnHelper.accessor("healthStatus", {
     header: "Health",
     cell: (info) => <StatusBadge>{info.getValue()}</StatusBadge>,
   }),
 ];
+
+type WorkQueue =
+  | "All queues"
+  | "Missing Content Metadata"
+  | "Missing from LMS"
+  | "Field conflicts"
+  | "Mapping required"
+  | "Invalid import records"
+  | "Stale LMS data";
 
 function csvSafe(value: unknown): string {
   const stringValue = String(value ?? "");
@@ -93,6 +124,10 @@ export function CourseLibrary({ courses }: { courses: Course[] }) {
   const [vertical, setVertical] = useState("All verticals");
   const [lifecycle, setLifecycle] = useState("All statuses");
   const [health, setHealth] = useState("All health levels");
+  const [classification, setClassification] = useState<
+    "Normal portfolio" | "All classifications" | ManagementClassification
+  >("Normal portfolio");
+  const [workQueue, setWorkQueue] = useState<WorkQueue>("All queues");
   const [view, setView] = useState<"table" | "cards">("table");
   const [sorting, setSorting] = useState<SortingState>([]);
   const [favorites, setFavorites] = useState<string[]>([]);
@@ -107,8 +142,11 @@ export function CourseLibrary({ courses }: { courses: Course[] }) {
         course.lmsCourseId ?? "",
         course.description,
         course.primaryTopic,
+        course.topicAssignments.map((assignment) => assignment.topic).join(" "),
         course.tags.join(" "),
         course.owner ?? "",
+        course.managementClassification,
+        course.reconciliationStatus,
       ]
         .join(" ")
         .toLowerCase();
@@ -119,9 +157,31 @@ export function CourseLibrary({ courses }: { courses: Course[] }) {
         (lifecycle === "All statuses" ||
           course.lifecycleStatus === lifecycle) &&
         (health === "All health levels" || course.healthStatus === health)
+        &&
+        (classification === "All classifications" ||
+          (classification === "Normal portfolio"
+            ? course.managementClassification !== "Non-Lexipol excluded"
+            : course.managementClassification === classification))
+        &&
+        (workQueue === "All queues" ||
+          (workQueue === "Missing Content Metadata" &&
+            Boolean(course.lmsSnapshot) &&
+            !course.contentMetadata) ||
+          (workQueue === "Missing from LMS" &&
+            !course.lmsSnapshot &&
+            Boolean(course.contentMetadata)) ||
+          (workQueue === "Field conflicts" && course.conflictCount > 0) ||
+          (workQueue === "Mapping required" &&
+            course.reconciliationStatus === "Mapping required") ||
+          (workQueue === "Invalid import records" &&
+            course.importValidationErrors.length > 0) ||
+          (workQueue === "Stale LMS data" &&
+            ["Stale Data", "Retrieval Failed"].includes(
+              course.retrievalStatus,
+            )))
       );
     });
-  }, [courses, health, lifecycle, search, vertical]);
+  }, [classification, courses, health, lifecycle, search, vertical, workQueue]);
 
   // TanStack Table intentionally exposes stateful functions that React Compiler
   // does not memoize; the table owns the relevant memoization boundaries.
@@ -142,6 +202,8 @@ export function CourseLibrary({ courses }: { courses: Course[] }) {
     vertical !== "All verticals" ? vertical : "",
     lifecycle !== "All statuses" ? lifecycle : "",
     health !== "All health levels" ? health : "",
+    classification !== "Normal portfolio" ? classification : "",
+    workQueue !== "All queues" ? workQueue : "",
   ].filter(Boolean).length;
 
   const clearFilters = () => {
@@ -149,14 +211,14 @@ export function CourseLibrary({ courses }: { courses: Course[] }) {
     setVertical("All verticals");
     setLifecycle("All statuses");
     setHealth("All health levels");
+    setClassification("Normal portfolio");
+    setWorkQueue("All queues");
     table.setPageIndex(0);
   };
 
-  const applySavedView = (savedView: "risk" | "review" | "unmapped") => {
-    clearFilters();
-    if (savedView === "risk") setHealth("At Risk");
-    if (savedView === "review") setLifecycle("Under Maintenance");
-    if (savedView === "unmapped") setSearch("CT-");
+  const applySavedView = (savedView: WorkQueue) => {
+    setWorkQueue(savedView);
+    table.setPageIndex(0);
   };
 
   const exportResults = () => {
@@ -165,10 +227,11 @@ export function CourseLibrary({ courses }: { courses: Course[] }) {
       "Course Code",
       "Title",
       "Primary Vertical",
-      "Lifecycle Status",
-      "Publication Status",
-      "Owner",
-      "Next Review Date",
+      "Management Classification",
+      "Reconciliation Status",
+      "Source Freshness",
+      "Conflict Count",
+      "Topics",
       "Health",
       "Data Source",
     ];
@@ -177,10 +240,11 @@ export function CourseLibrary({ courses }: { courses: Course[] }) {
       course.courseCode,
       course.title,
       course.primaryVertical,
-      course.lifecycleStatus,
-      course.publicationStatus,
-      course.owner,
-      course.nextReviewDate,
+      course.managementClassification,
+      course.reconciliationStatus,
+      course.retrievalStatus,
+      course.conflictCount,
+      course.topicAssignments.map((assignment) => assignment.topic).join("; "),
       course.healthStatus,
       course.dataSource,
     ]);
@@ -260,6 +324,25 @@ export function CourseLibrary({ courses }: { courses: Course[] }) {
         </div>
         <div className="filter-row">
           <select
+            value={classification}
+            onChange={(event) => {
+              setClassification(
+                event.target.value as
+                  | "Normal portfolio"
+                  | "All classifications"
+                  | ManagementClassification,
+              );
+              table.setPageIndex(0);
+            }}
+            aria-label="Filter by management classification"
+          >
+            <option>Normal portfolio</option>
+            <option>All classifications</option>
+            {managementClassifications.map((item) => (
+              <option key={item}>{item}</option>
+            ))}
+          </select>
+          <select
             value={vertical}
             onChange={(event) => {
               setVertical(event.target.value);
@@ -332,10 +415,23 @@ export function CourseLibrary({ courses }: { courses: Course[] }) {
       </section>
 
       <section className="saved-view-row">
-        <span>Saved views</span>
-        <button onClick={() => applySavedView("risk")}>At-risk portfolio</button>
-        <button onClick={() => applySavedView("review")}>Maintenance queue</button>
-        <button onClick={() => applySavedView("unmapped")}>Unmapped LMS records</button>
+        <span>Source work queues</span>
+        {[
+          "Missing Content Metadata",
+          "Missing from LMS",
+          "Field conflicts",
+          "Mapping required",
+          "Invalid import records",
+          "Stale LMS data",
+        ].map((queue) => (
+          <button
+            key={queue}
+            className={workQueue === queue ? "active" : ""}
+            onClick={() => applySavedView(queue as WorkQueue)}
+          >
+            {queue}
+          </button>
+        ))}
         {activeFilterCount > 0 && (
           <button className="clear-filter-button" onClick={clearFilters}>
             Clear {activeFilterCount} filter{activeFilterCount === 1 ? "" : "s"}
@@ -424,7 +520,18 @@ export function CourseLibrary({ courses }: { courses: Course[] }) {
             {table.getRowModel().rows.map(({ original: course }) => (
               <article className="course-card" key={course.id}>
                 <div className="course-card-top">
-                  <StatusBadge tone="sample">Sample</StatusBadge>
+                  <StatusBadge
+                    tone={
+                      course.managementClassification === "Lexipol managed"
+                        ? "success"
+                        : course.managementClassification ===
+                            "Non-Lexipol excluded"
+                          ? "neutral"
+                          : "warning"
+                    }
+                  >
+                    {course.managementClassification}
+                  </StatusBadge>
                   <button
                     className={`favorite-button ${
                       favorites.includes(course.id) ? "favorite-active" : ""
@@ -443,15 +550,21 @@ export function CourseLibrary({ courses }: { courses: Course[] }) {
                 <div className="course-card-meta">
                   <span>{course.courseCode}</span>
                   <span>{course.durationMinutes} min</span>
-                  <span>v{course.currentVersion}</span>
+                  <span>{course.retrievalStatus}</span>
                 </div>
                 <div className="course-card-badges">
-                  <StatusBadge>{course.lifecycleStatus}</StatusBadge>
+                  <StatusBadge>{course.reconciliationStatus}</StatusBadge>
                   <StatusBadge>{course.healthStatus}</StatusBadge>
                 </div>
                 <div className="course-card-footer">
-                  <span>{getVerticalLabel(course.primaryVertical)}</span>
-                  <span>{course.owner ?? "Owner needed"}</span>
+                  <span>
+                    {getVerticalLabel(course.primaryVertical)} · {course.topicAssignments[0]?.topic ?? "No topic"}
+                  </span>
+                  <span>
+                    {course.conflictCount > 0
+                      ? `${course.conflictCount} unresolved conflict${course.conflictCount === 1 ? "" : "s"}`
+                      : "Sources reconciled"}
+                  </span>
                 </div>
               </article>
             ))}

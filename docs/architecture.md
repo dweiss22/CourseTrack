@@ -7,9 +7,9 @@ model, application routes, production UI, or business integrations. The current
 foundation adds a complete vertical slice while retaining the starter's
 deployable Cloudflare worker shape.
 
-The source workbook in `Files/` is treated as a read-only discovery artifact.
-Its headers informed the import map; it is never altered or treated as a live
-database.
+The LMS Course List, Course Metadata, and Topics workbooks are treated as
+read-only discovery artifacts. Their actual layouts informed configurable
+parsers and mock fixtures; they are never altered or treated as a live database.
 
 ## Technical architecture
 
@@ -20,6 +20,8 @@ flowchart LR
   Domain["Typed CourseTrack domain model"]
   DB["CourseTrack data store"]
   LMS["ReadOnlyLmsProvider"]
+  Import["Confirmed file imports"]
+  Reconcile["Source comparison and resolution"]
   Mock["Deterministic Mock LMS"]
   Live["Live LMS adapter (not configured)"]
 
@@ -27,6 +29,10 @@ flowchart LR
   UI --> Domain
   API --> DB
   API --> LMS
+  API --> Import
+  LMS --> Reconcile
+  Import --> Reconcile
+  Reconcile --> Domain
   LMS --> Mock
   LMS --> Live
 ```
@@ -39,6 +45,10 @@ flowchart LR
   publish, or assignment methods exist in the contract.
 - Successful LMS retrievals are normalized into immutable snapshots. Failed
   retrievals preserve the most recent successful snapshot.
+- Content Metadata and Topics retain raw import values beside normalized
+  records. Preview validation blocks unsafe rows before confirmation.
+- Source conflicts preserve both values. A user resolution selects only the
+  active CourseTrack display value and is recorded in the audit log.
 - Both deployment targets use a server-only Supabase/Postgres adapter. Missing
   credentials activate a labeled sample fallback without allowing fake writes.
 
@@ -56,6 +66,14 @@ erDiagram
   COURSES ||--o{ NOTES : has
   COURSES ||--o{ REVAMP_PROPOSALS : has
   COURSES ||--o{ LMS_SNAPSHOTS : maps
+  COURSES ||--o{ CONTENT_METADATA_RECORDS : enriches
+  CONTENT_METADATA_IMPORT_RUNS ||--o{ CONTENT_METADATA_RECORDS : produces
+  COURSES ||--o{ FIELD_COMPARISONS : reconciles
+  COURSES ||--o{ MONITORING_CLASSIFICATIONS : classifies
+  COURSES ||--o{ COURSE_TOPICS : assigned
+  TOPICS ||--o{ COURSE_TOPICS : categorizes
+  COURSES ||--o{ COURSE_RELATIONSHIPS : relates
+  CONTENT_METADATA_IMPORT_RUNS ||--o{ IMPORT_VALIDATION_ERRORS : reports
   LMS_RETRIEVAL_RUNS ||--o{ LMS_SNAPSHOTS : produces
   COURSES ||--o{ COURSE_VERTICALS : classified
   VERTICALS ||--o{ COURSE_VERTICALS : includes
@@ -70,11 +88,17 @@ erDiagram
    `accreditation_records`.
 3. Internal workflow: `course_flags`, `notes`, `revamp_proposals`.
 4. Integration and provenance: `lms_retrieval_runs`, `lms_snapshots`.
-5. Accountability: `audit_logs`.
+5. Imported sources: `content_metadata_import_runs`,
+   `content_metadata_records`, `topics`, `course_topics`, and
+   `monitoring_classifications`.
+6. Reconciliation and structure: `field_comparisons`,
+   `course_relationships`, and `import_validation_errors`.
+7. Accountability: `audit_logs`.
 
 The canonical column-level design is in
-[`database-schema.md`](database-schema.md) and the executable migration is
-`supabase/migrations/202607300001_phase1_foundation.sql`.
+[`database-schema.md`](database-schema.md). The source-aware extension is in
+`supabase/migrations/202607310004_source_reconciliation.sql`; it remains an
+unapplied migration until a separate production-database authorization.
 
 ## Permission strategy
 

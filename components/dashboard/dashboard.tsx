@@ -3,13 +3,16 @@
 import {
   AlertTriangle,
   ArrowRight,
-  Award,
   BookOpen,
   CalendarClock,
   CircleGauge,
+  Database,
   Flag,
+  GitCompareArrows,
+  ListChecks,
+  MapPinned,
   RefreshCw,
-  Sparkles,
+  ShieldCheck,
 } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
@@ -32,6 +35,7 @@ import {
   verticals,
 } from "@/types/course";
 import { StatusBadge } from "../status-badge";
+import { calculateSourceAwareMetrics } from "@/lib/source-normalization";
 
 const healthColors: Record<string, string> = {
   Healthy: "#84C341",
@@ -41,84 +45,79 @@ const healthColors: Record<string, string> = {
   Critical: "#D50032",
 };
 
-function buildMetricCards(courses: Course[]) {
-  const dueForReview = courses.filter(
-    (course) =>
-      course.nextReviewDate && course.nextReviewDate <= "2026-10-28",
-  ).length;
-  const overdue = courses.filter(
-    (course) =>
-      course.nextReviewDate && course.nextReviewDate < "2026-07-30",
-  ).length;
-  const accreditationRisk = courses.filter((course) =>
-    ["Expiring Soon", "Expired", "Approved with Conditions"].includes(
-      course.accreditationStatus,
-    ),
-  ).length;
-  const unresolvedFlags = courses.reduce(
-    (count, course) =>
-      count + course.flags.filter((flag) => flag.status !== "Resolved").length,
-    0,
-  );
-  const highPriorityFlags = courses.reduce(
-    (count, course) =>
-      count +
-      course.flags.filter(
-        (flag) =>
-          flag.status !== "Resolved" &&
-          ["High", "Critical"].includes(flag.priority),
-      ).length,
-    0,
-  );
-  const proposedRevamps = courses.filter(
-    (course) => course.revampProposal,
-  ).length;
-  const staleLms = courses.filter((course) =>
-    ["Stale Data", "Retrieval Failed"].includes(course.retrievalStatus),
-  ).length;
+function buildMetricCards(courses: Course[], includeExcluded: boolean) {
+  const metrics = calculateSourceAwareMetrics(courses, { includeExcluded });
 
   return [
     {
-      label: "Total courses",
-      value: courses.length,
-      detail: "Across 8 verticals",
-      icon: BookOpen,
+      label: "LMS courses retrieved",
+      value: metrics.totalLmsRetrieved,
+      detail: "Includes excluded source snapshots",
+      icon: Database,
       tone: "blue",
     },
     {
-      label: "Due for review",
-      value: dueForReview,
-      detail: `${overdue} already overdue`,
-      icon: CalendarClock,
-      tone: "amber",
+      label: "Lexipol managed",
+      value: metrics.lexipolManaged,
+      detail: "Confirmed managed portfolio",
+      icon: ShieldCheck,
+      tone: "teal",
     },
     {
-      label: "Accreditation risk",
-      value: accreditationRisk,
-      detail: "Expiring, expired, or conditional",
-      icon: Award,
+      label: "Non-Lexipol tracked",
+      value: metrics.nonLexipolTracked,
+      detail: "Visible for monitoring",
+      icon: CircleGauge,
       tone: "purple",
     },
     {
-      label: "Unresolved flags",
-      value: unresolvedFlags,
-      detail: `${highPriorityFlags} high or critical priorities`,
+      label: "Unclassified",
+      value: metrics.unclassified,
+      detail: "Awaiting portfolio decision",
+      icon: AlertTriangle,
+      tone: "amber",
+    },
+    {
+      label: "Missing metadata",
+      value: metrics.missingContentMetadata,
+      detail: "LMS courses without Content Metadata",
+      icon: BookOpen,
+      tone: "red",
+    },
+    {
+      label: "Missing from LMS",
+      value: metrics.missingFromLms,
+      detail: "Content Metadata-only records",
+      icon: GitCompareArrows,
+      tone: "slate",
+    },
+    {
+      label: "Unresolved conflicts",
+      value: metrics.unresolvedConflicts,
+      detail: "Source values need a decision",
       icon: Flag,
       tone: "red",
     },
     {
-      label: "Revamp pipeline",
-      value: proposedRevamps,
-      detail: "Across all proposal stages",
-      icon: Sparkles,
-      tone: "teal",
+      label: "Mapping required",
+      value: metrics.mappingRequired,
+      detail: "Unknown source values",
+      icon: MapPinned,
+      tone: "amber",
     },
     {
       label: "Stale LMS data",
-      value: staleLms,
+      value: metrics.staleLms,
       detail: "Last successful snapshots remain available",
       icon: RefreshCw,
       tone: "slate",
+    },
+    {
+      label: "Import errors",
+      value: metrics.importValidationErrors,
+      detail: "Rows blocked during preview",
+      icon: ListChecks,
+      tone: "purple",
     },
   ];
 }
@@ -131,25 +130,40 @@ export function Dashboard({
   retrievalRuns: RetrievalRun[];
 }) {
   const [verticalFilter, setVerticalFilter] = useState("All verticals");
+  const [includeExcluded, setIncludeExcluded] = useState(false);
   const [retrievalState, setRetrievalState] = useState<
     "idle" | "running" | "success" | "error"
   >("idle");
   const [retrievalMessage, setRetrievalMessage] = useState("");
-  const metricCards = useMemo(() => buildMetricCards(courses), [courses]);
+  const metricCards = useMemo(
+    () => buildMetricCards(courses, includeExcluded),
+    [courses, includeExcluded],
+  );
+
+  const portfolioCourses = useMemo(
+    () =>
+      includeExcluded
+        ? courses
+        : courses.filter(
+            (course) =>
+              course.managementClassification !== "Non-Lexipol excluded",
+          ),
+    [courses, includeExcluded],
+  );
 
   const filteredCourses = useMemo(
     () =>
       verticalFilter === "All verticals"
-        ? courses
-        : courses.filter(
+        ? portfolioCourses
+        : portfolioCourses.filter(
             (course) => course.primaryVertical === verticalFilter,
           ),
-    [courses, verticalFilter],
+    [portfolioCourses, verticalFilter],
   );
 
   const verticalData = verticals.map((vertical) => ({
     name: vertical,
-    courses: courses.filter(
+    courses: portfolioCourses.filter(
       (course) => course.primaryVertical === vertical,
     ).length,
   }));
@@ -223,6 +237,14 @@ export function Dashboard({
               </option>
             ))}
           </select>
+          <label className="include-excluded-control">
+            <input
+              type="checkbox"
+              checked={includeExcluded}
+              onChange={(event) => setIncludeExcluded(event.target.checked)}
+            />
+            Include excluded
+          </label>
           <button
             className="button button-secondary"
             onClick={runRetrieval}

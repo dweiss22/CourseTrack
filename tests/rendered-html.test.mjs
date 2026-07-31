@@ -31,6 +31,8 @@ test("server-renders the CourseTrack dashboard", async () => {
   assert.match(html, /<title>CourseTrack<\/title>/i);
   assert.match(html, /Search\. Explore\. Manage\./);
   assert.match(html, /Portfolio overview/);
+  assert.match(html, /LMS courses retrieved/);
+  assert.match(html, /Unresolved conflicts/);
   assert.match(html, /Sample workspace/);
   assert.doesNotMatch(html, /codex-preview|taking shape|loading skeleton/i);
 });
@@ -45,4 +47,6 @@ test("server-renders the course library", async () => {
   assert.match(html, /64 courses/);
   assert.match(html, /P1A/);
   assert.match(html, /Police1 Academy/);
+  assert.match(html, /Management/);
+  assert.match(html, /Reconciliation/);
 });
