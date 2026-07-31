@@ -33,11 +33,11 @@ import {
 import { StatusBadge } from "../status-badge";
 
 const healthColors: Record<string, string> = {
-  Healthy: "#139b78",
-  Monitor: "#3f7fe5",
-  "Needs Review": "#d19a22",
-  "At Risk": "#df6b3c",
-  Critical: "#d14755",
+  Healthy: "#84C341",
+  Monitor: "#026BEC",
+  "Needs Review": "#FFB81C",
+  "At Risk": "#F27421",
+  Critical: "#D50032",
 };
 
 function buildMetricCards(courses: Course[]) {
@@ -305,7 +305,7 @@ export function Dashboard({
                     fontSize: 12,
                   }}
                 />
-                <Bar dataKey="courses" fill="#2f6fb3" radius={[5, 5, 0, 0]} maxBarSize={34} />
+                <Bar dataKey="courses" fill="#014AA8" radius={[5, 5, 0, 0]} maxBarSize={34} />
               </BarChart>
             </ResponsiveContainer>
           </div>

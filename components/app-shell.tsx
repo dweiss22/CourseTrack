@@ -17,6 +17,7 @@ import {
   SunMoon,
   X,
 } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -128,9 +129,15 @@ export function AppShell({ children }: { children: ReactNode }) {
     <div className="app-frame">
       <aside className={`sidebar ${mobileOpen ? "sidebar-open" : ""}`}>
         <div className="brand-lockup">
-          <div className="brand-mark" aria-hidden="true">
-            CT
-          </div>
+          <span className="brand-mark" aria-hidden="true">
+            <Image
+              src="/favicon.png"
+              alt=""
+              width={44}
+              height={44}
+              priority
+            />
+          </span>
           <div>
             <Link href="/" className="brand-name" onClick={() => setMobileOpen(false)}>
               CourseTrack
