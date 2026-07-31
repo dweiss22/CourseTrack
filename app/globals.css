@@ -3049,11 +3049,13 @@ body {
   }
 }
 
-@media (max-width: 1280px) {
+@media (max-width: 1491px) {
   .metric-grid {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
+}
 
+@media (max-width: 1280px) {
   .library-toolbar {
     grid-template-columns: 1fr auto;
   }
