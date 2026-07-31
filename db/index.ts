@@ -50,20 +50,20 @@ function databaseError(context: string, error: { message: string; code?: string 
 async function seedSamplePortfolio(client: SupabaseClient): Promise<void> {
   const { data: verticalRows, error: verticalError } = await client
     .from("verticals")
-    .select("id,name");
+    .select("id,slug");
   if (verticalError) {
     throw databaseError("Could not read Supabase verticals", verticalError);
   }
 
   const verticalIds = new Map(
     (verticalRows ?? []).map((vertical) => [
-      vertical.name as string,
+      (vertical.slug as string).toLowerCase(),
       vertical.id as string,
     ]),
   );
 
   const rows = sampleCourses.map((course) => {
-    const primaryVerticalId = verticalIds.get(course.primaryVertical);
+    const primaryVerticalId = verticalIds.get(course.primaryVertical.toLowerCase());
     if (!primaryVerticalId) {
       throw new Error(
         `Supabase vertical seed is missing "${course.primaryVertical}". Apply the checked-in migrations and retry.`,

@@ -1259,7 +1259,7 @@ kbd {
 
 .library-toolbar {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) auto auto;
+  grid-template-columns: minmax(300px, 1fr) auto;
   align-items: center;
   gap: 10px;
 }
@@ -1299,12 +1299,21 @@ kbd {
 }
 
 .filter-row {
-  display: flex;
+  display: grid;
+  grid-column: 1 / -1;
+  grid-row: 2;
+  grid-template-columns: minmax(280px, 1.4fr) repeat(2, minmax(180px, 1fr));
   gap: 8px;
+}
+
+.filter-row select {
+  width: 100%;
 }
 
 .view-toggle {
   display: flex;
+  grid-column: 2;
+  grid-row: 1;
   padding: 3px;
   border: 1px solid var(--border);
   border-radius: 9px;
@@ -2710,6 +2719,318 @@ kbd {
   color: var(--text-muted);
   font-size: 10px;
   text-align: center;
+}
+
+/* DevTrack-aligned accessible type and spacing scale. */
+body {
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.sidebar {
+  width: 252px;
+}
+
+.main-column {
+  margin-left: 252px;
+}
+
+.brand-lockup {
+  min-height: 84px;
+  padding: 18px 20px;
+}
+
+.brand-name {
+  font-size: 18px;
+}
+
+.brand-lockup p,
+.runtime-status,
+.popover-heading span,
+.notification-popover small,
+.panel-stat,
+.provenance-banner > span,
+.mono-cell,
+.saved-view-row > span,
+.saved-view-row button,
+.result-summary span,
+.course-title-cell span,
+.course-card-meta span,
+.course-card-footer,
+.detail-tabs button > span,
+.field-card > span,
+.field-card > small,
+.health-score-row > div:last-child > span:last-child,
+.progress-label,
+.detail-row small,
+.form-field small,
+.risk-reasons span,
+.outage-demo > div,
+.taxonomy-block span,
+.taxonomy-block small,
+.tag-list > span,
+.timeline-list small,
+.issue-list small,
+.issue-list > div > span:nth-child(3),
+.issue-list > a > span:nth-child(3),
+.readonly-grid span,
+.readonly-grid small,
+.kanban-heading span,
+.kanban-card > div > span:last-child,
+.kanban-card p,
+.kanban-card small,
+.kanban-empty,
+.report-card p,
+.report-card small,
+.provider-card span,
+.profile-role-card small,
+.configuration-grid span,
+.sample-data-summary span,
+.mapping-table span,
+.mapping-table strong,
+.mapping-table small,
+.profile-role-card > span:last-child,
+.profile-facts small,
+.preference-list small,
+.command-results > p,
+.command-results small {
+  font-size: 12px;
+}
+
+.workspace-chip > span:last-child,
+.avatar,
+.profile-chip strong,
+.topbar-avatar,
+.notification-popover strong,
+.button,
+.select-control,
+.filter-row select,
+.source-banner-icon,
+.library-search input,
+.result-summary strong,
+.course-description,
+.internal-summary,
+.field-card > strong,
+.detail-row strong,
+.form-field > input,
+.form-field > textarea,
+.readonly-grid strong,
+.report-card strong,
+.provider-card strong,
+.profile-role-card strong {
+  font-size: 14px;
+}
+
+.breadcrumb-row,
+.eyebrow,
+.panel-heading p,
+.panel-heading > a,
+.report-actions button,
+.metric-card p,
+.metric-strip span,
+.chart-legend small,
+.chart-legend strong,
+.action-list strong,
+.inline-alert span,
+.source-banner div:nth-child(2),
+.provenance-banner div,
+.readonly-callout span,
+.inline-alert strong,
+.source-banner strong,
+.provenance-banner strong,
+.readonly-callout strong,
+.back-link,
+.form-field > span,
+.timeline-list strong,
+.timeline-list p,
+.issue-list strong,
+.kanban-heading,
+.kanban-card > strong,
+.configuration-grid strong,
+.profile-card-large p,
+.profile-facts strong,
+.preference-list strong,
+.command-results strong,
+.command-empty {
+  font-size: 13px;
+}
+
+.nav-link {
+  min-height: 46px;
+  font-size: 15px;
+}
+
+.nav-count,
+.profile-chip small,
+.notification-icon,
+.status-badge,
+.metric-card small,
+.metric-strip small,
+.donut-center span,
+.action-list small,
+.action-list > a > span,
+.pagination-row,
+.detail-row strong,
+.admin-nav button {
+  font-size: 12px;
+}
+
+.global-search {
+  height: 42px;
+  font-size: 14px;
+}
+
+.breadcrumb-row {
+  height: 44px;
+  padding-inline: clamp(24px, 3vw, 42px);
+}
+
+.page-content {
+  padding: clamp(26px, 3vw, 42px);
+}
+
+.page-stack {
+  gap: 24px;
+}
+
+.page-heading {
+  padding: 22px 24px;
+}
+
+.page-heading p,
+.course-heading p {
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.button,
+.select-control,
+.filter-row select {
+  min-height: 42px;
+}
+
+.button {
+  padding-inline: 16px;
+}
+
+.panel-heading {
+  min-height: 76px;
+  padding: 18px 20px;
+}
+
+.panel-heading h2,
+.compact-panel h3 {
+  font-size: 20px;
+}
+
+.status-badge {
+  min-height: 26px;
+  padding: 4px 9px;
+}
+
+.metric-card {
+  min-height: 126px;
+  gap: 14px;
+  padding: 19px;
+}
+
+.metric-icon {
+  width: 42px;
+  height: 42px;
+}
+
+.metric-card strong {
+  font-size: 28px;
+}
+
+.metric-strip article {
+  padding: 21px 22px;
+}
+
+.metric-strip strong {
+  font-size: 26px;
+}
+
+.action-list > a {
+  min-height: 68px;
+  padding: 13px 20px;
+}
+
+.inline-alert,
+.source-banner,
+.provenance-banner,
+.readonly-callout {
+  padding: 15px 17px;
+}
+
+.data-table {
+  font-size: 14px;
+}
+
+.data-table th {
+  height: 44px;
+  font-size: 12px;
+}
+
+.data-table td {
+  height: 58px;
+  padding-block: 12px;
+}
+
+.compact-table td {
+  height: 52px;
+}
+
+.library-search {
+  height: 44px;
+  padding-inline: 14px;
+}
+
+.saved-view-row button {
+  min-height: 34px;
+  padding-inline: 12px;
+}
+
+.result-summary {
+  min-height: 62px;
+  padding-inline: 20px;
+}
+
+.course-table {
+  min-width: 1320px;
+}
+
+.vertical-label {
+  max-width: 220px;
+  color: var(--foreground);
+  font-weight: 700;
+}
+
+.course-card {
+  min-height: 282px;
+  padding: 19px;
+}
+
+.course-card > a {
+  font-size: 16px;
+}
+
+.course-card > p {
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.detail-tabs button {
+  font-size: 14px;
+}
+
+.form-field > input,
+.form-field > textarea {
+  min-height: 42px;
+}
+
+.command-results > a {
+  min-height: 48px;
 }
 
 .sidebar-scrim {

@@ -17,7 +17,6 @@ import {
   SunMoon,
   X,
 } from "lucide-react";
-import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -130,12 +129,12 @@ export function AppShell({ children }: { children: ReactNode }) {
       <aside className={`sidebar ${mobileOpen ? "sidebar-open" : ""}`}>
         <div className="brand-lockup">
           <span className="brand-mark" aria-hidden="true">
-            <Image
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
               src="/favicon.png"
               alt=""
-              width={44}
-              height={44}
-              priority
+              width="44"
+              height="44"
             />
           </span>
           <div>

@@ -1,15 +1,30 @@
 export const verticals = [
-  "Law Enforcement",
-  "Fire and Rescue",
-  "Emergency Medical Services",
-  "Corrections",
-  "Dispatch and Telecommunications",
-  "Local Government",
+  "P1A",
+  "FR1A",
+  "C1A",
+  "EMS1",
+  "D1A",
+  "LGU",
+  "Lexipol",
   "Wellness",
-  "Cross-Vertical",
 ] as const;
 
 export type Vertical = (typeof verticals)[number];
+
+export const verticalNames: Record<Vertical, string> = {
+  P1A: "Police1 Academy",
+  FR1A: "FireRescue1 Academy",
+  C1A: "Corrections1 Academy",
+  EMS1: "EMS1 Academy",
+  D1A: "Dispatch1 Academy",
+  LGU: "Local Government University",
+  Lexipol: "Internal employee LMS",
+  Wellness: "Course content for the Wellness app",
+};
+
+export function getVerticalLabel(vertical: Vertical): string {
+  return `${vertical} - ${verticalNames[vertical]}`;
+}
 
 export type DataSource = "sample" | "lms" | "manual" | "import" | "calculated";
 

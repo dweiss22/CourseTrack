@@ -395,7 +395,7 @@ export function ProfileWorkspace() {
         <section className="panel profile-card-large">
           <span className="profile-avatar-large">{demoUser.initials}</span>
           <div><h2>{demoUser.name}</h2><p>{demoUser.email}</p><StatusBadge tone="info">{demoUser.role}</StatusBadge></div>
-          <div className="profile-facts"><span><small>Department</small><strong>Learning Operations</strong></span><span><small>Vertical specialization</small><strong>Cross-Vertical</strong></span><span><small>Last login</small><strong>Today at 1:42 PM</strong></span></div>
+          <div className="profile-facts"><span><small>Department</small><strong>Learning Operations</strong></span><span><small>Vertical specialization</small><strong>Lexipol</strong></span><span><small>Last login</small><strong>Today at 1:42 PM</strong></span></div>
         </section>
         <section className="panel">
           <div className="panel-heading"><div><h2>Notification preferences</h2><p>Choose which events appear in your notification center</p></div></div>

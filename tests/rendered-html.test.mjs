@@ -43,5 +43,6 @@ test("server-renders the course library", async () => {
   assert.match(html, /Course Library/);
   assert.match(html, /Search courses/);
   assert.match(html, /64 courses/);
-  assert.match(html, /Law Enforcement/);
+  assert.match(html, /P1A/);
+  assert.match(html, /Police1 Academy/);
 });

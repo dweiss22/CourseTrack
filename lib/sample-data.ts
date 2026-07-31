@@ -11,12 +11,12 @@ import type {
   RevampProposal,
   Vertical,
 } from "@/types/course";
-import { verticals } from "@/types/course";
+import { verticalNames, verticals } from "@/types/course";
 
 const baseDate = new Date("2026-07-30T12:00:00.000Z");
 
 const courseThemes: Record<Vertical, string[]> = {
-  "Law Enforcement": [
+  P1A: [
     "De-Escalation Under Pressure",
     "Search and Seizure Fundamentals",
     "Traffic Stop Risk Management",
@@ -26,7 +26,7 @@ const courseThemes: Record<Vertical, string[]> = {
     "Missing Persons Response",
     "Supervisor Liability Update",
   ],
-  "Fire and Rescue": [
+  FR1A: [
     "Fireground Command Essentials",
     "Vehicle Extrication Operations",
     "Hazardous Materials Awareness",
@@ -36,17 +36,7 @@ const courseThemes: Record<Vertical, string[]> = {
     "Building Construction for Firefighters",
     "Rapid Intervention Team Operations",
   ],
-  "Emergency Medical Services": [
-    "High-Performance CPR",
-    "Trauma Assessment Essentials",
-    "Pediatric Respiratory Emergencies",
-    "Cardiac Arrest Team Leadership",
-    "Mass-Casualty Triage",
-    "Medication Safety for EMS",
-    "Behavioral Crisis Response",
-    "Airway Management Update",
-  ],
-  Corrections: [
+  C1A: [
     "Inmate Suicide Prevention",
     "Correctional Use of Force",
     "Contraband Detection",
@@ -56,7 +46,17 @@ const courseThemes: Record<Vertical, string[]> = {
     "Report Writing in Corrections",
     "Courtroom Security Fundamentals",
   ],
-  "Dispatch and Telecommunications": [
+  EMS1: [
+    "High-Performance CPR",
+    "Trauma Assessment Essentials",
+    "Pediatric Respiratory Emergencies",
+    "Cardiac Arrest Team Leadership",
+    "Mass-Casualty Triage",
+    "Medication Safety for EMS",
+    "Behavioral Crisis Response",
+    "Airway Management Update",
+  ],
+  D1A: [
     "Emergency Medical Dispatch Essentials",
     "Caller Management Under Stress",
     "Radio Communications Discipline",
@@ -66,7 +66,7 @@ const courseThemes: Record<Vertical, string[]> = {
     "Critical Incident Stress for Telecommunicators",
     "Next Generation 911 Foundations",
   ],
-  "Local Government": [
+  LGU: [
     "Public Records Fundamentals",
     "Workplace Investigation Basics",
     "Ethics in Local Government",
@@ -75,6 +75,16 @@ const courseThemes: Record<Vertical, string[]> = {
     "Supervising Hybrid Teams",
     "Cybersecurity Awareness for Municipal Staff",
     "Community Engagement Essentials",
+  ],
+  Lexipol: [
+    "New Employee Orientation",
+    "Manager Essentials",
+    "Information Security Awareness",
+    "Harassment-Free Workplace",
+    "Data Privacy and Records",
+    "Benefits and Wellbeing",
+    "Inclusive Workplace Practices",
+    "Business Continuity Essentials",
   ],
   Wellness: [
     "Resilience for First Responders",
@@ -86,66 +96,56 @@ const courseThemes: Record<Vertical, string[]> = {
     "Family Readiness for Critical Incidents",
     "Financial Wellness for First Responders",
   ],
-  "Cross-Vertical": [
-    "Harassment-Free Workplace",
-    "Cybersecurity for Public Safety",
-    "Inclusive Leadership",
-    "Critical Incident Documentation",
-    "Public Information During Emergencies",
-    "Records Retention Essentials",
-    "Accessibility in Digital Learning",
-    "Continuity of Operations Planning",
-  ],
 };
 
 const topicsByVertical: Record<Vertical, string[]> = {
-  "Law Enforcement": [
+  P1A: [
     "De-Escalation",
     "Search and Seizure",
     "Traffic Enforcement",
     "Crisis Intervention",
   ],
-  "Fire and Rescue": [
+  FR1A: [
     "Fireground Operations",
     "Vehicle Rescue",
     "Hazardous Materials",
     "Technical Rescue",
   ],
-  "Emergency Medical Services": [
-    "Cardiology",
-    "Trauma",
-    "Respiratory Emergencies",
-    "Mass-Casualty Incidents",
-  ],
-  Corrections: [
+  C1A: [
     "Inmate Management",
     "Suicide Prevention",
     "Use of Force",
     "Facility Security",
   ],
-  "Dispatch and Telecommunications": [
+  EMS1: [
+    "Cardiology",
+    "Trauma",
+    "Respiratory Emergencies",
+    "Mass-Casualty Incidents",
+  ],
+  D1A: [
     "Emergency Medical Dispatch",
     "Caller Management",
     "Radio Communications",
     "Quality Assurance",
   ],
-  "Local Government": [
+  LGU: [
     "Public Administration",
     "Human Resources",
     "Emergency Management",
     "Community Engagement",
+  ],
+  Lexipol: [
+    "Onboarding",
+    "Leadership",
+    "Information Security",
+    "Workplace Compliance",
   ],
   Wellness: [
     "Resilience",
     "Peer Support",
     "Behavioral Health",
     "Leadership Wellness",
-  ],
-  "Cross-Vertical": [
-    "Leadership",
-    "Compliance",
-    "Cybersecurity",
-    "Communication",
   ],
 };
 
@@ -386,25 +386,25 @@ export const sampleCourses: Course[] = Array.from({ length: 64 }, (_, index) => 
 
   return {
     id,
-    courseCode: `${vertical
-      .split(" ")
-      .map((word) => word[0])
-      .join("")
-      .replace("&", "")}-${String(index + 101).padStart(4, "0")}`,
+    courseCode: `${vertical}-${String(index + 101).padStart(4, "0")}`,
     lmsCourseId: withinVertical === 4 ? null : String(102_300_000 + index * 137),
     title: courseThemes[vertical][withinVertical],
     shortTitle: courseThemes[vertical][withinVertical].split(" ").slice(0, 4).join(" "),
-    description: `A practical ${deliveryFormats[withinVertical].toLowerCase()} course for ${vertical.toLowerCase()} professionals, focused on ${topicsByVertical[vertical][withinVertical % 4].toLowerCase()} and operational decision-making.`,
-    learningAudience: `${vertical} personnel and supervisors`,
+    description: `A practical ${deliveryFormats[withinVertical].toLowerCase()} course for ${verticalNames[vertical]} learners, focused on ${topicsByVertical[vertical][withinVertical % 4].toLowerCase()} and operational decision-making.`,
+    learningAudience: `${verticalNames[vertical]} learners and supervisors`,
     primaryVertical: vertical,
     secondaryVerticals:
-      withinVertical === 7 ? ["Cross-Vertical"] : withinVertical === 3 ? [verticals[(verticalIndex + 1) % verticals.length]] : [],
+      withinVertical === 7
+        ? [vertical === "Lexipol" ? "P1A" : "Lexipol"]
+        : withinVertical === 3
+          ? [verticals[(verticalIndex + 1) % verticals.length]]
+          : [],
     primaryTopic: topicsByVertical[vertical][withinVertical % 4],
     tags: [
       withinVertical % 2 === 0 ? "Annual Training" : "Refresher",
       withinVertical % 3 === 0 ? "Legal Update" : "Scenario-Based",
       healthStatus === "Critical" ? "High-Risk" : "Continuing Education",
-      vertical === "Cross-Vertical" ? "Cross-Vertical" : "Policy-Related",
+      vertical === "Lexipol" ? "Internal Employee" : "Policy-Related",
     ],
     lifecycleStatus,
     publicationStatus: publicationCycle[withinVertical],

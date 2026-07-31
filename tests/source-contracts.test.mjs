@@ -27,8 +27,20 @@ test("sample portfolio is deterministic and complete", async () => {
 
   assert.match(sample, /Array\.from\(\{ length: 64 \}/);
   assert.match(sample, /new Date\("2026-07-30T12:00:00\.000Z"\)/);
-  assert.match(types, /"Law Enforcement"/);
-  assert.match(types, /"Cross-Vertical"/);
+  for (const vertical of [
+    "P1A",
+    "FR1A",
+    "C1A",
+    "EMS1",
+    "D1A",
+    "LGU",
+    "Lexipol",
+    "Wellness",
+  ]) {
+    assert.match(types, new RegExp(`"${vertical}"`));
+  }
+  assert.match(types, /Police1 Academy/);
+  assert.match(types, /Course content for the Wellness app/);
 });
 
 test("Supabase runtime, migrations, and Vercel build contract exist", async () => {
@@ -42,6 +54,12 @@ test("Supabase runtime, migrations, and Vercel build contract exist", async () =
     access(
       new URL(
         "supabase/migrations/202607300002_supabase_runtime_adapter.sql",
+        root,
+      ),
+    ),
+    access(
+      new URL(
+        "supabase/migrations/202607310003_lexipol_verticals.sql",
         root,
       ),
     ),

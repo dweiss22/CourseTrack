@@ -27,6 +27,7 @@ import {
 } from "recharts";
 import {
   type Course,
+  getVerticalLabel,
   type RetrievalRun,
   verticals,
 } from "@/types/course";
@@ -147,9 +148,7 @@ export function Dashboard({
   );
 
   const verticalData = verticals.map((vertical) => ({
-    name: vertical
-      .replace(" and Telecommunications", "")
-      .replace("Emergency Medical Services", "EMS"),
+    name: vertical,
     courses: courses.filter(
       (course) => course.primaryVertical === vertical,
     ).length,
@@ -219,7 +218,9 @@ export function Dashboard({
           >
             <option>All verticals</option>
             {verticals.map((vertical) => (
-              <option key={vertical}>{vertical}</option>
+              <option key={vertical} value={vertical}>
+                {getVerticalLabel(vertical)}
+              </option>
             ))}
           </select>
           <button
@@ -294,15 +295,15 @@ export function Dashboard({
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={verticalData} margin={{ top: 12, right: 6, left: -24, bottom: 16 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border-subtle)" />
-                <XAxis dataKey="name" tick={{ fontSize: 11, fill: "var(--text-muted)" }} angle={-18} textAnchor="end" height={56} axisLine={false} tickLine={false} />
-                <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "var(--text-muted)" }} axisLine={false} tickLine={false} />
+                <XAxis dataKey="name" tick={{ fontSize: 13, fill: "var(--text-muted)" }} angle={-18} textAnchor="end" height={56} axisLine={false} tickLine={false} />
+                <YAxis allowDecimals={false} tick={{ fontSize: 13, fill: "var(--text-muted)" }} axisLine={false} tickLine={false} />
                 <Tooltip
                   cursor={{ fill: "var(--surface-muted)" }}
                   contentStyle={{
                     background: "var(--surface)",
                     border: "1px solid var(--border)",
                     borderRadius: 10,
-                    fontSize: 12,
+                    fontSize: 14,
                   }}
                 />
                 <Bar dataKey="courses" fill="#014AA8" radius={[5, 5, 0, 0]} maxBarSize={34} />
@@ -333,7 +334,7 @@ export function Dashboard({
                       background: "var(--surface)",
                       border: "1px solid var(--border)",
                       borderRadius: 10,
-                      fontSize: 12,
+                      fontSize: 14,
                     }}
                   />
                 </PieChart>

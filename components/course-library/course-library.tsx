@@ -24,7 +24,7 @@ import {
 } from "@tanstack/react-table";
 import { useMemo, useState } from "react";
 import type { Course } from "@/types/course";
-import { verticals } from "@/types/course";
+import { getVerticalLabel, verticals } from "@/types/course";
 import { StatusBadge } from "../status-badge";
 
 const columnHelper = createColumnHelper<Course>();
@@ -269,7 +269,9 @@ export function CourseLibrary({ courses }: { courses: Course[] }) {
           >
             <option>All verticals</option>
             {verticals.map((item) => (
-              <option key={item}>{item}</option>
+              <option key={item} value={item}>
+                {getVerticalLabel(item)}
+              </option>
             ))}
           </select>
           <select
@@ -448,7 +450,7 @@ export function CourseLibrary({ courses }: { courses: Course[] }) {
                   <StatusBadge>{course.healthStatus}</StatusBadge>
                 </div>
                 <div className="course-card-footer">
-                  <span>{course.primaryVertical}</span>
+                  <span>{getVerticalLabel(course.primaryVertical)}</span>
                   <span>{course.owner ?? "Owner needed"}</span>
                 </div>
               </article>
