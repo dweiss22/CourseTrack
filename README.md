@@ -19,8 +19,8 @@ This repository contains the Phase 1 application foundation described in
   revamp planning, LMS provenance, and activity tabs
 - Accreditation, version, flag, revamp, report, administration, and profile
   workspaces
-- Deterministic sample portfolio: 64 courses across eight public-safety
-  verticals
+- Workbook-backed sample portfolio: 1,952 Content Metadata courses reconciled
+  with the supplied LMS exports and Topics matrix
 - Read-only LMS provider contract with healthy, warning, and outage simulations
 - Server-only Supabase/Postgres persistence with deterministic sample fallback
 - PostgreSQL migrations, atomic internal edits, audit logging, and row-level
@@ -90,7 +90,8 @@ mapping. It is not modified by the application. See
 - `app/` — pages and API routes
 - `components/` — application shell and workspaces
 - `providers/lms/` — read-only LMS contract and providers
-- `lib/sample-data.ts` — deterministic 64-course sample portfolio
+- `lib/imported-sample-data.ts` — generated sample portfolio and source reconciliation
+- `lib/generated/mock-source-data.json` — deployment-safe data extracted from the supplied workbooks
 - `lib/permissions.ts` — centralized roles and permissions
 - `db/` — server-only Supabase/Postgres runtime adapter
 - `supabase/migrations/` — PostgreSQL schema and runtime migrations

@@ -413,14 +413,14 @@ export function FlagsWorkspace() {
 }
 
 const reportCatalog = [
-  ["Complete Course Inventory", "64 records", "All course and source metadata"],
-  ["Accreditation Expiration Report", "16 records", "Approvals expiring within 180 days"],
-  ["Courses Due for Review", "24 records", "Upcoming and overdue review dates"],
-  ["Revamp Proposal Pipeline", "22 records", "Status, score, priority, and schedule"],
-  ["Critical Flag Report", "6 records", "Critical unresolved follow-up items"],
-  ["Metadata Completeness", "16 records", "Courses below the 80% threshold"],
-  ["LMS Retrieval Exceptions", "16 records", "Stale, failed, or unmapped records"],
-  ["Portfolio Health Report", "64 records", "Scores, factors, and recommended action"],
+  ["Complete Course Inventory", `${sampleCourses.length.toLocaleString()} records`, "All course and source metadata"],
+  ["Accreditation Expiration Report", `${sampleCourses.filter((course) => course.nearestAccreditationExpiration).length.toLocaleString()} records`, "Courses with supplied accreditation expiration dates"],
+  ["Courses Due for Review", `${sampleCourses.filter((course) => course.nextReviewDate && course.nextReviewDate <= "2026-10-31").length.toLocaleString()} records`, "Upcoming and overdue review dates"],
+  ["Revamp Proposal Pipeline", `${sampleCourses.filter((course) => course.revampProposal).length.toLocaleString()} records`, "Status, score, priority, and schedule"],
+  ["Open Flag Report", `${sampleCourses.reduce((total, course) => total + course.flags.length, 0).toLocaleString()} records`, "Unresolved source conflicts and import issues"],
+  ["Metadata Completeness", `${sampleCourses.filter((course) => course.metadataCompletenessScore < 80).length.toLocaleString()} records`, "Courses below the 80% threshold"],
+  ["LMS Retrieval Exceptions", `${sampleCourses.filter((course) => !course.lmsSnapshot || course.retrievalStatus !== "Retrieved").length.toLocaleString()} records`, "Missing, warned, or unmapped LMS records"],
+  ["Portfolio Health Report", `${sampleCourses.length.toLocaleString()} records`, "Scores, factors, and recommended action"],
 ];
 
 export function ReportsWorkspace() {
@@ -527,9 +527,9 @@ export function AdminWorkspace() {
           )}
           {activeTab === "Sample data" && (
             <>
-              <div className="panel-heading"><div><h2>Sample data controls</h2><p>Deterministic seed: COURsetrack-2026-01</p></div><StatusBadge tone="sample">64 sample courses</StatusBadge></div>
+              <div className="panel-heading"><div><h2>Sample data controls</h2><p>Generated from the supplied LMS, Content Metadata, and Topics workbooks</p></div><StatusBadge tone="sample">{sampleCourses.length.toLocaleString()} sample courses</StatusBadge></div>
               <div className="sample-data-summary">
-                <div><strong>64</strong><span>Courses</span></div><div><strong>160</strong><span>Versions</span></div><div><strong>48</strong><span>Accreditations</span></div><div><strong>120</strong><span>Flags</span></div>
+                <div><strong>{sampleCourses.length.toLocaleString()}</strong><span>Courses</span></div><div><strong>{sampleCourses.reduce((total, course) => total + course.versions.length, 0).toLocaleString()}</strong><span>Versions</span></div><div><strong>{sampleCourses.reduce((total, course) => total + course.accreditations.length, 0).toLocaleString()}</strong><span>Accreditations</span></div><div><strong>{sampleCourses.reduce((total, course) => total + course.flags.length, 0).toLocaleString()}</strong><span>Flags</span></div>
               </div>
               <div className="readonly-callout"><AlertTriangle size={18} /><span><strong>Safe reset boundary</strong>Reset removes only records marked <code>is_sample</code>. Users, configuration, imports, audit records, and non-sample data are preserved.</span></div>
               <div className="button-row"><button className="button button-primary" onClick={() => setStatus("Sample data was regenerated from the deterministic seed.")}>Regenerate sample data</button><button className="button button-secondary" onClick={() => setStatus("Sample reset preview completed; no non-sample data would be removed.")}>Preview reset</button></div>

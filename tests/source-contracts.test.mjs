@@ -20,14 +20,22 @@ test("LMS provider contract is read-only", async () => {
   );
 });
 
-test("sample portfolio is deterministic and complete", async () => {
-  const [sample, types] = await Promise.all([
+test("sample portfolio is generated from the supplied source workbooks", async () => {
+  const [sample, importedSample, generatedSource, types] = await Promise.all([
     readFile(new URL("lib/sample-data.ts", root), "utf8"),
+    readFile(new URL("lib/imported-sample-data.ts", root), "utf8"),
+    readFile(new URL("lib/generated/mock-source-data.json", root), "utf8"),
     readFile(new URL("types/course.ts", root), "utf8"),
   ]);
 
-  assert.match(sample, /Array\.from\(\{ length: 64 \}/);
-  assert.match(sample, /new Date\("2026-07-30T12:00:00\.000Z"\)/);
+  const source = JSON.parse(generatedSource);
+  assert.match(sample, /imported-sample-data/);
+  assert.match(importedSample, /sourceJson/);
+  assert.equal(source.stats.metadataRows, 1952);
+  assert.equal(source.stats.matchedCourses, 1828);
+  assert.equal(source.stats.metadataOnlyCourses, 124);
+  assert.equal(source.stats.topicColumns, 99);
+  assert.equal(source.stats.matchedTopicAssignments, 1461);
   for (const vertical of [
     "P1A",
     "FR1A",

@@ -122,7 +122,9 @@ See [`permissions.md`](permissions.md) for the permission matrix.
 
 ## Sample-data strategy
 
-- Generate exactly 64 stable course records—eight for each of eight verticals.
+- Generate stable course records from the supplied Content Metadata workbook,
+  enrich matching IDs from the supplied LMS exports, and attach matching Topics
+  matrix assignments without requiring the source files at deployment time.
 - Use a fixed reference date so review and accreditation queues remain
   deterministic.
 - Deliberately include healthy, warning, stale, failed, and incomplete records.

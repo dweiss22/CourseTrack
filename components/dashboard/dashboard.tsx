@@ -35,7 +35,6 @@ import {
   verticals,
 } from "@/types/course";
 import { StatusBadge } from "../status-badge";
-import { calculateSourceAwareMetrics } from "@/lib/source-normalization";
 
 const healthColors: Record<string, string> = {
   Healthy: "#84C341",
@@ -45,8 +44,42 @@ const healthColors: Record<string, string> = {
   Critical: "#D50032",
 };
 
-function buildMetricCards(courses: Course[], includeExcluded: boolean) {
-  const metrics = calculateSourceAwareMetrics(courses, { includeExcluded });
+export type DashboardCourse = Pick<
+  Course,
+  | "id"
+  | "title"
+  | "primaryVertical"
+  | "managementClassification"
+  | "healthStatus"
+  | "nextReviewDate"
+  | "owner"
+  | "metadataCompletenessScore"
+  | "reconciliationStatus"
+  | "retrievalStatus"
+  | "conflictCount"
+> & {
+  flagCount: number;
+  hasLmsSnapshot: boolean;
+  hasContentMetadata: boolean;
+  importValidationErrorCount: number;
+};
+
+function buildMetricCards(courses: DashboardCourse[], includeExcluded: boolean) {
+  const portfolio = includeExcluded
+    ? courses
+    : courses.filter((course) => course.managementClassification !== "Non-Lexipol excluded");
+  const metrics = {
+    totalLmsRetrieved: courses.filter((course) => course.hasLmsSnapshot).length,
+    lexipolManaged: portfolio.filter((course) => course.managementClassification === "Lexipol managed").length,
+    nonLexipolTracked: portfolio.filter((course) => course.managementClassification === "Non-Lexipol tracked").length,
+    unclassified: portfolio.filter((course) => course.managementClassification === "Unclassified").length,
+    missingContentMetadata: portfolio.filter((course) => course.hasLmsSnapshot && !course.hasContentMetadata).length,
+    missingFromLms: portfolio.filter((course) => !course.hasLmsSnapshot && course.hasContentMetadata).length,
+    unresolvedConflicts: portfolio.filter((course) => course.conflictCount > 0).length,
+    mappingRequired: portfolio.filter((course) => course.reconciliationStatus === "Mapping required").length,
+    staleLms: portfolio.filter((course) => ["Stale Data", "Retrieval Failed"].includes(course.retrievalStatus)).length,
+    importValidationErrors: portfolio.reduce((total, course) => total + course.importValidationErrorCount, 0),
+  };
 
   return [
     {
@@ -126,7 +159,7 @@ export function Dashboard({
   courses,
   retrievalRuns,
 }: {
-  courses: Course[];
+  courses: DashboardCourse[];
   retrievalRuns: RetrievalRun[];
 }) {
   const [verticalFilter, setVerticalFilter] = useState("All verticals");
@@ -424,7 +457,7 @@ export function Dashboard({
                 <div>
                   <strong>{course.title}</strong>
                   <small>
-                    {course.flags.length} flags · {course.metadataCompletenessScore}% complete
+                    {course.flagCount} flags · {course.metadataCompletenessScore}% complete
                   </small>
                 </div>
                 <span>

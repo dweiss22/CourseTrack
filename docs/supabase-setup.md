@@ -28,8 +28,8 @@ npx supabase link --project-ref YOUR_PROJECT_REF
 npx supabase db push
 ```
 
-The first successful CourseTrack request inserts the 64 deterministic sample
-courses and sample retrieval history without overwriting later internal edits.
+The first successful CourseTrack request inserts the generated workbook-backed
+sample courses and retrieval history without overwriting later internal edits.
 
 ## 3. Configure local development
 

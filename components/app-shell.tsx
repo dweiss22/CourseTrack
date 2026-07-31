@@ -27,7 +27,10 @@ import {
   useState,
 } from "react";
 import { demoUser } from "@/lib/permissions";
-import { sampleCourses } from "@/lib/sample-data";
+import {
+  sampleCourseCount,
+  sampleCourseIndex,
+} from "@/lib/sample-course-index";
 import { RuntimeInitializer } from "./runtime-initializer";
 import { StatusBadge } from "./status-badge";
 
@@ -100,7 +103,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       .filter((item) => !query || item.label.toLowerCase().includes(query))
       .slice(0, 4)
       .map((item) => ({ href: item.href, label: item.label, type: "Page" }));
-    const courses = sampleCourses
+    const courses = sampleCourseIndex
       .filter(
         (course) =>
           !query ||
@@ -154,7 +157,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         <div className="workspace-chip">
           <StatusBadge tone="sample">Sample workspace</StatusBadge>
-          <span>64 courses</span>
+          <span>{sampleCourseCount.toLocaleString()} courses</span>
         </div>
 
         <nav className="primary-nav" aria-label="Primary navigation">

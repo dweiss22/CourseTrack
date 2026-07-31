@@ -31,7 +31,35 @@ import {
 } from "@/types/course";
 import { StatusBadge } from "../status-badge";
 
-const columnHelper = createColumnHelper<Course>();
+export type CourseLibraryRecord = Pick<
+  Course,
+  | "id"
+  | "title"
+  | "shortTitle"
+  | "courseCode"
+  | "lmsCourseId"
+  | "description"
+  | "primaryVertical"
+  | "managementClassification"
+  | "reconciliationStatus"
+  | "retrievalStatus"
+  | "lastRetrievedAt"
+  | "conflictCount"
+  | "healthStatus"
+  | "lifecycleStatus"
+  | "primaryTopic"
+  | "tags"
+  | "owner"
+  | "durationMinutes"
+  | "dataSource"
+> & {
+  topicAssignments: Array<{ topic: string }>;
+  hasLmsSnapshot: boolean;
+  hasContentMetadata: boolean;
+  importValidationErrorCount: number;
+};
+
+const columnHelper = createColumnHelper<CourseLibraryRecord>();
 
 const columns = [
   columnHelper.accessor("title", {
@@ -119,7 +147,7 @@ function csvSafe(value: unknown): string {
   return `"${protectedValue.replaceAll('"', '""')}"`;
 }
 
-export function CourseLibrary({ courses }: { courses: Course[] }) {
+export function CourseLibrary({ courses }: { courses: CourseLibraryRecord[] }) {
   const [search, setSearch] = useState("");
   const [vertical, setVertical] = useState("All verticals");
   const [lifecycle, setLifecycle] = useState("All statuses");
@@ -165,16 +193,16 @@ export function CourseLibrary({ courses }: { courses: Course[] }) {
         &&
         (workQueue === "All queues" ||
           (workQueue === "Missing Content Metadata" &&
-            Boolean(course.lmsSnapshot) &&
-            !course.contentMetadata) ||
+            course.hasLmsSnapshot &&
+            !course.hasContentMetadata) ||
           (workQueue === "Missing from LMS" &&
-            !course.lmsSnapshot &&
-            Boolean(course.contentMetadata)) ||
+            !course.hasLmsSnapshot &&
+            course.hasContentMetadata) ||
           (workQueue === "Field conflicts" && course.conflictCount > 0) ||
           (workQueue === "Mapping required" &&
             course.reconciliationStatus === "Mapping required") ||
           (workQueue === "Invalid import records" &&
-            course.importValidationErrors.length > 0) ||
+            course.importValidationErrorCount > 0) ||
           (workQueue === "Stale LMS data" &&
             ["Stale Data", "Retrieval Failed"].includes(
               course.retrievalStatus,
@@ -297,8 +325,8 @@ export function CourseLibrary({ courses }: { courses: Course[] }) {
         <div>
           <strong>Sample data mode</strong>
           <span>
-            These synthetic records exercise CourseTrack workflows. LMS fields
-            are read-only; internal fields can be maintained separately.
+            These records were generated from the supplied LMS, Content Metadata,
+            and Topics workbooks. LMS fields are read-only; internal fields can be maintained separately.
           </span>
         </div>
         <StatusBadge tone="sample">Mock LMS</StatusBadge>

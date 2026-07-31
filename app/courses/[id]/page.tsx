@@ -2,13 +2,9 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { CourseDetail } from "@/components/course-detail/course-detail";
 import { getCourseRecord } from "@/db";
-import { getCourse, sampleCourses } from "@/lib/sample-data";
+import { getCourse } from "@/lib/sample-data";
 
 export const dynamic = "force-dynamic";
-
-export function generateStaticParams() {
-  return sampleCourses.map((course) => ({ id: course.id }));
-}
 
 export async function generateMetadata({
   params,

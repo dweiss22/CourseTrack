@@ -75,7 +75,7 @@ export function ImportPreview() {
           <div className="import-contract-banner">
             <FileSpreadsheet size={20} />
             <span>
-              <strong>Course Metadata.xlsx contract</strong>
+              <strong>LMS new list - master.xlsx contract</strong>
               17 recognized columns · Course ID matching only · configurable aliases retained
             </span>
           </div>
@@ -102,7 +102,7 @@ export function ImportPreview() {
           <div className="import-contract-banner">
             <Network size={20} />
             <span>
-              <strong>Topics.xlsx wide assignment matrix</strong>
+              <strong>LMS new list - Topics.xlsx wide assignment matrix</strong>
               99 real topic columns · whitespace normalized · many-to-many assignments preserved
             </span>
           </div>

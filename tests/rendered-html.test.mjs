@@ -44,7 +44,7 @@ test("server-renders the course library", async () => {
   const html = await response.text();
   assert.match(html, /Course Library/);
   assert.match(html, /Search courses/);
-  assert.match(html, /64 courses/);
+  assert.match(html, /1,952(?:<!-- -->)? courses/);
   assert.match(html, /P1A/);
   assert.match(html, /Police1 Academy/);
   assert.match(html, /Management/);

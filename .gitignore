@@ -42,6 +42,7 @@ next-env.d.ts
 /.wrangler/
 /outputs/
 /work/
+/tmp/lms-import/
 
 # local discovery/source artifacts (kept outside application commits)
 /Files/
