@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
-import { updateInternalCourseMetadata } from "@/db";
+import {
+  getCourseRecord,
+  updateInternalCourseMetadata,
+} from "@/db";
 import { demoUser } from "@/lib/permissions";
-import { getCourse } from "@/lib/sample-data";
 
 const updateSchema = z.object({
   internalSummary: z.string().trim().min(10).max(1_200),
@@ -19,7 +21,7 @@ export async function GET(
   context: { params: Promise<{ id: string }> },
 ) {
   const { id } = await context.params;
-  const course = getCourse(id);
+  const course = await getCourseRecord(id);
   if (!course) {
     return NextResponse.json({ message: "Course not found." }, { status: 404 });
   }
@@ -31,7 +33,7 @@ export async function PATCH(
   context: { params: Promise<{ id: string }> },
 ) {
   const { id } = await context.params;
-  const course = getCourse(id);
+  const course = await getCourseRecord(id);
   if (!course) {
     return NextResponse.json({ message: "Course not found." }, { status: 404 });
   }
@@ -45,6 +47,12 @@ export async function PATCH(
   }
 
   const user = await getChatGPTUser();
+  if (!user && process.env.NODE_ENV === "production") {
+    return NextResponse.json(
+      { message: "Authentication is required to edit CourseTrack metadata." },
+      { status: 401 },
+    );
+  }
   const saved = await updateInternalCourseMetadata({
     courseId: id,
     actorEmail: user?.email ?? demoUser.email,

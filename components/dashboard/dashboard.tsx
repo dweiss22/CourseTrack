@@ -26,11 +26,10 @@ import {
   YAxis,
 } from "recharts";
 import {
-  dashboardMetrics,
-  sampleCourses,
-  sampleRetrievalRuns,
-} from "@/lib/sample-data";
-import { verticals } from "@/types/course";
+  type Course,
+  type RetrievalRun,
+  verticals,
+} from "@/types/course";
 import { StatusBadge } from "../status-badge";
 
 const healthColors: Record<string, string> = {
@@ -41,73 +40,117 @@ const healthColors: Record<string, string> = {
   Critical: "#d14755",
 };
 
-const metricCards = [
-  {
-    label: "Total courses",
-    value: dashboardMetrics.total,
-    detail: "Across 8 verticals",
-    icon: BookOpen,
-    tone: "blue",
-  },
-  {
-    label: "Due for review",
-    value: dashboardMetrics.dueForReview,
-    detail: `${dashboardMetrics.overdue} already overdue`,
-    icon: CalendarClock,
-    tone: "amber",
-  },
-  {
-    label: "Accreditation risk",
-    value: dashboardMetrics.accreditationRisk,
-    detail: "Expiring, expired, or conditional",
-    icon: Award,
-    tone: "purple",
-  },
-  {
-    label: "Unresolved flags",
-    value: dashboardMetrics.unresolvedFlags,
-    detail: "6 high or critical priorities",
-    icon: Flag,
-    tone: "red",
-  },
-  {
-    label: "Revamp pipeline",
-    value: dashboardMetrics.proposedRevamps,
-    detail: "Across all proposal stages",
-    icon: Sparkles,
-    tone: "teal",
-  },
-  {
-    label: "Stale LMS data",
-    value: dashboardMetrics.staleLms,
-    detail: "Local snapshots remain available",
-    icon: RefreshCw,
-    tone: "slate",
-  },
-];
+function buildMetricCards(courses: Course[]) {
+  const dueForReview = courses.filter(
+    (course) =>
+      course.nextReviewDate && course.nextReviewDate <= "2026-10-28",
+  ).length;
+  const overdue = courses.filter(
+    (course) =>
+      course.nextReviewDate && course.nextReviewDate < "2026-07-30",
+  ).length;
+  const accreditationRisk = courses.filter((course) =>
+    ["Expiring Soon", "Expired", "Approved with Conditions"].includes(
+      course.accreditationStatus,
+    ),
+  ).length;
+  const unresolvedFlags = courses.reduce(
+    (count, course) =>
+      count + course.flags.filter((flag) => flag.status !== "Resolved").length,
+    0,
+  );
+  const highPriorityFlags = courses.reduce(
+    (count, course) =>
+      count +
+      course.flags.filter(
+        (flag) =>
+          flag.status !== "Resolved" &&
+          ["High", "Critical"].includes(flag.priority),
+      ).length,
+    0,
+  );
+  const proposedRevamps = courses.filter(
+    (course) => course.revampProposal,
+  ).length;
+  const staleLms = courses.filter((course) =>
+    ["Stale Data", "Retrieval Failed"].includes(course.retrievalStatus),
+  ).length;
 
-export function Dashboard() {
+  return [
+    {
+      label: "Total courses",
+      value: courses.length,
+      detail: "Across 8 verticals",
+      icon: BookOpen,
+      tone: "blue",
+    },
+    {
+      label: "Due for review",
+      value: dueForReview,
+      detail: `${overdue} already overdue`,
+      icon: CalendarClock,
+      tone: "amber",
+    },
+    {
+      label: "Accreditation risk",
+      value: accreditationRisk,
+      detail: "Expiring, expired, or conditional",
+      icon: Award,
+      tone: "purple",
+    },
+    {
+      label: "Unresolved flags",
+      value: unresolvedFlags,
+      detail: `${highPriorityFlags} high or critical priorities`,
+      icon: Flag,
+      tone: "red",
+    },
+    {
+      label: "Revamp pipeline",
+      value: proposedRevamps,
+      detail: "Across all proposal stages",
+      icon: Sparkles,
+      tone: "teal",
+    },
+    {
+      label: "Stale LMS data",
+      value: staleLms,
+      detail: "Last successful snapshots remain available",
+      icon: RefreshCw,
+      tone: "slate",
+    },
+  ];
+}
+
+export function Dashboard({
+  courses,
+  retrievalRuns,
+}: {
+  courses: Course[];
+  retrievalRuns: RetrievalRun[];
+}) {
   const [verticalFilter, setVerticalFilter] = useState("All verticals");
   const [retrievalState, setRetrievalState] = useState<
     "idle" | "running" | "success" | "error"
   >("idle");
   const [retrievalMessage, setRetrievalMessage] = useState("");
+  const metricCards = useMemo(() => buildMetricCards(courses), [courses]);
 
   const filteredCourses = useMemo(
     () =>
       verticalFilter === "All verticals"
-        ? sampleCourses
-        : sampleCourses.filter(
+        ? courses
+        : courses.filter(
             (course) => course.primaryVertical === verticalFilter,
           ),
-    [verticalFilter],
+    [courses, verticalFilter],
   );
 
   const verticalData = verticals.map((vertical) => ({
     name: vertical
       .replace(" and Telecommunications", "")
       .replace("Emergency Medical Services", "EMS"),
-    courses: sampleCourses.filter(
+    courses: courses.filter(
       (course) => course.primaryVertical === vertical,
     ).length,
   }));
@@ -394,7 +437,7 @@ export function Dashboard() {
               </tr>
             </thead>
             <tbody>
-              {sampleRetrievalRuns.map((run) => (
+              {retrievalRuns.map((run) => (
                 <tr key={run.id}>
                   <td className="mono-cell">{run.id}</td>
                   <td>{run.provider}</td>

@@ -31,7 +31,7 @@ test("sample portfolio is deterministic and complete", async () => {
   assert.match(types, /"Cross-Vertical"/);
 });
 
-test("production schema and social metadata assets exist", async () => {
+test("Supabase runtime, migrations, and Vercel build contract exist", async () => {
   await Promise.all([
     access(
       new URL(
@@ -39,6 +39,14 @@ test("production schema and social metadata assets exist", async () => {
         root,
       ),
     ),
+    access(
+      new URL(
+        "supabase/migrations/202607300002_supabase_runtime_adapter.sql",
+        root,
+      ),
+    ),
+    access(new URL("lib/supabase-server.ts", root)),
+    access(new URL("vercel.json", root)),
     access(new URL("public/og.png", root)),
     access(new URL("docs/architecture.md", root)),
   ]);
@@ -53,4 +61,37 @@ test("production schema and social metadata assets exist", async () => {
   assert.match(migration, /enable row level security/i);
   assert.match(migration, /create table public\.lms_snapshots/i);
   assert.match(migration, /create or replace function public\.has_permission/i);
+
+  const [adapter, runtimeMigration, vercelConfiguration] = await Promise.all([
+    readFile(new URL("lib/supabase-server.ts", root), "utf8"),
+    readFile(
+      new URL(
+        "supabase/migrations/202607300002_supabase_runtime_adapter.sql",
+        root,
+      ),
+      "utf8",
+    ),
+    readFile(new URL("vercel.json", root), "utf8"),
+  ]);
+  assert.match(adapter, /createClient/);
+  assert.match(adapter, /SUPABASE_SECRET_KEY/);
+  assert.doesNotMatch(adapter, /NEXT_PUBLIC_SUPABASE_(ANON|SECRET|SERVICE)/);
+  assert.match(
+    runtimeMigration,
+    /function public\.update_internal_course_metadata/i,
+  );
+  assert.match(vercelConfiguration, /npm run build:vercel/);
+});
+
+test("Cloudflare D1 is no longer part of the runtime adapter", async () => {
+  const [database, hosting, packageJson] = await Promise.all([
+    readFile(new URL("db/index.ts", root), "utf8"),
+    readFile(new URL(".openai/hosting.json", root), "utf8"),
+    readFile(new URL("package.json", root), "utf8"),
+  ]);
+
+  assert.match(database, /getSupabaseAdminClient/);
+  assert.doesNotMatch(database, /cloudflare:workers|D1Database|drizzle/i);
+  assert.match(hosting, /"d1": null/);
+  assert.doesNotMatch(packageJson, /drizzle/);
 });

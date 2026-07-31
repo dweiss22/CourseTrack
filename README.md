@@ -22,9 +22,9 @@ This repository contains the Phase 1 application foundation described in
 - Deterministic sample portfolio: 64 courses across eight public-safety
   verticals
 - Read-only LMS provider contract with healthy, warning, and outage simulations
-- D1-backed application persistence for the deployable demo
-- Canonical PostgreSQL/Supabase migration and row-level security plan for the
-  production data model
+- Server-only Supabase/Postgres persistence with deterministic sample fallback
+- PostgreSQL migrations, atomic internal edits, audit logging, and row-level
+  security
 - Centralized roles and permissions
 
 ## Stack
@@ -32,11 +32,12 @@ This repository contains the Phase 1 application foundation described in
 - React 19, TypeScript, Next-compatible routes via vinext
 - Tailwind CSS 4 plus project-native component styles
 - TanStack Table, Recharts, Lucide icons, Zod
-- Drizzle ORM with Cloudflare D1 for the hosted demo
-- PostgreSQL/Supabase migration plan for production
+- Official Supabase JavaScript client with PostgreSQL
+- Vercel-compatible native Next.js build alongside the Sites vinext build
 
-The D1 demo adapter lets the app run on OpenAI Sites without weakening the
-production schema. The provider and domain boundaries are database-neutral.
+The same Supabase adapter runs behind server routes on Vercel and OpenAI Sites.
+When credentials are absent, the app remains available in a clearly labeled
+sample fallback mode.
 
 ## Quick start
 
@@ -59,14 +60,15 @@ npm run build
 npm test
 npm run lint
 npm run typecheck
-npm run db:generate
+npm run build:vercel
 ```
 
 ## Configuration
 
-Copy `.env.example` to `.env.local` and fill only the services you are ready to
-connect. The app defaults to deterministic sample data, so no credentials are
-required for local evaluation.
+Copy `.env.example` to `.env.local` and add the server-only Supabase project URL
+and secret. No credentials are required for sample fallback evaluation. Apply
+the migrations and hosting variables by following
+[`docs/supabase-setup.md`](docs/supabase-setup.md).
 
 Never commit LMS or Supabase service credentials. Live LMS endpoints are not
 invented in this repository; the adapter stays in a visible `not-configured`
@@ -90,8 +92,8 @@ mapping. It is not modified by the application. See
 - `providers/lms/` — read-only LMS contract and providers
 - `lib/sample-data.ts` — deterministic 64-course sample portfolio
 - `lib/permissions.ts` — centralized roles and permissions
-- `db/` — deployable D1 schema and runtime adapter
-- `supabase/migrations/` — canonical PostgreSQL production migration
+- `db/` — server-only Supabase/Postgres runtime adapter
+- `supabase/migrations/` — PostgreSQL schema and runtime migrations
 - `docs/` — architecture, permissions, provider, and import decisions
 - `tests/` — rendered output and contract checks
 
@@ -99,8 +101,8 @@ mapping. It is not modified by the application. See
 
 - Sample mode is the default; a live LMS still requires confirmed API
   documentation and server-side credentials.
-- D1 persists the hosted demonstration. Supabase is represented by a production
-  migration and RLS policy set but is not connected to the demo runtime yet.
+- Supabase credentials and migrations must be configured separately in each
+  host before persistent writes are enabled.
 - Authentication uses trusted OpenAI Sites identity headers when deployed and a
   clearly labeled demo administrator locally.
 - Full browser end-to-end and accessibility automation are planned for the next
@@ -108,6 +110,6 @@ mapping. It is not modified by the application. See
 
 ## Deployment
 
-The repository is structured for OpenAI Sites. `.openai/hosting.json` declares
-the required D1 binding. A production deployment must be created only from a
-saved version whose commit SHA matches the pushed source exactly.
+The repository supports both OpenAI Sites and Vercel. Sites uses `npm run build`;
+Vercel uses the checked-in `vercel.json` override and `npm run build:vercel`.
+Production credentials belong in each host's protected environment settings.

@@ -39,8 +39,8 @@ flowchart LR
   publish, or assignment methods exist in the contract.
 - Successful LMS retrievals are normalized into immutable snapshots. Failed
   retrievals preserve the most recent successful snapshot.
-- The deployable demo uses D1. The production migration targets
-  PostgreSQL/Supabase and adds row-level security.
+- Both deployment targets use a server-only Supabase/Postgres adapter. Missing
+  credentials activate a labeled sample fallback without allowing fake writes.
 
 ## Entity relationship model
 
@@ -121,12 +121,12 @@ available.
 - Architecture, schema, RLS, roles, and provenance
 - Responsive shell, dashboard, library, and course detail
 - Deterministic sample data and mock LMS provider
-- D1 demo persistence plus Supabase production migration
+- Supabase/Postgres persistence plus deterministic sample fallback
 - Build, contract, and rendered-output tests
 
 ### Phase 2 — production identity and ingestion
 
-- Connect Supabase Auth and database runtime
+- Connect production Supabase project credentials and apply migrations
 - Implement the documented live LMS adapter
 - Add scheduled retrievals, retry policy, incremental cursors, and alerts
 - Add controlled workbook import jobs with row-level validation reports
@@ -162,7 +162,7 @@ available.
 | A failed retrieval erases useful data | Store immutable snapshots and promote only successful retrievals |
 | UI role checks are bypassed | Re-check permissions in APIs and RLS |
 | Spreadsheet values contain formulas or malformed dates | Map explicitly, validate rows, and neutralize formula-leading exports |
-| Demo storage diverges from production | Keep domain/provider boundaries neutral and maintain a canonical Supabase migration |
+| Host configuration diverges | Use one server-only Supabase adapter and the same ordered migrations on every host |
 
 ## Recommended migration order
 

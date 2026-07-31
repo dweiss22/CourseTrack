@@ -7,16 +7,18 @@ export async function GET() {
     const result = await ensureDatabase();
     return NextResponse.json({
       ...result,
-      provider: "Mock LMS",
+      lmsProvider: "Mock LMS",
       mode: "sample",
     });
   } catch (error) {
     return NextResponse.json(
       {
         available: false,
+        configured: true,
         seeded: false,
         courseCount: sampleCourses.length,
-        provider: "Mock LMS",
+        databaseProvider: "Sample fallback",
+        lmsProvider: "Mock LMS",
         mode: "sample-fallback",
         message:
           error instanceof Error

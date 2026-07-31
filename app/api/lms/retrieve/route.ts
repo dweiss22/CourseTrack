@@ -24,6 +24,12 @@ export async function POST(request: Request) {
   }
 
   const user = await getChatGPTUser();
+  if (!user && process.env.NODE_ENV === "production") {
+    return NextResponse.json(
+      { message: "Authentication is required to run an LMS retrieval." },
+      { status: 401 },
+    );
+  }
   const actorEmail = user?.email ?? demoUser.email;
   const provider = new MockLmsProvider(parsed.data.mode as MockLmsMode);
 

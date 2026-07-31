@@ -1,7 +1,10 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { CourseDetail } from "@/components/course-detail/course-detail";
+import { getCourseRecord } from "@/db";
 import { getCourse, sampleCourses } from "@/lib/sample-data";
+
+export const dynamic = "force-dynamic";
 
 export function generateStaticParams() {
   return sampleCourses.map((course) => ({ id: course.id }));
@@ -26,7 +29,7 @@ export default async function CourseDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const course = getCourse(id);
+  const course = await getCourseRecord(id);
   if (!course) notFound();
   return <CourseDetail course={course} />;
 }

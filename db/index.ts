@@ -1,183 +1,267 @@
-import { drizzle } from "drizzle-orm/d1";
-import { sampleCourses, sampleRetrievalRuns } from "@/lib/sample-data";
-import * as schema from "./schema";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { getSupabaseAdminClient } from "@/lib/supabase-server";
+import {
+  sampleCourses,
+  sampleRetrievalRuns,
+} from "@/lib/sample-data";
+import type { Course, RetrievalRun } from "@/types/course";
 
-type CourseTrackBindings = {
-  DB?: D1Database;
+const SAMPLE_COURSE_COUNT = sampleCourses.length;
+const SAMPLE_IDS = sampleCourses.map((course) => course.id);
+
+type DatabaseStatus = {
+  available: boolean;
+  configured: boolean;
+  seeded: boolean;
+  courseCount: number;
+  databaseProvider: "Supabase/Postgres" | "Sample fallback";
 };
 
-async function getD1Binding(): Promise<D1Database | null> {
-  try {
-    // Keep the runtime-only Cloudflare module out of portable SSR and Node
-    // tests. Cloudflare resolves it when a D1-backed route is actually called.
-    const moduleName = "cloudflare:workers";
-    const workers = (await import(/* @vite-ignore */ moduleName)) as {
-      env?: CourseTrackBindings;
+type PersistedCourseFields = {
+  app_id: string | null;
+  internal_summary: string;
+  owner_name: string | null;
+  next_review_date: string | null;
+};
+
+type PersistedRetrievalRun = {
+  id: string;
+  external_run_id: string | null;
+  provider: string;
+  started_at: string;
+  completed_at: string | null;
+  status: RetrievalRun["status"];
+  records_requested: number;
+  records_received: number;
+  records_failed: number;
+  message: string;
+};
+
+function databaseError(context: string, error: { message: string; code?: string }) {
+  const migrationHint =
+    error.code === "PGRST204" ||
+    error.code === "PGRST205" ||
+    /app_id|relation .* does not exist|schema cache/i.test(error.message)
+      ? " Apply the checked-in Supabase migrations before enabling the database."
+      : "";
+  return new Error(`${context}: ${error.message}.${migrationHint}`);
+}
+
+async function seedSamplePortfolio(client: SupabaseClient): Promise<void> {
+  const { data: verticalRows, error: verticalError } = await client
+    .from("verticals")
+    .select("id,name");
+  if (verticalError) {
+    throw databaseError("Could not read Supabase verticals", verticalError);
+  }
+
+  const verticalIds = new Map(
+    (verticalRows ?? []).map((vertical) => [
+      vertical.name as string,
+      vertical.id as string,
+    ]),
+  );
+
+  const rows = sampleCourses.map((course) => {
+    const primaryVerticalId = verticalIds.get(course.primaryVertical);
+    if (!primaryVerticalId) {
+      throw new Error(
+        `Supabase vertical seed is missing "${course.primaryVertical}". Apply the checked-in migrations and retry.`,
+      );
+    }
+
+    return {
+      app_id: course.id,
+      course_code: course.courseCode,
+      lms_course_id: course.lmsCourseId,
+      title: course.title,
+      short_title: course.shortTitle,
+      description: course.description,
+      learning_audience: course.learningAudience,
+      primary_vertical_id: primaryVerticalId,
+      primary_topic: course.primaryTopic,
+      tags: course.tags,
+      lifecycle_status: course.lifecycleStatus,
+      publication_status: course.publicationStatus,
+      delivery_format: course.deliveryFormat,
+      duration_minutes: course.durationMinutes,
+      authoring_tool: course.authoringTool,
+      state_code: course.stateCode,
+      owner_name: course.owner,
+      instructional_designer_name: course.instructionalDesigner,
+      current_version: course.currentVersion,
+      original_publish_date: course.originalPublishDate,
+      last_major_revision_date: course.lastMajorRevisionDate,
+      next_review_date: course.nextReviewDate,
+      health_status: course.healthStatus,
+      health_score: course.healthScore,
+      metadata_completeness_score: course.metadataCompletenessScore,
+      internal_summary: course.internalSummary,
+      source_system: course.sourceSystem,
+      data_source: course.dataSource,
+      retrieval_status: course.retrievalStatus,
+      last_retrieved_at: course.lastRetrievedAt,
+      is_sample: true,
+      source_payload: course,
     };
-    return workers.env?.DB ?? null;
-  } catch {
-    return null;
+  });
+
+  for (let start = 0; start < rows.length; start += 25) {
+    const { error } = await client
+      .from("courses")
+      .upsert(rows.slice(start, start + 25), {
+        onConflict: "app_id",
+        ignoreDuplicates: true,
+      });
+    if (error) {
+      throw databaseError("Could not seed Supabase sample courses", error);
+    }
+  }
+
+  const retrievalRows = sampleRetrievalRuns.map((run) => ({
+    external_run_id: run.id,
+    provider: run.provider,
+    started_at: run.startedAt,
+    completed_at: run.completedAt,
+    status: run.status,
+    records_requested: run.recordsRequested,
+    records_received: run.recordsReceived,
+    records_failed: run.recordsFailed,
+    message: run.message,
+    initiated_by_email: "sample@coursetrack.local",
+  }));
+  const { error: retrievalError } = await client
+    .from("lms_retrieval_runs")
+    .upsert(retrievalRows, {
+      onConflict: "external_run_id",
+      ignoreDuplicates: true,
+    });
+  if (retrievalError) {
+    throw databaseError(
+      "Could not seed Supabase retrieval history",
+      retrievalError,
+    );
   }
 }
 
-export async function getDb() {
-  const database = await getD1Binding();
-  if (!database) {
-    throw new Error(
-      "Cloudflare D1 binding `DB` is unavailable. Set the `d1` field in .openai/hosting.json to `DB` or let your control plane inject the real binding values before using the database."
+export async function ensureDatabase(): Promise<DatabaseStatus> {
+  const client = getSupabaseAdminClient();
+  if (!client) {
+    return {
+      available: false,
+      configured: false,
+      seeded: false,
+      courseCount: SAMPLE_COURSE_COUNT,
+      databaseProvider: "Sample fallback",
+    };
+  }
+
+  const { count: initialCount, error: countError } = await client
+    .from("courses")
+    .select("id", { count: "exact", head: true });
+  if (countError) {
+    throw databaseError("Could not reach the Supabase course schema", countError);
+  }
+
+  const before = initialCount ?? 0;
+  if (before < SAMPLE_COURSE_COUNT) {
+    await seedSamplePortfolio(client);
+  }
+
+  const { count: finalCount, error: finalCountError } = await client
+    .from("courses")
+    .select("id", { count: "exact", head: true });
+  if (finalCountError) {
+    throw databaseError(
+      "Could not verify the Supabase course seed",
+      finalCountError,
     );
   }
 
-  return drizzle(database, { schema });
-}
-
-const schemaStatements = [
-  `CREATE TABLE IF NOT EXISTS profiles (
-    id TEXT PRIMARY KEY,
-    email TEXT NOT NULL UNIQUE,
-    display_name TEXT NOT NULL,
-    primary_role TEXT NOT NULL,
-    active INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  )`,
-  `CREATE TABLE IF NOT EXISTS courses (
-    id TEXT PRIMARY KEY,
-    course_code TEXT NOT NULL UNIQUE,
-    lms_course_id TEXT UNIQUE,
-    title TEXT NOT NULL,
-    primary_vertical TEXT NOT NULL,
-    lifecycle_status TEXT NOT NULL,
-    publication_status TEXT NOT NULL,
-    owner TEXT,
-    next_review_date TEXT,
-    health_status TEXT NOT NULL,
-    health_score INTEGER NOT NULL,
-    metadata_completeness_score INTEGER NOT NULL,
-    data_source TEXT NOT NULL,
-    source_system TEXT NOT NULL,
-    retrieval_status TEXT NOT NULL,
-    last_retrieved_at TEXT,
-    internal_summary TEXT NOT NULL DEFAULT '',
-    is_sample INTEGER NOT NULL DEFAULT 1,
-    payload_json TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  )`,
-  "CREATE INDEX IF NOT EXISTS courses_vertical_idx ON courses (primary_vertical)",
-  "CREATE INDEX IF NOT EXISTS courses_lifecycle_idx ON courses (lifecycle_status)",
-  "CREATE INDEX IF NOT EXISTS courses_review_date_idx ON courses (next_review_date)",
-  "CREATE INDEX IF NOT EXISTS courses_health_idx ON courses (health_status)",
-  `CREATE TABLE IF NOT EXISTS lms_retrieval_runs (
-    id TEXT PRIMARY KEY,
-    provider TEXT NOT NULL,
-    started_at TEXT NOT NULL,
-    completed_at TEXT,
-    status TEXT NOT NULL,
-    records_requested INTEGER NOT NULL DEFAULT 0,
-    records_received INTEGER NOT NULL DEFAULT 0,
-    records_failed INTEGER NOT NULL DEFAULT 0,
-    message TEXT NOT NULL DEFAULT '',
-    initiated_by TEXT,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  )`,
-  `CREATE TABLE IF NOT EXISTS audit_logs (
-    id TEXT PRIMARY KEY,
-    actor_email TEXT NOT NULL,
-    action TEXT NOT NULL,
-    record_type TEXT NOT NULL,
-    record_id TEXT NOT NULL,
-    previous_values_json TEXT,
-    new_values_json TEXT,
-    source TEXT NOT NULL,
-    reason TEXT,
-    correlation_id TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  )`,
-] as const;
-
-export async function ensureDatabase(): Promise<{
-  available: boolean;
-  seeded: boolean;
-  courseCount: number;
-}> {
-  const database = await getD1Binding();
-  if (!database) {
-    return { available: false, seeded: false, courseCount: sampleCourses.length };
-  }
-
-  await database.batch(
-    schemaStatements.map((statement) => database.prepare(statement)),
-  );
-
-  const countRow = await database.prepare(
-    "SELECT COUNT(*) AS count FROM courses",
-  ).first<{ count: number }>();
-  const courseCount = Number(countRow?.count ?? 0);
-  if (courseCount > 0) {
-    return { available: true, seeded: false, courseCount };
-  }
-
-  const inserts = sampleCourses.map((course) =>
-    database.prepare(
-      `INSERT INTO courses (
-        id, course_code, lms_course_id, title, primary_vertical,
-        lifecycle_status, publication_status, owner, next_review_date,
-        health_status, health_score, metadata_completeness_score, data_source,
-        source_system, retrieval_status, last_retrieved_at, internal_summary,
-        is_sample, payload_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).bind(
-      course.id,
-      course.courseCode,
-      course.lmsCourseId,
-      course.title,
-      course.primaryVertical,
-      course.lifecycleStatus,
-      course.publicationStatus,
-      course.owner,
-      course.nextReviewDate,
-      course.healthStatus,
-      course.healthScore,
-      course.metadataCompletenessScore,
-      course.dataSource,
-      course.sourceSystem,
-      course.retrievalStatus,
-      course.lastRetrievedAt,
-      course.internalSummary,
-      course.isSample ? 1 : 0,
-      JSON.stringify(course),
-    ),
-  );
-
-  await database.batch(inserts);
-  await database.batch(
-    sampleRetrievalRuns.map((run) =>
-      database.prepare(
-        `INSERT INTO lms_retrieval_runs (
-          id, provider, started_at, completed_at, status, records_requested,
-          records_received, records_failed, message
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).bind(
-        run.id,
-        run.provider,
-        run.startedAt,
-        run.completedAt,
-        run.status,
-        run.recordsRequested,
-        run.recordsReceived,
-        run.recordsFailed,
-        run.message,
-      ),
-    ),
-  );
-
+  const courseCount = finalCount ?? before;
   return {
     available: true,
-    seeded: true,
-    courseCount: sampleCourses.length,
+    configured: true,
+    seeded: courseCount > before,
+    courseCount,
+    databaseProvider: "Supabase/Postgres",
   };
+}
+
+export async function getPortfolioCourses(): Promise<Course[]> {
+  const client = getSupabaseAdminClient();
+  if (!client) return sampleCourses;
+
+  try {
+    await ensureDatabase();
+    const { data, error } = await client
+      .from("courses")
+      .select("app_id,internal_summary,owner_name,next_review_date")
+      .in("app_id", SAMPLE_IDS);
+    if (error) {
+      throw databaseError("Could not read Supabase course metadata", error);
+    }
+
+    const persistedById = new Map(
+      ((data ?? []) as PersistedCourseFields[])
+        .filter((row) => row.app_id)
+        .map((row) => [row.app_id as string, row]),
+    );
+
+    return sampleCourses.map((course) => {
+      const persisted = persistedById.get(course.id);
+      return persisted
+        ? {
+            ...course,
+            internalSummary: persisted.internal_summary,
+            owner: persisted.owner_name,
+            nextReviewDate: persisted.next_review_date,
+          }
+        : course;
+    });
+  } catch {
+    return sampleCourses;
+  }
+}
+
+export async function getCourseRecord(
+  courseId: string,
+): Promise<Course | undefined> {
+  const courses = await getPortfolioCourses();
+  return courses.find((course) => course.id === courseId);
+}
+
+export async function getRecentRetrievalRuns(): Promise<RetrievalRun[]> {
+  const client = getSupabaseAdminClient();
+  if (!client) return sampleRetrievalRuns;
+
+  try {
+    await ensureDatabase();
+    const { data, error } = await client
+      .from("lms_retrieval_runs")
+      .select(
+        "id,external_run_id,provider,started_at,completed_at,status,records_requested,records_received,records_failed,message",
+      )
+      .order("started_at", { ascending: false })
+      .limit(10);
+    if (error) {
+      throw databaseError("Could not read Supabase retrieval history", error);
+    }
+
+    return ((data ?? []) as PersistedRetrievalRun[]).map((run) => ({
+      id: run.external_run_id ?? run.id,
+      provider: run.provider,
+      startedAt: run.started_at,
+      completedAt: run.completed_at ?? run.started_at,
+      status: run.status,
+      recordsRequested: run.records_requested,
+      recordsReceived: run.records_received,
+      recordsFailed: run.records_failed,
+      message: run.message,
+    }));
+  } catch {
+    return sampleRetrievalRuns;
+  }
 }
 
 export async function updateInternalCourseMetadata(input: {
@@ -187,52 +271,27 @@ export async function updateInternalCourseMetadata(input: {
   owner: string | null;
   nextReviewDate: string | null;
 }): Promise<boolean> {
-  const database = await getD1Binding();
-  if (!database) return false;
+  const client = getSupabaseAdminClient();
+  if (!client) return false;
   await ensureDatabase();
 
-  const previous = await database.prepare(
-    "SELECT internal_summary, owner, next_review_date FROM courses WHERE id = ?",
-  )
-    .bind(input.courseId)
-    .first<Record<string, unknown>>();
-  if (!previous) return false;
-
-  await database.batch([
-    database.prepare(
-      `UPDATE courses
-       SET internal_summary = ?, owner = ?, next_review_date = ?,
-           updated_at = CURRENT_TIMESTAMP
-       WHERE id = ?`,
-    ).bind(
-      input.internalSummary,
-      input.owner,
-      input.nextReviewDate,
-      input.courseId,
-    ),
-    database.prepare(
-      `INSERT INTO audit_logs (
-        id, actor_email, action, record_type, record_id,
-        previous_values_json, new_values_json, source, reason, correlation_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).bind(
-      crypto.randomUUID(),
-      input.actorEmail,
-      "course.internal_metadata_updated",
-      "course",
-      input.courseId,
-      JSON.stringify(previous),
-      JSON.stringify({
-        internalSummary: input.internalSummary,
-        owner: input.owner,
-        nextReviewDate: input.nextReviewDate,
-      }),
-      "CourseTrack",
-      "Phase 1 internal metadata edit",
-      crypto.randomUUID(),
-    ),
-  ]);
-  return true;
+  const { data, error } = await client.rpc(
+    "update_internal_course_metadata",
+    {
+      p_app_id: input.courseId,
+      p_actor_email: input.actorEmail,
+      p_internal_summary: input.internalSummary,
+      p_owner_name: input.owner,
+      p_next_review_date: input.nextReviewDate,
+    },
+  );
+  if (error) {
+    throw databaseError(
+      "Could not save internal CourseTrack metadata",
+      error,
+    );
+  }
+  return data === true;
 }
 
 export async function recordRetrievalRun(input: {
@@ -242,28 +301,30 @@ export async function recordRetrievalRun(input: {
   received: number;
   failed: number;
 }): Promise<string | null> {
-  const database = await getD1Binding();
-  if (!database) return null;
+  const client = getSupabaseAdminClient();
+  if (!client) return null;
   await ensureDatabase();
-  const id = `RUN-${Date.now()}`;
+
+  const externalRunId = `RUN-${Date.now()}`;
   const now = new Date().toISOString();
-  await database.prepare(
-    `INSERT INTO lms_retrieval_runs (
-      id, provider, started_at, completed_at, status, records_requested,
-      records_received, records_failed, message, initiated_by
-    ) VALUES (?, 'Mock LMS', ?, ?, ?, ?, ?, ?, ?, ?)`,
-  )
-    .bind(
-      id,
-      now,
-      now,
-      input.status,
-      sampleCourses.length,
-      input.received,
-      input.failed,
-      input.message,
-      input.actorEmail,
-    )
-    .run();
-  return id;
+  const { data, error } = await client
+    .from("lms_retrieval_runs")
+    .insert({
+      external_run_id: externalRunId,
+      provider: "Mock LMS",
+      started_at: now,
+      completed_at: now,
+      status: input.status,
+      records_requested: SAMPLE_COURSE_COUNT,
+      records_received: input.received,
+      records_failed: input.failed,
+      message: input.message,
+      initiated_by_email: input.actorEmail,
+    })
+    .select("external_run_id")
+    .single();
+  if (error) {
+    throw databaseError("Could not record the Supabase retrieval run", error);
+  }
+  return (data?.external_run_id as string | undefined) ?? externalRunId;
 }

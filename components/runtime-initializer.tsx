@@ -34,7 +34,7 @@ export function RuntimeInitializer() {
         {status === "starting"
           ? "Preparing sample workspace"
           : status === "ready"
-            ? "Sample database ready"
+            ? "Supabase database ready"
             : "Sample data fallback active"}
       </span>
     </div>

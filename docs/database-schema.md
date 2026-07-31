@@ -49,8 +49,12 @@ Courses are archived with lifecycle state rather than deleted. Child records use
 foreign keys and conservative deletion rules. Audit logs and LMS snapshots are
 append-only in normal application operation.
 
-## Deployable demo
+## Runtime adapter
 
-`db/schema.ts` mirrors the operational portion of the model in SQLite/D1. The
-Supabase migration is the production authority for PostgreSQL types, RLS, and
-authorization relationships.
+`db/index.ts` uses the official Supabase client from server-only code. It seeds
+missing sample records without overwriting internal edits, reads persisted owner
+and review fields into the portfolio, records retrieval history, and calls an
+atomic PostgreSQL function for course edits plus audit logging.
+
+The SQL files under `supabase/migrations/` are the schema authority for every
+deployment target.

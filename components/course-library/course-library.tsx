@@ -23,7 +23,6 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { useMemo, useState } from "react";
-import { sampleCourses } from "@/lib/sample-data";
 import type { Course } from "@/types/course";
 import { verticals } from "@/types/course";
 import { StatusBadge } from "../status-badge";
@@ -89,7 +88,7 @@ function csvSafe(value: unknown): string {
   return `"${protectedValue.replaceAll('"', '""')}"`;
 }
 
-export function CourseLibrary() {
+export function CourseLibrary({ courses }: { courses: Course[] }) {
   const [search, setSearch] = useState("");
   const [vertical, setVertical] = useState("All verticals");
   const [lifecycle, setLifecycle] = useState("All statuses");
@@ -100,7 +99,7 @@ export function CourseLibrary() {
 
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
-    return sampleCourses.filter((course) => {
+    return courses.filter((course) => {
       const searchable = [
         course.title,
         course.shortTitle,
@@ -122,7 +121,7 @@ export function CourseLibrary() {
         (health === "All health levels" || course.healthStatus === health)
       );
     });
-  }, [health, lifecycle, search, vertical]);
+  }, [courses, health, lifecycle, search, vertical]);
 
   // TanStack Table intentionally exposes stateful functions that React Compiler
   // does not memoize; the table owns the relevant memoization boundaries.
@@ -346,7 +345,7 @@ export function CourseLibrary() {
         <div className="result-summary">
           <div>
             <strong>{filtered.length} courses</strong>
-            <span>of {sampleCourses.length} total</span>
+            <span>of {courses.length} total</span>
           </div>
           <button className="button button-ghost">
             <Columns3 size={16} />
