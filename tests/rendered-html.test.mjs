@@ -50,3 +50,15 @@ test("server-renders the course library", async () => {
   assert.match(html, /Management/);
   assert.match(html, /Reconciliation/);
 });
+
+test("server-renders CourseTrack-owned versions with mocked Wrike work", async () => {
+  const response = await render("/versions");
+  assert.equal(response.status, 200);
+
+  const html = await response.text();
+  assert.match(html, /CourseTrack is the version system of record/);
+  assert.match(html, /LMS versioning is not exposed to this app/);
+  assert.match(html, /Available Wrike work/);
+  assert.match(html, /Mock Wrike references/);
+  assert.match(html, /Reference task/);
+});

@@ -24,6 +24,7 @@ import type {
   VerticalAssignment,
 } from "@/types/course";
 import { verticalNames, verticals } from "@/types/course";
+import { sampleWrikeTasks } from "@/lib/sample-wrike-data";
 import {
   applyFieldResolution,
   calculateMetadataCompleteness,
@@ -259,6 +260,13 @@ function buildVersions(courseId: string, index: number): CourseVersion[] {
   const count = (index % 4) + 1;
   return Array.from({ length: count }, (_, versionIndex) => {
     const major = versionIndex + 1;
+    const publicationDate = isoDate(
+      -1_700 + index * 17 + versionIndex * 210,
+    );
+    const isCurrent = versionIndex === count - 1;
+    const linkedTasks = isCurrent && index % 3 !== 2
+      ? sampleWrikeTasks.slice(index % sampleWrikeTasks.length, index % 10 === 0 ? (index % sampleWrikeTasks.length) + 2 : (index % sampleWrikeTasks.length) + 1)
+      : [];
     return {
       id: `${courseId}-V${major}`,
       versionNumber: `${major}.${versionIndex === count - 1 ? index % 3 : 0}`,
@@ -268,15 +276,34 @@ function buildVersions(courseId: string, index: number): CourseVersion[] {
           : versionIndex === count - 1 && index % 3 === 0
             ? "Major Revision"
             : "Minor Revision",
-      publicationDate: isoDate(-1_700 + index * 17 + versionIndex * 210),
-      isCurrent: versionIndex === count - 1,
-      source: versionIndex === count - 1 ? "lms" : "manual",
+      publicationDate,
+      isCurrent,
+      versionStatus: isCurrent ? "Published" : "Superseded",
+      managedBy: "CourseTrack",
+      createdAt: `${publicationDate}T15:00:00.000Z`,
+      createdBy: ["Jamie Patel", "Taylor Reed", "Morgan Chen", "Riley Brooks"][index % 4],
       releaseNotes:
-        versionIndex === count - 1
+        isCurrent
           ? "Updated examples, accessibility checks, and policy references."
           : "Historical release retained for comparison.",
       authoringTool: authoringTools[index % authoringTools.length],
       packageStandard: index % 5 === 0 ? "xAPI" : "SCORM 2004 4th Edition",
+      wrikeTaskReferences: linkedTasks.map((task, taskIndex) => ({
+        id: `${courseId}-V${major}-WRIKE-${taskIndex + 1}`,
+        wrikeTaskId: task.externalTaskId,
+        taskTitle: task.title,
+        projectId: task.projectId,
+        projectTitle: task.projectTitle,
+        taskStatus: task.status,
+        assigneeNames: task.assigneeNames,
+        dueDate: task.dueDate,
+        permalink: task.permalink,
+        provider: task.providerName,
+        retrievedAt: task.retrievedAt,
+        linkedAt: `${publicationDate}T14:00:00.000Z`,
+        linkedBy: "Dana Weiss",
+        isSample: task.isSample,
+      })),
     };
   });
 }

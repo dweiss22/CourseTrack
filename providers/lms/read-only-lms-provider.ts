@@ -4,7 +4,6 @@ import type {
   LmsCourse,
   LmsCourseQueryParams,
   LmsCourseStatistics,
-  LmsCourseVersion,
   LmsProviderHealth,
   PaginatedLmsCourseResponse,
 } from "./lms-types";
@@ -20,7 +19,6 @@ export interface ReadOnlyLmsProvider {
     params?: LmsCourseQueryParams,
   ): Promise<PaginatedLmsCourseResponse>;
   getCourseById(externalCourseId: string): Promise<LmsCourse | null>;
-  getCourseVersions(externalCourseId: string): Promise<LmsCourseVersion[]>;
   getCourseAccreditations(
     externalCourseId: string,
   ): Promise<LmsAccreditation[]>;

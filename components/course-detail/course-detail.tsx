@@ -12,6 +12,7 @@ import {
   Flag,
   GitCompareArrows,
   History,
+  Link2,
   LockKeyhole,
   MessageSquareText,
   Pencil,
@@ -718,47 +719,73 @@ function SourceComparisonTab({
 
 function VersionsTab({ course }: { course: Course }) {
   return (
-    <article className="panel">
-      <div className="panel-heading">
+    <div className="detail-section-stack">
+      <section className="version-governance-banner">
+        <ShieldCheck size={22} />
         <div>
-          <h2>Version history</h2>
-          <p>Historical records are retained; only one version is current.</p>
+          <strong>Version history is owned by CourseTrack</strong>
+          <span>
+            The LMS does not communicate its internal versioning to CourseTrack.
+            These version numbers, current-version decisions, notes, and Wrike
+            references are created and maintained in this app.
+          </span>
         </div>
-        <span className="panel-stat">{course.versions.length} versions</span>
-      </div>
-      <div className="table-scroll">
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Version</th>
-              <th>Type</th>
-              <th>Published</th>
-              <th>Authoring tool</th>
-              <th>Package</th>
-              <th>Source</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {[...course.versions].reverse().map((version) => (
-              <tr key={version.id}>
-                <td className="mono-cell">v{version.versionNumber}</td>
-                <td>{version.versionType}</td>
-                <td>{version.publicationDate}</td>
-                <td>{version.authoringTool}</td>
-                <td>{version.packageStandard}</td>
-                <td>
-                  <StatusBadge tone={version.source === "lms" ? "info" : "neutral"}>
-                    {version.source.toUpperCase()}
-                  </StatusBadge>
-                </td>
-                <td>{version.isCurrent ? <StatusBadge tone="success">Current</StatusBadge> : "Historical"}</td>
+      </section>
+      <article className="panel">
+        <div className="panel-heading">
+          <div>
+            <h2>Version history</h2>
+            <p>Historical records are retained; only one CourseTrack version is current.</p>
+          </div>
+          <span className="panel-stat">{course.versions.length} versions</span>
+        </div>
+        <div className="table-scroll">
+          <table className="data-table version-detail-table">
+            <thead>
+              <tr>
+                <th>Version</th>
+                <th>Type</th>
+                <th>Published</th>
+                <th>Wrike work reference</th>
+                <th>Release notes</th>
+                <th>Maintained by</th>
+                <th>Status</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </article>
+            </thead>
+            <tbody>
+              {[...course.versions].reverse().map((version) => (
+                <tr key={version.id}>
+                  <td className="mono-cell">v{version.versionNumber}</td>
+                  <td>{version.versionType}</td>
+                  <td>{version.publicationDate}</td>
+                  <td className="version-wrike-cell">
+                    {version.wrikeTaskReferences.length === 0 ? (
+                      <span className="wrike-empty">No task linked</span>
+                    ) : (
+                      version.wrikeTaskReferences.map((reference) => (
+                        <span className="wrike-reference" key={reference.id}>
+                          <Link2 size={13} />
+                          <strong>{reference.taskTitle}</strong>
+                          <small>{reference.projectTitle ?? "No project supplied"} · {reference.wrikeTaskId}</small>
+                          {reference.isSample && <StatusBadge tone="sample">Mock Wrike</StatusBadge>}
+                        </span>
+                      ))
+                    )}
+                  </td>
+                  <td>{version.releaseNotes}</td>
+                  <td><StatusBadge tone="success">{version.managedBy}</StatusBadge></td>
+                  <td>{version.isCurrent ? <StatusBadge tone="success">Current</StatusBadge> : <StatusBadge>{version.versionStatus}</StatusBadge>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="readonly-callout">
+          <ShieldCheck size={18} />
+          <span><strong>Wrike remains read-only</strong>Task details are presented as work context for a version. Linking or unlinking a reference changes CourseTrack only.</span>
+        </div>
+      </article>
+    </div>
   );
 }
 

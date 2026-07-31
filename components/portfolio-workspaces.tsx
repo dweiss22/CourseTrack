@@ -8,14 +8,15 @@ import {
   Download,
   FileBarChart,
   Flag,
-  History,
+  Link2,
+  ListTodo,
   RefreshCw,
   ShieldCheck,
   Sparkles,
   Users,
 } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   sampleCourses,
   sampleRetrievalRuns,
@@ -23,6 +24,9 @@ import {
 import { demoUser, rolePermissions } from "@/lib/permissions";
 import { StatusBadge } from "./status-badge";
 import { ImportPreview } from "./import-preview/import-preview";
+import { sampleWrikeTasks } from "@/lib/sample-wrike-data";
+import type { Course, CourseVersion } from "@/types/course";
+import type { WrikeTask } from "@/providers/wrike";
 
 export function AccreditationWorkspace() {
   const records = sampleCourses.flatMap((course) =>
@@ -99,28 +103,99 @@ export function VersionsWorkspace() {
     .sort((a, b) =>
       b.version.publicationDate.localeCompare(a.version.publicationDate),
     );
+  const [availableTasks, setAvailableTasks] = useState<WrikeTask[]>(
+    sampleWrikeTasks.slice(0, 12),
+  );
+  const [selectedVersion, setSelectedVersion] = useState<{
+    course: Course;
+    version: CourseVersion;
+  } | null>(null);
+  const [sessionTaskIds, setSessionTaskIds] = useState<Record<string, string[]>>({});
+  const [taskSearch, setTaskSearch] = useState("");
+  const [linkMessage, setLinkMessage] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/wrike/tasks?pageSize=12")
+      .then(async (response) => {
+        if (!response.ok) return null;
+        return (await response.json()) as { items?: WrikeTask[] };
+      })
+      .then((result) => {
+        if (!cancelled && result?.items?.length) setAvailableTasks(result.items);
+      })
+      .catch(() => {
+        // The deterministic fixtures remain visible when no live data link exists.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const visibleTasks = useMemo(() => {
+    const search = taskSearch.trim().toLowerCase();
+    if (!search) return availableTasks;
+    return availableTasks.filter((task) =>
+      [task.externalTaskId, task.title, task.projectTitle ?? "", task.status ?? ""]
+        .join(" ")
+        .toLowerCase()
+        .includes(search),
+    );
+  }, [availableTasks, taskSearch]);
+
+  const referenceTask = (task: WrikeTask) => {
+    if (!selectedVersion) return;
+    setSessionTaskIds((current) => ({
+      ...current,
+      [selectedVersion.version.id]: [
+        ...new Set([
+          ...(current[selectedVersion.version.id] ?? []),
+          task.externalTaskId,
+        ]),
+      ],
+    }));
+    setLinkMessage(
+      `${task.externalTaskId} is referenced by ${selectedVersion.course.courseCode} v${selectedVersion.version.versionNumber} in this sample session.`,
+    );
+  };
+
+  const referencedVersionCount = versions.filter(
+    ({ version }) => version.wrikeTaskReferences.length > 0,
+  ).length;
   return (
     <WorkspaceFrame
       eyebrow="Lifecycle workspace"
       title="Versions"
-      description="Review current releases, historical versions, and major-revision activity."
-      action={<button className="button button-secondary"><History size={16} /> Compare versions</button>}
+      description="Create and maintain the authoritative course-version history inside CourseTrack."
+      action={<StatusBadge tone="success">CourseTrack controlled</StatusBadge>}
     >
+      <section className="version-governance-banner">
+        <ShieldCheck size={22} />
+        <div>
+          <strong>CourseTrack is the version system of record</strong>
+          <span>
+            LMS versioning is not exposed to this app, so CourseTrack never infers,
+            imports, or reconciles LMS version numbers. Wrike tasks provide work
+            context only and never control the version number.
+          </span>
+        </div>
+      </section>
       <MetricStrip
         metrics={[
           ["Version records", String(versions.length), "Historical records retained"],
-          ["Current versions", "64", "One per sample course"],
-          ["Major revisions", String(versions.filter(({ version }) => version.versionType === "Major Revision").length), "Across all years"],
-          ["Accreditation review", "8", "Version changed after approval"],
+          ["Current versions", String(versions.filter(({ version }) => version.isCurrent).length), "One app-controlled current version"],
+          ["Wrike-referenced versions", String(referencedVersionCount), "Mock task context attached"],
+          ["Unlinked versions", String(versions.length - referencedVersionCount), "No Wrike task required or selected"],
         ]}
       />
       <section className="panel">
         <div className="panel-heading">
-          <div><h2>Recent version activity</h2><p>Newest publication records across the portfolio</p></div>
+          <div><h2>Recent version activity</h2><p>Newest CourseTrack-managed publication records</p></div>
+          <StatusBadge tone="sample">Mock Wrike references</StatusBadge>
         </div>
         <div className="table-scroll">
           <table className="data-table">
-            <thead><tr><th>Course</th><th>Version</th><th>Type</th><th>Published</th><th>Authoring tool</th><th>Source</th><th>Current</th></tr></thead>
+            <thead><tr><th>Course</th><th>Version</th><th>Type</th><th>Published</th><th>Wrike work</th><th>Maintained by</th><th>Status</th><th>Action</th></tr></thead>
             <tbody>
               {versions.slice(0, 14).map(({ course, version }) => (
                 <tr key={version.id}>
@@ -128,16 +203,119 @@ export function VersionsWorkspace() {
                   <td className="mono-cell">v{version.versionNumber}</td>
                   <td>{version.versionType}</td>
                   <td>{version.publicationDate}</td>
-                  <td>{version.authoringTool}</td>
-                  <td><StatusBadge tone={version.source === "lms" ? "info" : "neutral"}>{version.source.toUpperCase()}</StatusBadge></td>
-                  <td>{version.isCurrent ? <StatusBadge tone="success">Current</StatusBadge> : "Historical"}</td>
+                  <td>
+                    <VersionWrikeSummary
+                      version={version}
+                      sessionTaskIds={sessionTaskIds[version.id] ?? []}
+                    />
+                  </td>
+                  <td><StatusBadge tone="success">{version.managedBy}</StatusBadge></td>
+                  <td>{version.isCurrent ? <StatusBadge tone="success">Current</StatusBadge> : <StatusBadge>{version.versionStatus}</StatusBadge>}</td>
+                  <td>
+                    <button
+                      className="version-link-button"
+                      onClick={() => {
+                        setSelectedVersion({ course, version });
+                        setLinkMessage("");
+                      }}
+                    >
+                      <Link2 size={14} /> Reference task
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       </section>
+
+      <section className="panel wrike-task-panel">
+        <div className="panel-heading">
+          <div>
+            <h2>Available Wrike work</h2>
+            <p>Read-only task discovery through the mock Wrike API boundary</p>
+          </div>
+          <StatusBadge tone="sample">Live link not configured</StatusBadge>
+        </div>
+        <div className="wrike-link-target">
+          <ListTodo size={18} />
+          {selectedVersion ? (
+            <span>
+              Referencing a task to <strong>{selectedVersion.course.courseCode} v{selectedVersion.version.versionNumber}</strong>
+            </span>
+          ) : (
+            <span>Select <strong>Reference task</strong> on a version above.</span>
+          )}
+          <input
+            type="search"
+            value={taskSearch}
+            onChange={(event) => setTaskSearch(event.target.value)}
+            placeholder="Search sample Wrike work"
+            aria-label="Search available Wrike tasks"
+          />
+        </div>
+        {linkMessage && (
+          <div className="inline-alert alert-success">
+            <Link2 size={16} />
+            <span><strong>Sample reference added</strong>{linkMessage}</span>
+          </div>
+        )}
+        <div className="wrike-task-list">
+          {visibleTasks.map((task) => {
+            const existingIds = selectedVersion
+              ? [
+                  ...selectedVersion.version.wrikeTaskReferences.map((reference) => reference.wrikeTaskId),
+                  ...(sessionTaskIds[selectedVersion.version.id] ?? []),
+                ]
+              : [];
+            const alreadyLinked = existingIds.includes(task.externalTaskId);
+            return (
+              <article key={task.externalTaskId}>
+                <div>
+                  <span className="mono-cell">{task.externalTaskId}</span>
+                  <StatusBadge>{task.status ?? "Status unavailable"}</StatusBadge>
+                </div>
+                <strong>{task.title}</strong>
+                <p>{task.projectTitle ?? "No project supplied"}</p>
+                <small>{task.assigneeNames.join(", ") || "Unassigned"} · Due {task.dueDate ?? "not supplied"}</small>
+                <button
+                  className="button button-secondary"
+                  disabled={!selectedVersion || alreadyLinked}
+                  onClick={() => referenceTask(task)}
+                >
+                  <Link2 size={14} /> {alreadyLinked ? "Referenced" : "Reference task"}
+                </button>
+              </article>
+            );
+          })}
+        </div>
+        <div className="readonly-callout">
+          <ShieldCheck size={18} />
+          <span>
+            <strong>Read-only Wrike boundary</strong>
+            CourseTrack may read and reference task details. It does not change Wrike tasks, and a task link never changes a CourseTrack version automatically. Sample links remain session-only until the production data link and database migration are authorized.
+          </span>
+        </div>
+      </section>
     </WorkspaceFrame>
+  );
+}
+
+function VersionWrikeSummary({
+  version,
+  sessionTaskIds,
+}: {
+  version: CourseVersion;
+  sessionTaskIds: string[];
+}) {
+  const primary = version.wrikeTaskReferences[0];
+  const total = version.wrikeTaskReferences.length + sessionTaskIds.length;
+  if (!primary && total === 0) return <span className="wrike-empty">No task linked</span>;
+  return (
+    <span className="wrike-reference-summary">
+      <strong>{primary?.taskTitle ?? sessionTaskIds[0]}</strong>
+      <small>{primary?.projectTitle ?? "Sample session reference"}{total > 1 ? ` · +${total - 1} more` : ""}</small>
+    </span>
   );
 }
 
@@ -278,7 +456,7 @@ export function AdminWorkspace() {
   const [activeTab, setActiveTab] = useState("LMS provider");
   const [status, setStatus] = useState("");
   const [running, setRunning] = useState(false);
-  const tabs = ["LMS provider", "Sample data", "Import mapping", "Users & roles", "Retrieval history"];
+  const tabs = ["LMS provider", "Wrike provider", "Sample data", "Import mapping", "Users & roles", "Retrieval history"];
 
   const runRetrieval = async (mode: "healthy" | "warnings" | "outage") => {
     setRunning(true);
@@ -327,6 +505,23 @@ export function AdminWorkspace() {
                 <ConfigRow label="Authentication" value="Awaiting documentation" />
                 <ConfigRow label="Course endpoint" value="Not invented" />
                 <ConfigRow label="Pagination" value="Awaiting documentation" />
+              </div>
+            </>
+          )}
+          {activeTab === "Wrike provider" && (
+            <>
+              <div className="panel-heading"><div><h2>Read-only Wrike provider</h2><p>Task discovery for CourseTrack-owned version records</p></div><StatusBadge tone="sample">Mock Wrike active</StatusBadge></div>
+              <div className="provider-card">
+                <div className="provider-mark">W</div>
+                <div><strong>Mock Wrike Provider</strong><span>18 deterministic tasks · 5 sample projects · read-only contract</span></div>
+                <StatusBadge tone="success">Available</StatusBadge>
+              </div>
+              <div className="readonly-callout"><ShieldCheck size={18} /><span><strong>Reference-only integration</strong>CourseTrack can discover task details and store an internal reference on a version. It cannot create, edit, complete, assign, or delete Wrike work.</span></div>
+              <div className="configuration-grid">
+                <ConfigRow label="Live base URL" value="Not configured" />
+                <ConfigRow label="Authentication" value="Awaiting Wrike setup" />
+                <ConfigRow label="Task and project fields" value="Awaiting documented payloads" />
+                <ConfigRow label="Pagination and rate limits" value="Not assumed" />
               </div>
             </>
           )}

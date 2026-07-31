@@ -14,6 +14,11 @@ Internal metadata is stored separately from the immutable LMS snapshot. A
 retrieval may refresh LMS-owned fields but may not overwrite internal notes,
 owners, flags, review dates, or proposals.
 
+Course versions are also internal metadata. LMS retrievals never create,
+renumber, promote, or retire CourseTrack versions. Wrike task details may be
+stored as read-only reference snapshots on a version, while the link itself is
+owned and audited by CourseTrack.
+
 ## Core tables
 
 | Table | Purpose | Important constraints |
@@ -26,7 +31,8 @@ owners, flags, review dates, or proposals.
 | `verticals` | Controlled portfolio verticals | Unique name and slug |
 | `courses` | CourseTrack portfolio record | Unique course code; unique nullable LMS ID |
 | `course_verticals` | Secondary vertical classification | Unique course/vertical pair |
-| `course_versions` | Version history | Course foreign key; explicit provenance |
+| `course_versions` | CourseTrack-owned version history | One app-controlled current version; no inferred LMS version |
+| `version_wrike_task_references` | Read-only Wrike work context linked to a version | Unique active task/version reference; no Wrike write-back |
 | `accreditation_records` | Approval and expiration tracking | Course foreign key; expiration index |
 | `course_flags` | Internal risks and tasks | Status/priority indexes |
 | `notes` | Internal collaboration notes | Soft delete timestamp |

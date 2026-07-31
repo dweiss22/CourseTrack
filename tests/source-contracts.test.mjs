@@ -13,6 +13,7 @@ test("LMS provider contract is read-only", async () => {
   assert.match(source, /interface ReadOnlyLmsProvider/);
   assert.match(source, /getCourses/);
   assert.match(source, /healthCheck/);
+  assert.doesNotMatch(source, /getCourseVersions|LmsCourseVersion/);
   assert.doesNotMatch(
     source,
     /\b(create|update|delete|remove|publish|assign|enroll)Course/i,
@@ -73,6 +74,7 @@ test("Supabase runtime, migrations, and Vercel build contract exist", async () =
     access(new URL("vercel.json", root)),
     access(new URL("public/og.png", root)),
     access(new URL("docs/architecture.md", root)),
+    access(new URL("docs/wrike-provider.md", root)),
   ]);
 
   const migration = await readFile(

@@ -5,7 +5,6 @@ import type {
   LmsCourse,
   LmsCourseQueryParams,
   LmsCourseStatistics,
-  LmsCourseVersion,
   LmsProviderHealth,
   PaginatedLmsCourseResponse,
 } from "./lms-types";
@@ -29,13 +28,6 @@ export class LiveLmsProvider implements ReadOnlyLmsProvider {
   }
 
   async getCourseById(externalCourseId: string): Promise<LmsCourse | null> {
-    void externalCourseId;
-    return notConfigured();
-  }
-
-  async getCourseVersions(
-    externalCourseId: string,
-  ): Promise<LmsCourseVersion[]> {
     void externalCourseId;
     return notConfigured();
   }

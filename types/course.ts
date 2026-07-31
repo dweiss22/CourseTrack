@@ -279,16 +279,44 @@ export type VersionType =
   | "Legal Update"
   | "Accreditation Update";
 
+export type VersionStatus =
+  | "Draft"
+  | "In Review"
+  | "Scheduled"
+  | "Published"
+  | "Superseded";
+
+export interface VersionWrikeTaskReference {
+  id: string;
+  wrikeTaskId: string;
+  taskTitle: string;
+  projectId: string | null;
+  projectTitle: string | null;
+  taskStatus: string | null;
+  assigneeNames: string[];
+  dueDate: string | null;
+  permalink: string | null;
+  provider: "Mock Wrike" | "Live Wrike";
+  retrievedAt: string;
+  linkedAt: string;
+  linkedBy: string;
+  isSample: boolean;
+}
+
 export interface CourseVersion {
   id: string;
   versionNumber: string;
   versionType: VersionType;
   publicationDate: string;
   isCurrent: boolean;
-  source: DataSource;
+  versionStatus: VersionStatus;
+  managedBy: "CourseTrack";
+  createdAt: string;
+  createdBy: string;
   releaseNotes: string;
   authoringTool: string;
   packageStandard: string;
+  wrikeTaskReferences: VersionWrikeTaskReference[];
 }
 
 export interface AccreditationRecord {

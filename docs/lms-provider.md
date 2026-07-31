@@ -4,7 +4,6 @@
 
 - `getCourses`
 - `getCourseById`
-- `getCourseVersions`
 - `getCourseAccreditations`
 - `getCourseStatistics`
 - `getCourseCategories`
@@ -12,6 +11,14 @@
 
 There are deliberately no mutation, assignment, publication, or deletion
 methods.
+
+## Version boundary
+
+The LMS has an internal versioning mechanism, but it is not communicated to
+CourseTrack. The provider contract therefore exposes no version endpoint and
+CourseTrack does not infer version changes from LMS timestamps, titles, or
+payload differences. `course_versions` is an app-owned ledger maintained only
+inside CourseTrack.
 
 ## Retrieval lifecycle
 

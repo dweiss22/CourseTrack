@@ -20,13 +20,6 @@ export interface LmsCourse {
   mappingWarnings: string[];
 }
 
-export interface LmsCourseVersion {
-  externalVersionId: string;
-  versionLabel: string;
-  publicationDate: string | null;
-  retrievedAt: string;
-}
-
 export interface LmsAccreditation {
   externalAccreditationId: string;
   organizationName: string;

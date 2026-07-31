@@ -3189,6 +3189,195 @@ body {
   color: var(--warning);
 }
 
+.version-governance-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 13px;
+  padding: 17px 19px;
+  border: 1px solid color-mix(in srgb, var(--success) 25%, var(--border));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--success-soft) 72%, var(--surface));
+  box-shadow: var(--shadow-sm);
+}
+
+.version-governance-banner svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: var(--success);
+}
+
+.version-governance-banner strong,
+.version-governance-banner span {
+  display: block;
+}
+
+.version-governance-banner strong {
+  margin-bottom: 4px;
+  color: var(--foreground);
+  font-size: 15px;
+}
+
+.version-governance-banner span {
+  max-width: 980px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.version-link-button {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  gap: 6px;
+  padding-inline: 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-muted);
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.version-link-button:hover {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.wrike-reference-summary,
+.wrike-reference-summary strong,
+.wrike-reference-summary small,
+.wrike-reference,
+.wrike-reference strong,
+.wrike-reference small {
+  display: block;
+}
+
+.wrike-reference-summary {
+  max-width: 250px;
+}
+
+.wrike-reference-summary strong,
+.wrike-reference strong {
+  color: var(--foreground);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.wrike-reference-summary small,
+.wrike-reference small,
+.wrike-empty {
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.wrike-link-target {
+  display: grid;
+  grid-template-columns: auto minmax(240px, 1fr) minmax(220px, 340px);
+  align-items: center;
+  gap: 10px;
+  padding: 16px 20px;
+  border-top: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface-muted);
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.wrike-link-target > svg {
+  color: var(--primary);
+}
+
+.wrike-link-target input {
+  width: 100%;
+  min-height: 38px;
+  padding: 0 11px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--foreground);
+  font: inherit;
+}
+
+.wrike-task-panel > .inline-alert {
+  margin: 14px 20px 0;
+}
+
+.wrike-task-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding: 18px 20px;
+}
+
+.wrike-task-list article {
+  display: flex;
+  min-width: 0;
+  min-height: 210px;
+  flex-direction: column;
+  gap: 7px;
+  padding: 15px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-muted);
+}
+
+.wrike-task-list article > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.wrike-task-list article > strong {
+  color: var(--foreground);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.wrike-task-list article p,
+.wrike-task-list article small {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.wrike-task-list article .button {
+  width: 100%;
+  margin-top: auto;
+}
+
+.version-detail-table {
+  min-width: 1440px;
+}
+
+.version-wrike-cell {
+  min-width: 290px;
+}
+
+.wrike-reference {
+  position: relative;
+  margin-bottom: 8px;
+  padding: 9px 10px 9px 31px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface-muted);
+}
+
+.wrike-reference > svg {
+  position: absolute;
+  top: 11px;
+  left: 10px;
+  color: var(--primary);
+}
+
+.wrike-reference .status-badge {
+  display: inline-flex;
+  margin-top: 7px;
+}
+
 .source-assignment-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -3429,6 +3618,10 @@ body {
   .preview-metric-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
+
+  .wrike-task-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 1020px) {
@@ -3503,6 +3696,14 @@ body {
   .source-assignment-grid,
   .preview-metric-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .wrike-link-target {
+    grid-template-columns: auto 1fr;
+  }
+
+  .wrike-link-target input {
+    grid-column: 1 / -1;
   }
 }
 
@@ -3589,6 +3790,20 @@ body {
   .preview-confirmation-row {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .wrike-task-list {
+    grid-template-columns: 1fr;
+    padding-inline: 14px;
+  }
+
+  .wrike-link-target {
+    grid-template-columns: 1fr;
+    padding-inline: 14px;
+  }
+
+  .wrike-link-target > svg {
+    display: none;
   }
 
   .saved-view-row .clear-filter-button {

@@ -4,6 +4,8 @@ const toneByLabel: Record<string, string> = {
   Healthy: "success",
   Retrieved: "success",
   Published: "success",
+  Completed: "success",
+  CourseTrack: "success",
   Approved: "success",
   "Lexipol managed": "success",
   "Matched between LMS and Content Metadata": "success",
@@ -12,6 +14,9 @@ const toneByLabel: Record<string, string> = {
   sample: "sample",
   Monitor: "info",
   Draft: "info",
+  "In Progress": "info",
+  "In Review": "info",
+  Scheduled: "info",
   "Under Review": "info",
   "Needs Review": "warning",
   "Expiring Soon": "warning",
@@ -37,6 +42,9 @@ const toneByLabel: Record<string, string> = {
   "LMS only": "info",
   "Content Metadata only": "info",
   "Missing from both": "neutral",
+  Superseded: "neutral",
+  "On Hold": "warning",
+  "Mock Wrike": "sample",
 };
 
 export function StatusBadge({

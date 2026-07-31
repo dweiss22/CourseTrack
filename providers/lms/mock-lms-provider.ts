@@ -6,7 +6,6 @@ import type {
   LmsCourse,
   LmsCourseQueryParams,
   LmsCourseStatistics,
-  LmsCourseVersion,
   LmsProviderHealth,
   PaginatedLmsCourseResponse,
 } from "./lms-types";
@@ -54,23 +53,6 @@ export class MockLmsProvider implements ReadOnlyLmsProvider {
         `MOCK-${candidate.id}` === externalCourseId,
     );
     return course ? this.toLmsCourse(course) : null;
-  }
-
-  async getCourseVersions(
-    externalCourseId: string,
-  ): Promise<LmsCourseVersion[]> {
-    this.assertAvailable();
-    const course = this.availableCourses.find(
-      (candidate) => candidate.lmsCourseId === externalCourseId,
-    );
-    return (
-      course?.versions.map((version) => ({
-        externalVersionId: `${externalCourseId}-${version.id}`,
-        versionLabel: version.versionNumber,
-        publicationDate: version.publicationDate,
-        retrievedAt: this.retrievedAt,
-      })) ?? []
-    );
   }
 
   async getCourseAccreditations(

@@ -49,6 +49,10 @@ flowchart LR
   records. Preview validation blocks unsafe rows before confirmation.
 - Source conflicts preserve both values. A user resolution selects only the
   active CourseTrack display value and is recorded in the audit log.
+- CourseTrack is the sole version authority. The LMS provider exposes no
+  version operation because LMS versioning is not communicated to the app.
+- Wrike is a future read-only task-reference source. CourseTrack stores the
+  version-to-task link and a retrieved task snapshot without writing to Wrike.
 - Both deployment targets use a server-only Supabase/Postgres adapter. Missing
   credentials activate a labeled sample fallback without allowing fake writes.
 
@@ -61,6 +65,7 @@ erDiagram
   ROLES ||--o{ ROLE_PERMISSIONS : includes
   PERMISSIONS ||--o{ ROLE_PERMISSIONS : maps
   COURSES ||--o{ COURSE_VERSIONS : has
+  COURSE_VERSIONS ||--o{ VERSION_WRIKE_TASK_REFERENCES : documents
   COURSES ||--o{ ACCREDITATION_RECORDS : has
   COURSES ||--o{ COURSE_FLAGS : has
   COURSES ||--o{ NOTES : has
