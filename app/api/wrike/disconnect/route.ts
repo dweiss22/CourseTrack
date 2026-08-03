@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { disconnectFromWrike } from "@/db";
-import { requireWrikePermission } from "@/lib/wrike-authz";
+import { requireApiAdmin } from "@/lib/auth";
 
 export async function POST() {
-  const actor = await requireWrikePermission("administration:manage");
+  const actor = await requireApiAdmin();
   if ("error" in actor) return actor.error;
 
   try {

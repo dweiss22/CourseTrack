@@ -63,6 +63,9 @@ test("the migration adds an email-keyed permission check for service-role-client
 });
 
 test("all Wrike API routes check the caller's actual permission, not a hardcoded demo role", async () => {
+  // Originally checked for the now-retired lib/wrike-authz.ts bridge; the
+  // real-auth system (lib/auth.ts, see tests/auth-guards.test.mjs) replaced
+  // it with requireApi*() guards keyed off the signed-in user's real role.
   const routeFiles = [
     "app/api/wrike/connect/route.ts",
     "app/api/wrike/disconnect/route.ts",
@@ -75,11 +78,11 @@ test("all Wrike API routes check the caller's actual permission, not a hardcoded
   ];
   const sources = await Promise.all(routeFiles.map((file) => readFile(new URL(file, root), "utf8")));
   for (const [index, source] of sources.entries()) {
-    assert.match(source, /requireWrikePermission/, `${routeFiles[index]} should use requireWrikePermission`);
+    assert.match(source, /requireApi\w+/, `${routeFiles[index]} should use a lib/auth.ts requireApi* guard`);
     assert.doesNotMatch(
       source,
-      /hasPermission\(demoUser\.role/,
-      `${routeFiles[index]} should not gate on the hardcoded demo role`,
+      /hasPermission\(demoUser\.role|getChatGPTUser/,
+      `${routeFiles[index]} should not gate on the retired fake-auth path`,
     );
   }
 });

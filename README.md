@@ -25,7 +25,9 @@ This repository contains the Phase 1 application foundation described in
 - Server-only Supabase/Postgres persistence with deterministic sample fallback
 - PostgreSQL migrations, atomic internal edits, audit logging, and row-level
   security
-- Centralized roles and permissions
+- Real Supabase Auth login with four exclusive roles (`super_admin`, `admin`,
+  `accreditation`, `content`) and admin-only user management — see
+  [`docs/auth-setup.md`](docs/auth-setup.md)
 
 ## Stack
 
@@ -77,6 +79,11 @@ state until documented provider details are supplied.
 Live, read-only Wrike course-version linking (a permanent-token connection,
 an approved-folder task sync, and per-version link/verify/unlink) is
 configured separately — see [`docs/wrike-setup.md`](docs/wrike-setup.md).
+
+Real login (Supabase Auth) and the four-role user-management system need
+their own environment variables, Supabase Dashboard configuration, and a
+one-time super_admin bootstrap step — see
+[`docs/auth-setup.md`](docs/auth-setup.md).
 
 ## Data and provenance
 

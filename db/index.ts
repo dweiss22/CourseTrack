@@ -64,6 +64,16 @@ export type {
 };
 import { buildWrikeTaskSearchQuery } from "@/lib/wrike-matching";
 import {
+  changeUserRoleOrStatus,
+  createApplicationUserMembership,
+  listApplicationUsers,
+  resendUserRecoveryEmail,
+  updateOwnDisplayName,
+  type ApplicationUserSummary,
+} from "@/db/user-repository";
+export type { ApplicationUserSummary };
+import type { ApplicationRole } from "@/lib/auth";
+import {
   sampleCourses,
   sampleRetrievalRuns,
   sampleImportPreviews,
@@ -800,4 +810,49 @@ export async function verifyWrikeTaskLink(referenceId: string) {
 
 export async function unlinkWrikeTaskFromCourseVersion(referenceId: string): Promise<boolean> {
   return unlinkCourseVersionWrikeTask(requireDatabaseClient(), { referenceId });
+}
+
+export async function updateMyDisplayName(input: { userId: string; displayName: string }): Promise<void> {
+  return updateOwnDisplayName(requireDatabaseClient(), input);
+}
+
+export async function listUsers(filters: {
+  role?: ApplicationRole;
+  status?: "active" | "disabled";
+} = {}): Promise<ApplicationUserSummary[]> {
+  const client = getSupabaseAdminClient();
+  if (!client) return [];
+  try {
+    return await listApplicationUsers(client, filters);
+  } catch {
+    // The role-based-auth migration may not be applied yet -- degrade to an
+    // empty list rather than crashing the page, matching this app's
+    // existing sample-data-fallback philosophy.
+    return [];
+  }
+}
+
+export async function createUser(input: {
+  email: string;
+  displayName: string;
+  role: ApplicationRole;
+  actorId: string;
+  actorRole: ApplicationRole;
+  redirectTo: string;
+}): Promise<ApplicationUserSummary> {
+  return createApplicationUserMembership(requireDatabaseClient(), input);
+}
+
+export async function changeUserRole(input: {
+  targetId: string;
+  actorId: string;
+  actorRole: ApplicationRole;
+  newRole?: ApplicationRole;
+  newStatus?: "active" | "disabled";
+}): Promise<ApplicationUserSummary> {
+  return changeUserRoleOrStatus(requireDatabaseClient(), input);
+}
+
+export async function resendRecoveryEmail(input: { email: string; redirectTo: string }): Promise<void> {
+  return resendUserRecoveryEmail(requireDatabaseClient(), input);
 }

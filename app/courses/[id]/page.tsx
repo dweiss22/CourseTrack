@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { CourseDetail } from "@/components/course-detail/course-detail";
 import { getAllTags, getAllTopics, getCourseRecord } from "@/db";
+import { requireUser } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +24,7 @@ export default async function CourseDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  await requireUser();
   const { id } = await params;
   const [course, allTopics, allTags] = await Promise.all([
     getCourseRecord(id),

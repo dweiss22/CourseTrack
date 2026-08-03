@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { triggerWrikeSync } from "@/db";
 import { getWrikeSyncCronSecret } from "@/lib/wrike-env";
-import { requireWrikePermission } from "@/lib/wrike-authz";
+import { requireApiAdmin } from "@/lib/auth";
 
 function isAuthorizedCronCaller(request: Request): boolean {
   const secret = getWrikeSyncCronSecret();
@@ -15,9 +15,9 @@ export async function POST(request: Request) {
   let triggeredBy = "scheduled";
 
   if (!isCron) {
-    const actor = await requireWrikePermission("administration:manage");
+    const actor = await requireApiAdmin();
     if ("error" in actor) return actor.error;
-    triggeredBy = `manual:${actor.email}`;
+    triggeredBy = `manual:${actor.context.email}`;
   }
 
   try {

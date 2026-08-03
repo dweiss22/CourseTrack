@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getChatGPTUser } from "@/app/chatgpt-auth";
+import { requireApiRole, requireApiUser } from "@/lib/auth";
 import {
   getCourseRecord,
   updateInternalCourseMetadata,
 } from "@/db";
-import { demoUser } from "@/lib/permissions";
 
 const updateSchema = z.object({
   internalSummary: z.string().trim().min(10).max(1_200),
@@ -20,6 +19,9 @@ export async function GET(
   _request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
+  const actor = await requireApiUser();
+  if ("error" in actor) return actor.error;
+
   const { id } = await context.params;
   const course = await getCourseRecord(id);
   if (!course) {
@@ -46,16 +48,11 @@ export async function PATCH(
     );
   }
 
-  const user = await getChatGPTUser();
-  if (!user && process.env.NODE_ENV === "production") {
-    return NextResponse.json(
-      { message: "Authentication is required to edit CourseTrack metadata." },
-      { status: 401 },
-    );
-  }
+  const actor = await requireApiRole("super_admin", "admin", "content");
+  if ("error" in actor) return actor.error;
   const saved = await updateInternalCourseMetadata({
     courseId: id,
-    actorEmail: user?.email ?? demoUser.email,
+    actorEmail: actor.context.email,
     ...parsed.data,
   });
 

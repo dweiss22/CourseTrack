@@ -17,11 +17,12 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
-import { demoUser, rolePermissions } from "@/lib/permissions";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
+import type { AuthContext } from "@/lib/auth";
 import { accreditationDisplayLabel } from "@/lib/accreditation-grouping";
 import type {
   AccreditationBoardEntry,
+  ApplicationUserSummary,
   CourseIndexEntry,
   FlagBoardEntry,
   ImportPreviewSummary,
@@ -34,10 +35,20 @@ import type {
   WrikeConnectionSummary,
   WrikeSyncStatus,
 } from "@/db";
+import { APPLICATION_ROLES, type ApplicationRole } from "@/lib/auth";
 import { StatusBadge } from "./status-badge";
 import { ImportPreview } from "./import-preview/import-preview";
 import type { CourseVersion, RetrievalRun } from "@/types/course";
 import type { WrikeTask } from "@/providers/wrike";
+
+function initialsFor(displayName: string): string {
+  const parts = displayName.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  return parts
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
+}
 
 export function AccreditationWorkspace({ entries }: { entries: AccreditationBoardEntry[] }) {
   const records = entries;
@@ -561,8 +572,8 @@ export function AdminWorkspace({
           )}
           {activeTab === "Users & roles" && (
             <>
-              <div className="panel-heading"><div><h2>Users and roles</h2><p>Server-enforced permission assignments</p></div><button className="button button-primary"><Users size={16} /> Invite user</button></div>
-              <div className="profile-role-card"><span className="avatar">{demoUser.initials}</span><div><strong>{demoUser.name}</strong><small>{demoUser.email}</small></div><StatusBadge tone="info">{demoUser.role}</StatusBadge><span>{rolePermissions[demoUser.role].length} permissions</span></div>
+              <div className="panel-heading"><div><h2>Users and roles</h2><p>Server-enforced, exclusive four-role assignments</p></div><Link href="/admin/users" className="button button-primary"><Users size={16} /> Go to User Management</Link></div>
+              <div className="readonly-callout"><ShieldCheck size={18} /><span><strong>Exclusive roles</strong>Each user has exactly one role — super_admin, admin, accreditation, or content. Manage users, roles, and account status on the User Management page.</span></div>
             </>
           )}
           {activeTab === "Retrieval history" && (
@@ -754,13 +765,44 @@ function WrikeConnectionPanel({
   );
 }
 
-export function ProfileWorkspace() {
+const PROFILE_ROLE_LABELS: Record<AuthContext["role"], string> = {
+  super_admin: "Super Admin",
+  admin: "Admin",
+  accreditation: "Accreditation",
+  content: "Content",
+};
+
+export function ProfileWorkspace({ authContext }: { authContext: AuthContext }) {
   const [notifications, setNotifications] = useState({
     accreditation: true,
     review: true,
     assignments: true,
     retrieval: false,
   });
+  const [displayName, setDisplayName] = useState(authContext.displayName);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+
+  const saveDisplayName = async (event: FormEvent) => {
+    event.preventDefault();
+    setSaving(true);
+    setMessage("");
+    try {
+      const response = await fetch("/api/profile", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ displayName }),
+      });
+      const result = (await response.json()) as { message?: string };
+      if (!response.ok) throw new Error(result.message ?? "Could not update your display name.");
+      setMessage(result.message ?? "Display name updated.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not update your display name.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <WorkspaceFrame
       eyebrow="Personal workspace"
@@ -769,9 +811,16 @@ export function ProfileWorkspace() {
     >
       <div className="profile-layout">
         <section className="panel profile-card-large">
-          <span className="profile-avatar-large">{demoUser.initials}</span>
-          <div><h2>{demoUser.name}</h2><p>{demoUser.email}</p><StatusBadge tone="info">{demoUser.role}</StatusBadge></div>
-          <div className="profile-facts"><span><small>Department</small><strong>Learning Operations</strong></span><span><small>Vertical specialization</small><strong>Lexipol</strong></span><span><small>Last login</small><strong>Today at 1:42 PM</strong></span></div>
+          <span className="profile-avatar-large">{initialsFor(authContext.displayName)}</span>
+          <div><h2>{authContext.displayName}</h2><p>{authContext.email}</p><StatusBadge tone="info">{PROFILE_ROLE_LABELS[authContext.role]}</StatusBadge></div>
+        </section>
+        <section className="panel">
+          <div className="panel-heading"><div><h2>Display name</h2><p>The only profile field you can edit yourself — your role and email are managed by an administrator.</p></div></div>
+          <form className="taxonomy-add-form profile-name-form" onSubmit={saveDisplayName}>
+            <input type="text" value={displayName} onChange={(event) => setDisplayName(event.target.value)} disabled={saving} />
+            <button type="submit" className="button button-primary" disabled={saving || !displayName.trim()}>Save</button>
+          </form>
+          {message && <p className="taxonomy-editor-error profile-name-message">{message}</p>}
         </section>
         <section className="panel">
           <div className="panel-heading"><div><h2>Notification preferences</h2><p>Choose which events appear in your notification center</p></div></div>
@@ -1052,6 +1101,243 @@ export function TopicsTagsWorkspace({
             </button>
             {message && <p className="taxonomy-editor-error">{message}</p>}
           </div>
+        </div>
+      </section>
+    </WorkspaceFrame>
+  );
+}
+
+const ROLE_LABELS_FOR_ADMIN: Record<ApplicationRole, string> = {
+  super_admin: "Super Admin",
+  admin: "Admin",
+  accreditation: "Accreditation",
+  content: "Content",
+};
+
+export function UserManagementWorkspace({
+  initialUsers,
+  currentUserId,
+  currentUserRole,
+}: {
+  initialUsers: ApplicationUserSummary[];
+  currentUserId: string;
+  currentUserRole: ApplicationRole;
+}) {
+  const [users, setUsers] = useState(initialUsers);
+  const [roleFilter, setRoleFilter] = useState<ApplicationRole | "">("");
+  const [statusFilter, setStatusFilter] = useState<"active" | "disabled" | "">("");
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [email, setEmail] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [newRole, setNewRole] = useState<ApplicationRole>("content");
+  const [pending, setPending] = useState(false);
+  const [message, setMessage] = useState("");
+
+  const assignableRoles: ApplicationRole[] =
+    currentUserRole === "super_admin" ? [...APPLICATION_ROLES] : ["accreditation", "content"];
+
+  const canActOn = (target: ApplicationUserSummary): boolean => {
+    if (target.id === currentUserId) return false;
+    if (currentUserRole === "admin" && (target.role === "super_admin" || target.role === "admin")) return false;
+    return currentUserRole === "super_admin" || currentUserRole === "admin";
+  };
+
+  const visibleUsers = users.filter(
+    (user) => (!roleFilter || user.role === roleFilter) && (!statusFilter || user.accountStatus === statusFilter),
+  );
+
+  const handleAddUser = async (event: FormEvent) => {
+    event.preventDefault();
+    setPending(true);
+    setMessage("");
+    try {
+      const response = await fetch("/api/admin/users", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email, displayName, role: newRole }),
+      });
+      const result = (await response.json()) as { user?: ApplicationUserSummary; message?: string };
+      if (!response.ok || !result.user) throw new Error(result.message ?? "Could not create this user.");
+      setUsers((prev) => [result.user as ApplicationUserSummary, ...prev]);
+      setMessage(result.message ?? "User created.");
+      setEmail("");
+      setDisplayName("");
+      setShowAddForm(false);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not create this user.");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const patchUser = async (targetId: string, body: { role?: ApplicationRole; status?: "active" | "disabled" }) => {
+    setPending(true);
+    setMessage("");
+    try {
+      const response = await fetch(`/api/admin/users/${targetId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const result = (await response.json()) as { user?: ApplicationUserSummary; message?: string };
+      if (!response.ok || !result.user) throw new Error(result.message ?? "Could not update this user.");
+      const updated = result.user;
+      setUsers((prev) => prev.map((user) => (user.id === targetId ? updated : user)));
+      setMessage(result.message ?? "User updated.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not update this user.");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const handleResend = async (targetId: string, targetEmail: string) => {
+    setPending(true);
+    setMessage("");
+    try {
+      const response = await fetch(`/api/admin/users/${targetId}/resend`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: targetEmail }),
+      });
+      const result = (await response.json()) as { message?: string };
+      if (!response.ok) throw new Error(result.message ?? "Could not resend this email.");
+      setMessage(result.message ?? "Email sent.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not resend this email.");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <WorkspaceFrame
+      eyebrow="Administration"
+      title="User Management"
+      description="Each user has exactly one role — super_admin, admin, accreditation, or content."
+      action={
+        <button type="button" className="button button-primary" onClick={() => setShowAddForm((value) => !value)}>
+          <Users size={16} /> Add user
+        </button>
+      }
+    >
+      {message && <div className="inline-alert alert-success"><ShieldCheck size={17} /><span>{message}</span></div>}
+
+      {showAddForm && (
+        <section className="panel">
+          <div className="panel-heading"><div><h2>Add user</h2><p>An invitation/setup email is sent immediately.</p></div></div>
+          <form className="auth-form" onSubmit={handleAddUser}>
+            <label>
+              <span>Email</span>
+              <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required disabled={pending} />
+            </label>
+            <label>
+              <span>Display name</span>
+              <input type="text" value={displayName} onChange={(event) => setDisplayName(event.target.value)} required disabled={pending} />
+            </label>
+            <label>
+              <span>Role</span>
+              <select value={newRole} onChange={(event) => setNewRole(event.target.value as ApplicationRole)} disabled={pending} className="select-control">
+                {assignableRoles.map((role) => (
+                  <option key={role} value={role}>{ROLE_LABELS_FOR_ADMIN[role]}</option>
+                ))}
+              </select>
+            </label>
+            <button type="submit" className="button button-primary" disabled={pending || !email.trim() || !displayName.trim()}>
+              Create user
+            </button>
+          </form>
+        </section>
+      )}
+
+      <section className="panel">
+        <div className="panel-heading">
+          <div><h2>Users</h2><p>{visibleUsers.length} of {users.length} shown</p></div>
+        </div>
+        <div className="filter-row">
+          <select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value as ApplicationRole | "")} className="select-control">
+            <option value="">All roles</option>
+            {APPLICATION_ROLES.map((role) => (
+              <option key={role} value={role}>{ROLE_LABELS_FOR_ADMIN[role]}</option>
+            ))}
+          </select>
+          <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as "active" | "disabled" | "")} className="select-control">
+            <option value="">All statuses</option>
+            <option value="active">Active</option>
+            <option value="disabled">Disabled</option>
+          </select>
+        </div>
+        <div className="table-scroll">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibleUsers.map((user) => {
+                const editable = canActOn(user);
+                const isProtectedSuperAdmin = user.role === "super_admin";
+                return (
+                  <tr key={user.id}>
+                    <td>{user.displayName}</td>
+                    <td className="mono-cell">{user.email}</td>
+                    <td>
+                      {editable ? (
+                        <select
+                          value={user.role}
+                          onChange={(event) => patchUser(user.id, { role: event.target.value as ApplicationRole })}
+                          disabled={pending}
+                          className="select-control"
+                        >
+                          {(currentUserRole === "super_admin" ? APPLICATION_ROLES : assignableRoles).map((role) => (
+                            <option key={role} value={role}>{ROLE_LABELS_FOR_ADMIN[role]}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <StatusBadge tone={isProtectedSuperAdmin ? "info" : "neutral"}>
+                          {ROLE_LABELS_FOR_ADMIN[user.role]}
+                          {isProtectedSuperAdmin ? " (protected)" : ""}
+                        </StatusBadge>
+                      )}
+                    </td>
+                    <td>
+                      <StatusBadge tone={user.accountStatus === "active" ? "success" : "neutral"}>
+                        {user.accountStatus === "active" ? "Active" : "Disabled"}
+                      </StatusBadge>
+                    </td>
+                    <td>
+                      {editable ? (
+                        <div className="button-row">
+                          <button
+                            type="button"
+                            className="button button-secondary"
+                            disabled={pending}
+                            onClick={() => patchUser(user.id, { status: user.accountStatus === "active" ? "disabled" : "active" })}
+                          >
+                            {user.accountStatus === "active" ? "Disable" : "Reactivate"}
+                          </button>
+                          <button
+                            type="button"
+                            className="button button-secondary"
+                            disabled={pending}
+                            onClick={() => handleResend(user.id, user.email)}
+                          >
+                            Resend email
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="empty-hint">{user.id === currentUserId ? "This is you" : "Not permitted"}</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+              {visibleUsers.length === 0 && (
+                <tr><td colSpan={5} className="empty-hint">No users match these filters.</td></tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </section>
     </WorkspaceFrame>

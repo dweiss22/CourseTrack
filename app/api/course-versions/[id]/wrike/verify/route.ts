@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { verifyWrikeTaskLink } from "@/db";
-import { requireWrikePermission } from "@/lib/wrike-authz";
+import { requireApiRole } from "@/lib/auth";
 
 const verifySchema = z.object({
   referenceId: z.string().trim().min(1),
 });
 
 export async function POST(request: Request) {
-  const actor = await requireWrikePermission("versions:manage");
+  const actor = await requireApiRole("super_admin", "admin", "content");
   if ("error" in actor) return actor.error;
 
   const parsed = verifySchema.safeParse(await request.json().catch(() => ({})));

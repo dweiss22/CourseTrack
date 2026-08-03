@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { connectToWrike } from "@/db";
 import { readWrikeEnvFallback } from "@/lib/wrike-env";
-import { requireWrikePermission } from "@/lib/wrike-authz";
+import { requireApiAdmin } from "@/lib/auth";
 
 const connectSchema = z.object({
   token: z.string().trim().min(1).max(500).optional(),
@@ -10,7 +10,7 @@ const connectSchema = z.object({
 });
 
 export async function POST(request: Request) {
-  const actor = await requireWrikePermission("administration:manage");
+  const actor = await requireApiAdmin();
   if ("error" in actor) return actor.error;
 
   const parsed = connectSchema.safeParse(await request.json().catch(() => ({})));
@@ -32,7 +32,7 @@ export async function POST(request: Request) {
     const connection = await connectToWrike({
       token,
       apiHost,
-      actorEmail: actor.email,
+      actorEmail: actor.context.email,
     });
     return NextResponse.json({ connection, message: "Wrike connected." });
   } catch (error) {

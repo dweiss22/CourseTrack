@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { linkWrikeTaskToCourseVersion, unlinkWrikeTaskFromCourseVersion } from "@/db";
-import { requireWrikePermission } from "@/lib/wrike-authz";
+import { requireApiRole } from "@/lib/auth";
 
 const linkSchema = z
   .object({
@@ -21,7 +21,7 @@ export async function POST(
   context: { params: Promise<{ id: string }> },
 ) {
   const { id } = await context.params;
-  const actor = await requireWrikePermission("versions:manage");
+  const actor = await requireApiRole("super_admin", "admin", "content");
   if ("error" in actor) return actor.error;
 
   const parsed = linkSchema.safeParse(await request.json().catch(() => ({})));
@@ -37,7 +37,7 @@ export async function POST(
       courseVersionId: id,
       permalink: parsed.data.permalink,
       candidateTaskId: parsed.data.candidateTaskId,
-      actorEmail: actor.email,
+      actorEmail: actor.context.email,
     });
     return NextResponse.json({ link, message: "Wrike task linked. Wrike was not changed." });
   } catch (error) {
@@ -53,7 +53,7 @@ export async function DELETE(
   context: { params: Promise<{ id: string }> },
 ) {
   await context.params;
-  const actor = await requireWrikePermission("versions:manage");
+  const actor = await requireApiRole("super_admin", "admin", "content");
   if ("error" in actor) return actor.error;
 
   const parsed = unlinkSchema.safeParse(await request.json().catch(() => ({})));

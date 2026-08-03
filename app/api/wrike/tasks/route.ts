@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getChatGPTUser } from "@/app/chatgpt-auth";
+import { requireApiUser } from "@/lib/auth";
 import { getWrikeProvider } from "@/providers/wrike";
 
 const querySchema = z.object({
@@ -10,13 +10,8 @@ const querySchema = z.object({
 });
 
 export async function GET(request: Request) {
-  const user = await getChatGPTUser();
-  if (!user && process.env.NODE_ENV === "production") {
-    return NextResponse.json(
-      { message: "Authentication is required to view Wrike work references." },
-      { status: 401 },
-    );
-  }
+  const actor = await requireApiUser();
+  if ("error" in actor) return actor.error;
 
   const url = new URL(request.url);
   const parsed = querySchema.safeParse({

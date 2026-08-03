@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { AppShell } from "@/components/app-shell";
 import { getCourseIndex } from "@/db";
+import { getAuthContext } from "@/lib/auth";
 import "./globals.css";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -55,11 +56,13 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const courseIndex = await getCourseIndex();
+  const [courseIndex, authContext] = await Promise.all([getCourseIndex(), getAuthContext()]);
   return (
     <html lang="en">
       <body>
-        <AppShell courseIndex={courseIndex}>{children}</AppShell>
+        <AppShell courseIndex={courseIndex} authContext={authContext}>
+          {children}
+        </AppShell>
       </body>
     </html>
   );

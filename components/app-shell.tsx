@@ -10,16 +10,18 @@ import {
   Flag,
   History,
   LayoutDashboard,
+  LogOut,
   Menu,
   Search,
   Settings,
   Sparkles,
   SunMoon,
   Tags,
+  Users,
   X,
 } from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   type ReactNode,
   useEffect,
@@ -28,21 +30,42 @@ import {
   useState,
 } from "react";
 import type { CourseIndexEntry } from "@/db";
-import { demoUser } from "@/lib/permissions";
+import type { ApplicationRole, AuthContext } from "@/lib/auth";
+import { isPublicAuthPath } from "@/lib/public-auth-paths";
+import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 import { RuntimeInitializer } from "./runtime-initializer";
 import { StatusBadge } from "./status-badge";
 
-const navigation = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/courses", label: "Course Library", icon: BookOpen },
-  { href: "/accreditation", label: "Accreditation", icon: Award },
-  { href: "/topics-tags", label: "Topics & Tags", icon: Tags },
-  { href: "/versions", label: "Versions", icon: History },
-  { href: "/revamp", label: "Revamp Planning", icon: Sparkles },
-  { href: "/flags", label: "Flags & Follow-Up", icon: Flag },
-  { href: "/reports", label: "Reports", icon: BarChart3 },
-  { href: "/admin", label: "Administration", icon: Settings },
+const ALL_ROLES: ApplicationRole[] = ["super_admin", "admin", "accreditation", "content"];
+
+const navigation: Array<{ href: string; label: string; icon: typeof LayoutDashboard; roles: ApplicationRole[] }> = [
+  { href: "/", label: "Dashboard", icon: LayoutDashboard, roles: ALL_ROLES },
+  { href: "/courses", label: "Course Library", icon: BookOpen, roles: ALL_ROLES },
+  { href: "/accreditation", label: "Accreditation", icon: Award, roles: ["super_admin", "admin", "accreditation"] },
+  { href: "/topics-tags", label: "Topics & Tags", icon: Tags, roles: ["super_admin", "admin", "content"] },
+  { href: "/versions", label: "Versions", icon: History, roles: ["super_admin", "admin", "content"] },
+  { href: "/revamp", label: "Revamp Planning", icon: Sparkles, roles: ["super_admin", "admin", "content"] },
+  { href: "/flags", label: "Flags & Follow-Up", icon: Flag, roles: ALL_ROLES },
+  { href: "/reports", label: "Reports", icon: BarChart3, roles: ALL_ROLES },
+  { href: "/admin", label: "Administration", icon: Settings, roles: ["super_admin", "admin"] },
+  { href: "/admin/users", label: "User Management", icon: Users, roles: ["super_admin", "admin"] },
 ];
+
+function initialsFor(displayName: string): string {
+  const parts = displayName.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  return parts
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
+}
+
+const ROLE_LABELS: Record<ApplicationRole, string> = {
+  super_admin: "Super Admin",
+  admin: "Admin",
+  accreditation: "Accreditation",
+  content: "Content",
+};
 
 function currentSection(pathname: string) {
   return (
@@ -57,11 +80,14 @@ function currentSection(pathname: string) {
 export function AppShell({
   children,
   courseIndex,
+  authContext,
 }: {
   children: ReactNode;
   courseIndex: CourseIndexEntry[];
+  authContext: AuthContext | null;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -102,9 +128,15 @@ export function AppShell({
     }
   }, [commandOpen]);
 
+  const role = authContext?.role;
+  const visibleNavigation = useMemo(
+    () => navigation.filter((item) => role && item.roles.includes(role)),
+    [role],
+  );
+
   const commandResults = useMemo(() => {
     const query = commandQuery.trim().toLowerCase();
-    const pages = navigation
+    const pages = visibleNavigation
       .filter((item) => !query || item.label.toLowerCase().includes(query))
       .slice(0, 4)
       .map((item) => ({ href: item.href, label: item.label, type: "Page" }));
@@ -123,7 +155,7 @@ export function AppShell({
         type: course.courseCode,
       }));
     return [...pages, ...courses];
-  }, [commandQuery, courseIndex]);
+  }, [commandQuery, courseIndex, visibleNavigation]);
 
   const toggleTheme = () => {
     const current = document.documentElement.dataset.theme ?? "light";
@@ -131,6 +163,27 @@ export function AppShell({
     document.documentElement.dataset.theme = next;
     window.localStorage.setItem("coursetrack-theme", next);
   };
+
+  const handleSignOut = async () => {
+    try {
+      const supabase = createSupabaseBrowserClient();
+      await supabase.auth.signOut();
+    } catch {
+      // Supabase Auth isn't configured (sample-data mode) -- nothing to sign
+      // out of; still send the user back to /login.
+    }
+    router.push("/login");
+    router.refresh();
+  };
+
+  // Unauthenticated, no application membership, or a pre-auth page: render
+  // bare, no nav chrome. The pathname check matters even when
+  // authContext is non-null, since sample-data mode always resolves a
+  // synthetic identity -- there's no real logged-out state to distinguish
+  // there, so /login etc. must be special-cased by path instead.
+  if (!authContext || isPublicAuthPath(pathname)) {
+    return <main className="page-content page-content-bare">{children}</main>;
+  }
 
   return (
     <div className="app-frame">
@@ -166,7 +219,7 @@ export function AppShell({
         </div>
 
         <nav className="primary-nav" aria-label="Primary navigation">
-          {navigation.map((item) => {
+          {visibleNavigation.map((item) => {
             const active =
               item.href === pathname ||
               (item.href !== "/" && pathname.startsWith(`${item.href}/`));
@@ -191,13 +244,17 @@ export function AppShell({
         <div className="sidebar-footer">
           <RuntimeInitializer />
           <Link href="/profile" className="profile-chip">
-            <span className="avatar">{demoUser.initials}</span>
+            <span className="avatar">{initialsFor(authContext.displayName)}</span>
             <span>
-              <strong>{demoUser.name}</strong>
-              <small>{demoUser.role}</small>
+              <strong>{authContext.displayName}</strong>
+              <small>{ROLE_LABELS[authContext.role]}</small>
             </span>
             <ChevronRight size={16} aria-hidden="true" />
           </Link>
+          <button className="icon-button sign-out-button" onClick={handleSignOut} aria-label="Sign out">
+            <LogOut size={16} aria-hidden="true" />
+            <span>Sign out</span>
+          </button>
         </div>
       </aside>
 
@@ -274,7 +331,7 @@ export function AppShell({
               )}
             </div>
             <Link href="/profile" className="topbar-avatar" aria-label="Open user profile">
-              {demoUser.initials}
+              {initialsFor(authContext.displayName)}
             </Link>
           </div>
         </header>

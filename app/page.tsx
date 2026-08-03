@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import {
   Dashboard,
   type DashboardCourse,
@@ -6,10 +7,15 @@ import {
   getPortfolioSummaries,
   getRecentRetrievalRuns,
 } from "@/db";
+import { landingPathForRole, requireUser } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
+  const context = await requireUser();
+  const landingPath = landingPathForRole(context.role);
+  if (landingPath !== "/") redirect(landingPath);
+
   const [courses, retrievalRuns] = await Promise.all([
     getPortfolioSummaries(),
     getRecentRetrievalRuns(),

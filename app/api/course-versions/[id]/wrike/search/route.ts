@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { searchWrikeTasksForCourseVersion } from "@/db";
-import { requireWrikePermission } from "@/lib/wrike-authz";
+import { requireApiRole } from "@/lib/auth";
 
 const searchSchema = z.object({
   searchText: z.string().trim().max(160).optional(),
@@ -12,7 +12,7 @@ export async function POST(
   context: { params: Promise<{ id: string }> },
 ) {
   const { id } = await context.params;
-  const actor = await requireWrikePermission("versions:manage");
+  const actor = await requireApiRole("super_admin", "admin", "content");
   if ("error" in actor) return actor.error;
 
   const parsed = searchSchema.safeParse(await request.json().catch(() => ({})));
