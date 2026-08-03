@@ -32,8 +32,11 @@ import type {
   Course,
   CourseTagAssignment,
   CourseTopicAssignment,
+  CourseVersion,
   FieldComparison,
+  VersionWrikeTaskReference,
 } from "@/types/course";
+import type { WrikeTaskCandidate } from "@/db";
 import { StatusBadge } from "../status-badge";
 import { accreditationDisplayLabel, groupAccreditationRecords } from "@/lib/accreditation-grouping";
 
@@ -420,7 +423,9 @@ export function CourseDetail({
               onResolve={resolveField}
             />
           )}
-          {activeTab === "Versions" && <VersionsTab course={currentCourse} />}
+          {activeTab === "Versions" && (
+            <VersionsTab course={currentCourse} onCourseChange={setCurrentCourse} />
+          )}
           {activeTab === "Accreditation" && (
             <AccreditationTab course={currentCourse} />
           )}
@@ -737,7 +742,13 @@ function SourceComparisonTab({
   );
 }
 
-function VersionsTab({ course }: { course: Course }) {
+function VersionsTab({
+  course,
+  onCourseChange,
+}: {
+  course: Course;
+  onCourseChange: Dispatch<SetStateAction<Course>>;
+}) {
   return (
     <div className="detail-section-stack">
       <section className="version-governance-banner">
@@ -779,18 +790,7 @@ function VersionsTab({ course }: { course: Course }) {
                   <td>{version.versionType}</td>
                   <td>{version.publicationDate}</td>
                   <td className="version-wrike-cell">
-                    {version.wrikeTaskReferences.length === 0 ? (
-                      <span className="wrike-empty">No task linked</span>
-                    ) : (
-                      version.wrikeTaskReferences.map((reference) => (
-                        <span className="wrike-reference" key={reference.id}>
-                          <Link2 size={13} />
-                          <strong>{reference.taskTitle}</strong>
-                          <small>{reference.projectTitle ?? "No project supplied"} · {reference.wrikeTaskId}</small>
-                          {reference.isSample && <StatusBadge tone="sample">Mock Wrike</StatusBadge>}
-                        </span>
-                      ))
-                    )}
+                    <VersionWrikeCell version={version} onCourseChange={onCourseChange} />
                   </td>
                   <td>{version.releaseNotes}</td>
                   <td><StatusBadge tone="success">{version.managedBy}</StatusBadge></td>
@@ -808,6 +808,242 @@ function VersionsTab({ course }: { course: Course }) {
     </div>
   );
 }
+
+function replaceVersionWrikeReferences(
+  onCourseChange: Dispatch<SetStateAction<Course>>,
+  versionId: string,
+  wrikeTaskReferences: VersionWrikeTaskReference[],
+) {
+  onCourseChange((prev) => ({
+    ...prev,
+    versions: prev.versions.map((version) =>
+      version.id === versionId ? { ...version, wrikeTaskReferences } : version,
+    ),
+  }));
+}
+
+function VersionWrikeCell({
+  version,
+  onCourseChange,
+}: {
+  version: CourseVersion;
+  onCourseChange: Dispatch<SetStateAction<Course>>;
+}) {
+  const [linking, setLinking] = useState(false);
+  const [permalink, setPermalink] = useState("");
+  const [candidates, setCandidates] = useState<WrikeTaskCandidate[] | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+
+  const activeReference = version.wrikeTaskReferences[0] ?? null;
+
+  const applyLinkResult = (
+    link: { id: string; wrikeTaskId: string; taskTitle: string; permalink: string | null },
+    linkMethod: VersionWrikeTaskReference["linkMethod"],
+  ) => {
+    const now = new Date().toISOString();
+    replaceVersionWrikeReferences(onCourseChange, version.id, [
+      {
+        id: link.id,
+        wrikeTaskId: link.wrikeTaskId,
+        taskTitle: link.taskTitle,
+        projectId: null,
+        projectTitle: null,
+        taskStatus: null,
+        assigneeNames: [],
+        dueDate: null,
+        permalink: link.permalink,
+        provider: "Live Wrike",
+        retrievedAt: now,
+        linkedAt: now,
+        linkedBy: "You",
+        isSample: false,
+        linkMethod,
+        lastVerifiedAt: null,
+      },
+    ]);
+    setLinking(false);
+    setPermalink("");
+    setCandidates(null);
+  };
+
+  const handleLinkByPermalink = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!permalink.trim()) return;
+    setPending(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/course-versions/${version.id}/wrike/link`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ permalink: permalink.trim() }),
+      });
+      const result = (await response.json()) as { link?: VersionWrikeCellLink; message?: string };
+      if (!response.ok || !result.link) throw new Error(result.message ?? "Could not link this Wrike task.");
+      applyLinkResult(result.link, "manual_permalink");
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "Could not link this Wrike task.");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const handleFindCandidates = async () => {
+    setSearching(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/course-versions/${version.id}/wrike/search`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const result = (await response.json()) as { items?: WrikeTaskCandidate[]; message?: string };
+      if (!response.ok) throw new Error(result.message ?? "Could not search Wrike tasks.");
+      setCandidates(result.items ?? []);
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "Could not search Wrike tasks.");
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const handleSelectCandidate = async (candidateTaskId: string) => {
+    setPending(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/course-versions/${version.id}/wrike/link`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ candidateTaskId }),
+      });
+      const result = (await response.json()) as { link?: VersionWrikeCellLink; message?: string };
+      if (!response.ok || !result.link) throw new Error(result.message ?? "Could not link this Wrike task.");
+      applyLinkResult(result.link, "selected_candidate");
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "Could not link this Wrike task.");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const handleVerify = async () => {
+    if (!activeReference) return;
+    setPending(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/course-versions/${version.id}/wrike/verify`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ referenceId: activeReference.id }),
+      });
+      const result = (await response.json()) as {
+        link?: VersionWrikeCellLink & { lastVerifiedAt: string };
+        message?: string;
+      };
+      if (!response.ok || !result.link) throw new Error(result.message ?? "Could not verify this Wrike link.");
+      replaceVersionWrikeReferences(onCourseChange, version.id, [
+        { ...activeReference, taskTitle: result.link.taskTitle, permalink: result.link.permalink, lastVerifiedAt: result.link.lastVerifiedAt },
+      ]);
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "Could not verify this Wrike link.");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const handleUnlink = async () => {
+    if (!activeReference) return;
+    setPending(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/course-versions/${version.id}/wrike/link`, {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ referenceId: activeReference.id }),
+      });
+      const result = (await response.json()) as { unlinked?: boolean; message?: string };
+      if (!response.ok || !result.unlinked) throw new Error(result.message ?? "Could not unlink this Wrike task.");
+      replaceVersionWrikeReferences(onCourseChange, version.id, []);
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "Could not unlink this Wrike task.");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  if (activeReference && !linking) {
+    return (
+      <div className="wrike-reference">
+        <Link2 size={13} />
+        <strong>{activeReference.taskTitle}</strong>
+        <small>
+          {activeReference.wrikeTaskId}
+          {activeReference.lastVerifiedAt && ` · Verified ${new Date(activeReference.lastVerifiedAt).toLocaleDateString()}`}
+        </small>
+        {activeReference.isSample && <StatusBadge tone="sample">Mock Wrike</StatusBadge>}
+        <div className="wrike-cell-actions">
+          {activeReference.permalink && (
+            <a href={activeReference.permalink} target="_blank" rel="noopener noreferrer">
+              Open in Wrike
+            </a>
+          )}
+          <button type="button" disabled={pending} onClick={handleVerify}>Verify link</button>
+          <button type="button" disabled={pending} onClick={() => setLinking(true)}>Relink</button>
+          <button type="button" disabled={pending} onClick={handleUnlink}>Unlink</button>
+        </div>
+        {error && <p className="taxonomy-editor-error">{error}</p>}
+      </div>
+    );
+  }
+
+  return (
+    <div className="wrike-link-form">
+      {!activeReference && !linking ? (
+        <button type="button" className="button button-secondary" onClick={() => setLinking(true)}>
+          Link Wrike task
+        </button>
+      ) : (
+        <>
+          <form className="taxonomy-add-form" onSubmit={handleLinkByPermalink}>
+            <input
+              type="url"
+              placeholder="Paste a Wrike task URL…"
+              value={permalink}
+              onChange={(event) => setPermalink(event.target.value)}
+              disabled={pending}
+            />
+            <button type="submit" className="button button-secondary" disabled={pending || !permalink.trim()}>
+              Link
+            </button>
+          </form>
+          <button type="button" disabled={searching || pending} onClick={handleFindCandidates}>
+            {searching ? "Searching…" : "Find candidates"}
+          </button>
+          {candidates && (
+            <ul className="wrike-candidate-list">
+              {candidates.length === 0 && <li className="empty-hint">No matching tasks found in the synchronized index.</li>}
+              {candidates.map((candidate) => (
+                <li key={candidate.wrikeTaskId}>
+                  <span>{candidate.title}</span>
+                  <button type="button" disabled={pending} onClick={() => handleSelectCandidate(candidate.wrikeTaskId)}>
+                    Select
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <button type="button" onClick={() => setLinking(false)} disabled={pending}>
+            Cancel
+          </button>
+          {error && <p className="taxonomy-editor-error">{error}</p>}
+        </>
+      )}
+    </div>
+  );
+}
+
+type VersionWrikeCellLink = { id: string; wrikeTaskId: string; taskTitle: string; permalink: string | null };
 
 function AccreditationTab({ course }: { course: Course }) {
   if (course.accreditations.length === 0) {

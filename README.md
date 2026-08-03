@@ -74,6 +74,10 @@ Never commit LMS or Supabase service credentials. Live LMS endpoints are not
 invented in this repository; the adapter stays in a visible `not-configured`
 state until documented provider details are supplied.
 
+Live, read-only Wrike course-version linking (a permanent-token connection,
+an approved-folder task sync, and per-version link/verify/unlink) is
+configured separately — see [`docs/wrike-setup.md`](docs/wrike-setup.md).
+
 ## Data and provenance
 
 Every LMS-derived record carries source, retrieval status, and retrieval time.

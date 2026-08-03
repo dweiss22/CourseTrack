@@ -116,7 +116,8 @@ async function fetchGraph(client: SupabaseClient, courseAppId?: string): Promise
     fetchAllRows(
       client,
       "version_wrike_task_references",
-      "id,course_version_id,external_task_id,task_title,external_project_id,project_title,task_status,assignee_names,due_date,permalink,provider_name,retrieved_at,linked_by_email,linked_at",
+      "id,course_version_id,external_task_id,task_title,external_project_id,project_title,task_status,assignee_names,due_date,permalink,provider_name,retrieved_at,linked_by_email,linked_at,link_method,last_verified_at",
+      (query) => query.is("unlinked_at", null),
     ),
     fetchAllRows(
       client,
@@ -566,7 +567,9 @@ function buildVersion(row: Row, wrikeRefsByVersion: Map<string, Row[]>): CourseV
       retrievedAt: ref.retrieved_at as string,
       linkedAt: ref.linked_at as string,
       linkedBy: (ref.linked_by_email as string) ?? "",
-      isSample: true,
+      isSample: ref.provider_name !== "Live Wrike",
+      linkMethod: (ref.link_method as VersionWrikeTaskReference["linkMethod"]) ?? null,
+      lastVerifiedAt: (ref.last_verified_at as string) ?? null,
     }),
   );
   return {
@@ -803,7 +806,8 @@ export async function fetchVersionBoard(client: SupabaseClient): Promise<Version
     fetchAllRows(
       client,
       "version_wrike_task_references",
-      "id,course_version_id,external_task_id,task_title,external_project_id,project_title,task_status,assignee_names,due_date,permalink,provider_name,retrieved_at,linked_by_email,linked_at",
+      "id,course_version_id,external_task_id,task_title,external_project_id,project_title,task_status,assignee_names,due_date,permalink,provider_name,retrieved_at,linked_by_email,linked_at,link_method,last_verified_at",
+      (query) => query.is("unlinked_at", null),
     ),
   ]);
   const wrikeRefsByVersion = groupBy(wrikeRefRows, "course_version_id");

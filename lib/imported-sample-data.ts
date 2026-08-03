@@ -183,6 +183,8 @@ function buildVersions(
             linkedAt: `${date}T14:00:00.000Z`,
             linkedBy: "Dana Weiss",
             isSample: true,
+            linkMethod: null,
+            lastVerifiedAt: null,
           }]
         : [],
     };

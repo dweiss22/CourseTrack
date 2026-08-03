@@ -309,6 +309,8 @@ export interface VersionWrikeTaskReference {
   linkedAt: string;
   linkedBy: string;
   isSample: boolean;
+  linkMethod: "manual_permalink" | "selected_candidate" | null;
+  lastVerifiedAt: string | null;
 }
 
 export interface CourseVersion {

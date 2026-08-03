@@ -2107,6 +2107,12 @@ kbd {
   font-size: 11px;
 }
 
+.wrike-connection-panel {
+  border-top: 1px solid var(--border-subtle);
+  margin-top: 18px;
+  padding-top: 4px;
+}
+
 .taxonomy-note {
   margin: 0;
   padding: 12px 18px 18px;
@@ -3649,6 +3655,56 @@ body {
 .wrike-reference .status-badge {
   display: inline-flex;
   margin-top: 7px;
+}
+
+.wrike-cell-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 7px;
+}
+
+.wrike-cell-actions a,
+.wrike-cell-actions button {
+  font-size: 11px;
+  color: var(--primary);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.wrike-link-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wrike-link-form > button {
+  align-self: flex-start;
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.wrike-candidate-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+  font-size: 11px;
+}
+
+.wrike-candidate-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .source-assignment-grid {
