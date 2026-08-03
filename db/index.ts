@@ -5,6 +5,7 @@ import {
   fetchCourseGraphByAppId,
   fetchFlagBoard,
   fetchFullCourseGraph,
+  fetchPortfolioSummaries,
   fetchReportMetrics,
   fetchRevampBoard,
   fetchSampleDataCounts,
@@ -13,6 +14,7 @@ import {
   type CourseSummary,
   type FlagBoardEntry,
   type PortfolioReportMetrics,
+  type PortfolioSummary,
   type RevampBoardEntry,
   type SampleDataCounts,
   type VersionBoardEntry,
@@ -22,6 +24,7 @@ export type {
   CourseSummary,
   FlagBoardEntry,
   PortfolioReportMetrics,
+  PortfolioSummary,
   RevampBoardEntry,
   SampleDataCounts,
   VersionBoardEntry,
@@ -110,6 +113,51 @@ export async function getPortfolioCourses(): Promise<Course[]> {
     return await fetchFullCourseGraph(client);
   } catch {
     return sampleCourses;
+  }
+}
+
+function sampleSummaries(): PortfolioSummary[] {
+  return sampleCourses.map((course) => ({
+    id: course.id,
+    title: course.title,
+    shortTitle: course.shortTitle,
+    courseCode: course.courseCode,
+    lmsCourseId: course.lmsCourseId,
+    description: course.description,
+    primaryVertical: course.primaryVertical,
+    managementClassification: course.managementClassification,
+    reconciliationStatus: course.reconciliationStatus,
+    retrievalStatus: course.retrievalStatus,
+    lastRetrievedAt: course.lastRetrievedAt,
+    healthStatus: course.healthStatus,
+    lifecycleStatus: course.lifecycleStatus,
+    primaryTopic: course.primaryTopic,
+    tags: course.tags,
+    owner: course.owner,
+    durationMinutes: course.durationMinutes,
+    dataSource: course.dataSource,
+    nextReviewDate: course.nextReviewDate,
+    metadataCompletenessScore: course.metadataCompletenessScore,
+    conflictCount: course.conflictCount,
+    flagCount: course.flags.length,
+    hasLmsSnapshot: Boolean(course.lmsSnapshot),
+    hasContentMetadata: Boolean(course.contentMetadata),
+    importValidationErrorCount: course.importValidationErrors.length,
+    topicAssignments: course.topicAssignments.map(({ topic }) => ({ topic })),
+  }));
+}
+
+// Dashboard and Course Library only need flat/derived fields, never the full
+// nested graph — see fetchPortfolioSummaries for why this exists separately
+// from getPortfolioCourses.
+export async function getPortfolioSummaries(): Promise<PortfolioSummary[]> {
+  const client = getSupabaseAdminClient();
+  if (!client) return sampleSummaries();
+
+  try {
+    return await fetchPortfolioSummaries(client);
+  } catch {
+    return sampleSummaries();
   }
 }
 

@@ -3,7 +3,7 @@ import {
   CourseLibrary,
   type CourseLibraryRecord,
 } from "@/components/course-library/course-library";
-import { getPortfolioCourses } from "@/db";
+import { getPortfolioSummaries } from "@/db";
 
 export const metadata: Metadata = {
   title: "Course Library",
@@ -13,7 +13,7 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 export default async function CourseLibraryPage() {
-  const courses = await getPortfolioCourses();
+  const courses = await getPortfolioSummaries();
   const records: CourseLibraryRecord[] = courses.map((course) => ({
     id: course.id,
     title: course.title,
@@ -34,10 +34,10 @@ export default async function CourseLibraryPage() {
     owner: course.owner,
     durationMinutes: course.durationMinutes,
     dataSource: course.dataSource,
-    topicAssignments: course.topicAssignments.map(({ topic }) => ({ topic })),
-    hasLmsSnapshot: Boolean(course.lmsSnapshot),
-    hasContentMetadata: Boolean(course.contentMetadata),
-    importValidationErrorCount: course.importValidationErrors.length,
+    topicAssignments: course.topicAssignments,
+    hasLmsSnapshot: course.hasLmsSnapshot,
+    hasContentMetadata: course.hasContentMetadata,
+    importValidationErrorCount: course.importValidationErrorCount,
   }));
   return <CourseLibrary courses={records} />;
 }

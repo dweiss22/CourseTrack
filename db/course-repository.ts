@@ -138,7 +138,7 @@ async function fetchGraph(client: SupabaseClient, courseAppId?: string): Promise
     fetchAllRows(
       client,
       "lms_snapshots",
-      "id,course_id,provider,external_id,retrieved_at,normalized_payload,raw_payload,mapping_warnings",
+      "id,course_id,provider,external_id,retrieval_run_id,retrieved_at,normalized_payload,raw_payload,mapping_warnings",
       (query) => byCourse(query).eq("is_current", true),
     ),
     fetchAllRows(client, "content_metadata_records", "course_id,normalized_payload", byCourse),
@@ -310,7 +310,7 @@ function buildCourseFromRows(row: Row, maps: GraphMaps): Course {
   const lmsSnapshot: LmsCourseSnapshot | null = snapshotRow
     ? {
         id: `${appId}-SNAPSHOT-1`,
-        retrievalRunId: maps.retrievalRunIdByDbId.get(snapshotRow.id as string) ?? "",
+        retrievalRunId: maps.retrievalRunIdByDbId.get(snapshotRow.retrieval_run_id as string) ?? "",
         provider: snapshotRow.provider as string,
         lmsCourseId: snapshotRow.external_id as string,
         retrievedAt: snapshotRow.retrieved_at as string,
@@ -599,6 +599,125 @@ function buildVerticalAssignments(input: {
 // pulling the whole graph on every workspace page load is what exhausted the
 // Workers runtime's subrequest budget.
 
+export interface PortfolioSummary {
+  id: string;
+  title: string;
+  shortTitle: string;
+  courseCode: string;
+  lmsCourseId: string | null;
+  description: string;
+  primaryVertical: Vertical;
+  managementClassification: Course["managementClassification"];
+  reconciliationStatus: Course["reconciliationStatus"];
+  retrievalStatus: Course["retrievalStatus"];
+  lastRetrievedAt: string | null;
+  healthStatus: Course["healthStatus"];
+  lifecycleStatus: Course["lifecycleStatus"];
+  primaryTopic: string;
+  tags: string[];
+  owner: string | null;
+  durationMinutes: number;
+  dataSource: Course["dataSource"];
+  nextReviewDate: string | null;
+  metadataCompletenessScore: number;
+  conflictCount: number;
+  flagCount: number;
+  hasLmsSnapshot: boolean;
+  hasContentMetadata: boolean;
+  importValidationErrorCount: number;
+  topicAssignments: { topic: string }[];
+}
+
+// Dashboard and Course Library only ever render these flat/derived fields —
+// never the full nested graph (versions, field comparisons, notes, etc.).
+// Reconstructing the whole Course object for every row on these hot list
+// pages is what exhausted the Workers subrequest budget; this reads only
+// what's actually rendered.
+export async function fetchPortfolioSummaries(client: SupabaseClient): Promise<PortfolioSummary[]> {
+  const [
+    verticalRows,
+    courseRows,
+    flagRows,
+    snapshotRows,
+    metadataRows,
+    conflictRows,
+    topicRows,
+  ] = await Promise.all([
+    fetchAllRows(client, "verticals", "id,slug"),
+    fetchAllRows(
+      client,
+      "courses",
+      "id,app_id,title,short_title,course_code,lms_course_id,description,primary_vertical_id,management_classification,reconciliation_status,retrieval_status,last_retrieved_at,health_status,lifecycle_status,primary_topic,tags,owner_name,duration_minutes,data_source,next_review_date,metadata_completeness_score,import_validation_errors",
+    ),
+    fetchAllRows(client, "course_flags", "course_id"),
+    fetchAllRows(client, "lms_snapshots", "course_id", (query) => query.eq("is_current", true)),
+    fetchAllRows(client, "content_metadata_records", "course_id"),
+    fetchAllRows(
+      client,
+      "field_comparisons",
+      "course_id",
+      (query) => query.eq("comparison_status", "Conflict").is("selected_source", null),
+    ),
+    fetchAllRows(client, "course_topics", "course_id,topics(display_label)"),
+  ]);
+
+  const verticalById = new Map(verticalRows.map((row) => [row.id as string, row.slug as string]));
+  const countByCourse = (rows: Row[]) => {
+    const counts = new Map<string, number>();
+    for (const row of rows) {
+      const id = row.course_id as string;
+      counts.set(id, (counts.get(id) ?? 0) + 1);
+    }
+    return counts;
+  };
+  const flagCounts = countByCourse(flagRows);
+  const conflictCounts = countByCourse(conflictRows);
+  const snapshotCourseIds = new Set(snapshotRows.map((row) => row.course_id as string));
+  const metadataCourseIds = new Set(metadataRows.map((row) => row.course_id as string));
+  const topicsByCourse = new Map<string, { topic: string }[]>();
+  for (const row of topicRows) {
+    const courseId = row.course_id as string;
+    const topic = (row.topics as { display_label?: string } | null)?.display_label;
+    if (!topic) continue;
+    const list = topicsByCourse.get(courseId) ?? [];
+    list.push({ topic });
+    topicsByCourse.set(courseId, list);
+  }
+
+  return courseRows.map((row) => {
+    const courseDbId = row.id as string;
+    const appId = row.app_id as string;
+    return {
+      id: appId,
+      title: row.title as string,
+      shortTitle: row.short_title as string,
+      courseCode: row.course_code as string,
+      lmsCourseId: (row.lms_course_id as string) ?? null,
+      description: row.description as string,
+      primaryVertical: SLUG_TO_VERTICAL[verticalById.get(row.primary_vertical_id as string) ?? ""],
+      managementClassification: row.management_classification as Course["managementClassification"],
+      reconciliationStatus: row.reconciliation_status as Course["reconciliationStatus"],
+      retrievalStatus: row.retrieval_status as Course["retrievalStatus"],
+      lastRetrievedAt: (row.last_retrieved_at as string) ?? null,
+      healthStatus: row.health_status as Course["healthStatus"],
+      lifecycleStatus: row.lifecycle_status as Course["lifecycleStatus"],
+      primaryTopic: row.primary_topic as string,
+      tags: (row.tags as string[]) ?? [],
+      owner: (row.owner_name as string) ?? null,
+      durationMinutes: Number(row.duration_minutes ?? 0),
+      dataSource: row.data_source as Course["dataSource"],
+      nextReviewDate: (row.next_review_date as string) ?? null,
+      metadataCompletenessScore: Number(row.metadata_completeness_score),
+      conflictCount: conflictCounts.get(courseDbId) ?? 0,
+      flagCount: flagCounts.get(courseDbId) ?? 0,
+      hasLmsSnapshot: snapshotCourseIds.has(courseDbId),
+      hasContentMetadata: metadataCourseIds.has(courseDbId),
+      importValidationErrorCount: ((row.import_validation_errors as string[]) ?? []).length,
+      topicAssignments: topicsByCourse.get(courseDbId) ?? [],
+    };
+  });
+}
+
 export type CourseSummary = { courseId: string; courseTitle: string; courseCode: string };
 
 export interface AccreditationBoardEntry {
@@ -801,16 +920,29 @@ export interface SampleDataCounts {
 }
 
 export async function fetchSampleDataCounts(client: SupabaseClient): Promise<SampleDataCounts> {
-  const count = async (table: string): Promise<number> => {
-    const { count: result, error } = await client.from(table).select("id", { count: "exact", head: true });
+  const countCourses = async (): Promise<number> => {
+    const { count: result, error } = await client
+      .from("courses")
+      .select("id", { count: "exact", head: true })
+      .eq("is_sample", true);
+    if (error) throw new Error(`Could not count courses: ${error.message}`);
+    return result ?? 0;
+  };
+  // Child tables have no is_sample column of their own — restrict the count
+  // to rows whose course is marked is_sample via an inner join filter.
+  const countForSampleCourses = async (table: string): Promise<number> => {
+    const { count: result, error } = await client
+      .from(table)
+      .select("id,courses!inner(is_sample)", { count: "exact", head: true })
+      .eq("courses.is_sample", true);
     if (error) throw new Error(`Could not count ${table}: ${error.message}`);
     return result ?? 0;
   };
   const [courses, versions, accreditations, flags] = await Promise.all([
-    count("courses"),
-    count("course_versions"),
-    count("accreditation_records"),
-    count("course_flags"),
+    countCourses(),
+    countForSampleCourses("course_versions"),
+    countForSampleCourses("accreditation_records"),
+    countForSampleCourses("course_flags"),
   ]);
   return { courses, versions, accreditations, flags };
 }
