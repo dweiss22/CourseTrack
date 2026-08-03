@@ -118,7 +118,10 @@ export interface WrikePage<T> {
 
 /**
  * Follows Wrike's cursor pagination (nextPageToken) defensively, capped at
- * MAX_PAGES per folder as a runaway guard.
+ * MAX_PAGES per folder as a runaway guard. Hitting the cap while more pages
+ * remain throws rather than silently returning a truncated list — a caller
+ * that treated a truncated page as a complete result would incorrectly mark
+ * every task beyond the cap as stale on the next sync.
  */
 export async function fetchAllWrikePages<T>(
   input: Omit<WrikeRequestInput, "path"> & { path: string },
@@ -133,6 +136,8 @@ export async function fetchAllWrikePages<T>(
     if (!result.nextPageToken) return items;
     pageToken = result.nextPageToken;
   }
-  console.warn(`Wrike pagination cap (${MAX_PAGES} pages) reached for ${input.path}; stopping early.`);
-  return items;
+  throw new WrikeApiError(
+    `Wrike pagination cap (${MAX_PAGES} pages) reached for ${input.path} with more pages remaining.`,
+    null,
+  );
 }

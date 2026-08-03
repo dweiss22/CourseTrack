@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getChatGPTUser } from "@/app/chatgpt-auth";
+import { requireApiUser } from "@/lib/auth";
 import { searchWrikeTasks } from "@/db";
 
 const querySchema = z.object({
@@ -16,10 +16,8 @@ const querySchema = z.object({
 // Searches the locally synchronized Wrike task index only. Never triggers a
 // sync — see POST /api/wrike/sync for that.
 export async function GET(request: Request) {
-  const user = await getChatGPTUser();
-  if (!user && process.env.NODE_ENV === "production") {
-    return NextResponse.json({ message: "Authentication is required." }, { status: 401 });
-  }
+  const actor = await requireApiUser();
+  if ("error" in actor) return actor.error;
 
   const url = new URL(request.url);
   const parsed = querySchema.safeParse({

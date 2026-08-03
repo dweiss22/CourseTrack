@@ -1,16 +1,10 @@
 import { NextResponse } from "next/server";
-import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { disconnectFromWrike } from "@/db";
-import { demoUser, hasPermission } from "@/lib/permissions";
+import { requireApiAdmin } from "@/lib/auth";
 
 export async function POST() {
-  const user = await getChatGPTUser();
-  if (!user && process.env.NODE_ENV === "production") {
-    return NextResponse.json({ message: "Authentication is required." }, { status: 401 });
-  }
-  if (!hasPermission(demoUser.role, "administration:manage")) {
-    return NextResponse.json({ message: "Only administrators can disconnect Wrike." }, { status: 403 });
-  }
+  const actor = await requireApiAdmin();
+  if ("error" in actor) return actor.error;
 
   try {
     await disconnectFromWrike();

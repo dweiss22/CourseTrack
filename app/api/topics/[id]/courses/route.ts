@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getChatGPTUser } from "@/app/chatgpt-auth";
+import { requireApiRole } from "@/lib/auth";
 import { assignTopicToCourses, getCoursesForTopic, removeCourseTopic } from "@/db";
-import { demoUser } from "@/lib/permissions";
 
 const assignSchema = z.object({
   label: z.string().trim().min(1).max(120),
@@ -13,21 +12,13 @@ const removeSchema = z.object({
   assignmentIds: z.array(z.string().trim().min(1)).min(1),
 });
 
-async function requireActorEmail(): Promise<string | NextResponse> {
-  const user = await getChatGPTUser();
-  if (!user && process.env.NODE_ENV === "production") {
-    return NextResponse.json(
-      { message: "Authentication is required to edit topics." },
-      { status: 401 },
-    );
-  }
-  return user?.email ?? demoUser.email;
-}
-
 export async function GET(
   _request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
+  const actor = await requireApiRole("super_admin", "admin", "content");
+  if ("error" in actor) return actor.error;
+
   const { id } = await context.params;
   const courses = await getCoursesForTopic(id);
   return NextResponse.json({ courses });
@@ -39,13 +30,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ message: "Select a topic label and at least one course." }, { status: 400 });
   }
 
-  const actorEmail = await requireActorEmail();
-  if (actorEmail instanceof NextResponse) return actorEmail;
+  const actor = await requireApiRole("super_admin", "admin", "content");
+  if ("error" in actor) return actor.error;
 
   const assignedCount = await assignTopicToCourses({
     topicLabel: parsed.data.label,
     courseIds: parsed.data.courseIds,
-    actorEmail,
+    actorEmail: actor.context.email,
   });
   return NextResponse.json({
     assignedCount,
@@ -59,12 +50,12 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ message: "Select at least one assignment to remove." }, { status: 400 });
   }
 
-  const actorEmail = await requireActorEmail();
-  if (actorEmail instanceof NextResponse) return actorEmail;
+  const actor = await requireApiRole("super_admin", "admin", "content");
+  if ("error" in actor) return actor.error;
 
   let removedCount = 0;
   for (const assignmentId of parsed.data.assignmentIds) {
-    const removed = await removeCourseTopic({ courseTopicId: assignmentId, actorEmail });
+    const removed = await removeCourseTopic({ courseTopicId: assignmentId, actorEmail: actor.context.email });
     if (removed) removedCount += 1;
   }
   return NextResponse.json({

@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getChatGPTUser } from "@/app/chatgpt-auth";
+import { requireApiRole } from "@/lib/auth";
 import { getPortfolioCourses, recordRetrievalRun } from "@/db";
-import { demoUser } from "@/lib/permissions";
 import {
   MockLmsProvider,
   type MockLmsMode,
@@ -22,14 +21,9 @@ export async function POST(request: Request) {
     );
   }
 
-  const user = await getChatGPTUser();
-  if (!user && process.env.NODE_ENV === "production") {
-    return NextResponse.json(
-      { message: "Authentication is required to run an LMS retrieval." },
-      { status: 401 },
-    );
-  }
-  const actorEmail = user?.email ?? demoUser.email;
+  const actor = await requireApiRole("super_admin", "admin", "content");
+  if ("error" in actor) return actor.error;
+  const actorEmail = actor.context.email;
   const provider = new MockLmsProvider(parsed.data.mode as MockLmsMode);
   const requested = parsed.data.courseId
     ? 1

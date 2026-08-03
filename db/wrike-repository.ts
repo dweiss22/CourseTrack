@@ -532,6 +532,33 @@ export async function linkCourseVersionWrikeTask(
     throw new Error("Provide either a Wrike permalink or a selected candidate task id.");
   }
 
+  // Relinking replaces whatever is currently active on this version. Retire
+  // it first so the new insert doesn't collide with the one-active-link
+  // partial unique index; a no-op when there was nothing active. The
+  // supersede and insert are two separate Supabase requests (no client-side
+  // transaction available here), so if the insert below fails -- e.g. this
+  // task is already linked elsewhere -- restore the retired row rather than
+  // leaving the version with no active link at all.
+  const { data: previousActive, error: previousActiveError } = await client
+    .from("version_wrike_task_references")
+    .select("id")
+    .eq("course_version_id", input.courseVersionId)
+    .is("unlinked_at", null)
+    .maybeSingle();
+  if (previousActiveError) {
+    throw repositoryError("Could not read the current Wrike link", previousActiveError);
+  }
+
+  if (previousActive) {
+    const { error: supersedeError } = await client
+      .from("version_wrike_task_references")
+      .update({ unlinked_at: new Date().toISOString() })
+      .eq("id", previousActive.id);
+    if (supersedeError) {
+      throw repositoryError("Could not supersede the previous Wrike link", supersedeError);
+    }
+  }
+
   const { data, error } = await client
     .from("version_wrike_task_references")
     .insert({
@@ -549,6 +576,12 @@ export async function linkCourseVersionWrikeTask(
     .single();
 
   if (error) {
+    if (previousActive) {
+      await client
+        .from("version_wrike_task_references")
+        .update({ unlinked_at: null })
+        .eq("id", previousActive.id);
+    }
     if (error.code === "23505") {
       throw new Error(
         "This Wrike task is already linked to another course version, or this version already has an active link.",

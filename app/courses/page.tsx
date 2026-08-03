@@ -4,6 +4,7 @@ import {
   type CourseLibraryRecord,
 } from "@/components/course-library/course-library";
 import { getPortfolioSummaries } from "@/db";
+import { requireUser } from "@/lib/auth";
 
 export const metadata: Metadata = {
   title: "Course Library",
@@ -13,6 +14,7 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 export default async function CourseLibraryPage() {
+  await requireUser();
   const courses = await getPortfolioSummaries();
   const records: CourseLibraryRecord[] = courses.map((course) => ({
     id: course.id,

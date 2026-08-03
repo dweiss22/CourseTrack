@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { linkWrikeTaskToCourseVersion, unlinkWrikeTaskFromCourseVersion } from "@/db";
-import { demoUser, hasPermission } from "@/lib/permissions";
+import { requireApiRole } from "@/lib/auth";
 
 const linkSchema = z
   .object({
@@ -17,27 +16,12 @@ const unlinkSchema = z.object({
   referenceId: z.string().trim().min(1),
 });
 
-async function requireVersionManager(): Promise<
-  { email: string } | { error: NextResponse }
-> {
-  const user = await getChatGPTUser();
-  if (!user && process.env.NODE_ENV === "production") {
-    return { error: NextResponse.json({ message: "Authentication is required." }, { status: 401 }) };
-  }
-  if (!hasPermission(demoUser.role, "versions:manage")) {
-    return {
-      error: NextResponse.json({ message: "Only version managers can link Wrike tasks." }, { status: 403 }),
-    };
-  }
-  return { email: user?.email ?? demoUser.email };
-}
-
 export async function POST(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
   const { id } = await context.params;
-  const actor = await requireVersionManager();
+  const actor = await requireApiRole("super_admin", "admin", "content");
   if ("error" in actor) return actor.error;
 
   const parsed = linkSchema.safeParse(await request.json().catch(() => ({})));
@@ -53,7 +37,7 @@ export async function POST(
       courseVersionId: id,
       permalink: parsed.data.permalink,
       candidateTaskId: parsed.data.candidateTaskId,
-      actorEmail: actor.email,
+      actorEmail: actor.context.email,
     });
     return NextResponse.json({ link, message: "Wrike task linked. Wrike was not changed." });
   } catch (error) {
@@ -69,7 +53,7 @@ export async function DELETE(
   context: { params: Promise<{ id: string }> },
 ) {
   await context.params;
-  const actor = await requireVersionManager();
+  const actor = await requireApiRole("super_admin", "admin", "content");
   if ("error" in actor) return actor.error;
 
   const parsed = unlinkSchema.safeParse(await request.json().catch(() => ({})));

@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { searchWrikeTasksForCourseVersion } from "@/db";
-import { demoUser, hasPermission } from "@/lib/permissions";
+import { requireApiRole } from "@/lib/auth";
 
 const searchSchema = z.object({
   searchText: z.string().trim().max(160).optional(),
@@ -13,13 +12,8 @@ export async function POST(
   context: { params: Promise<{ id: string }> },
 ) {
   const { id } = await context.params;
-  const user = await getChatGPTUser();
-  if (!user && process.env.NODE_ENV === "production") {
-    return NextResponse.json({ message: "Authentication is required." }, { status: 401 });
-  }
-  if (!hasPermission(demoUser.role, "versions:manage")) {
-    return NextResponse.json({ message: "Only version managers can search Wrike tasks." }, { status: 403 });
-  }
+  const actor = await requireApiRole("super_admin", "admin", "content");
+  if ("error" in actor) return actor.error;
 
   const parsed = searchSchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) {

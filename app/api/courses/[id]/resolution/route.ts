@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getChatGPTUser } from "@/app/chatgpt-auth";
+import { requireApiRole } from "@/lib/auth";
 import { getCourseRecord, persistFieldResolution } from "@/db";
-import { demoUser } from "@/lib/permissions";
 import { applyFieldResolution } from "@/lib/source-normalization";
 
 const resolutionSchema = z.object({
@@ -44,14 +43,9 @@ export async function POST(
     );
   }
 
-  const user = await getChatGPTUser();
-  if (!user && process.env.NODE_ENV === "production") {
-    return NextResponse.json(
-      { message: "Authentication is required to resolve source fields." },
-      { status: 401 },
-    );
-  }
-  const actorEmail = user?.email ?? demoUser.email;
+  const actor = await requireApiRole("super_admin", "admin", "content");
+  if ("error" in actor) return actor.error;
+  const actorEmail = actor.context.email;
   const resolvedAt = new Date().toISOString();
   const resolution = applyFieldResolution(
     comparison,

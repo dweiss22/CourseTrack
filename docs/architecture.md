@@ -60,10 +60,6 @@ flowchart LR
 
 ```mermaid
 erDiagram
-  PROFILES ||--o{ USER_ROLES : receives
-  ROLES ||--o{ USER_ROLES : grants
-  ROLES ||--o{ ROLE_PERMISSIONS : includes
-  PERMISSIONS ||--o{ ROLE_PERMISSIONS : maps
   COURSES ||--o{ COURSE_VERSIONS : has
   COURSE_VERSIONS ||--o{ VERSION_WRIKE_TASK_REFERENCES : documents
   COURSES ||--o{ ACCREDITATION_RECORDS : has
@@ -87,8 +83,8 @@ erDiagram
 
 ## Initial table set
 
-1. Identity and authorization: `profiles`, `roles`, `permissions`,
-   `user_roles`, `role_permissions`.
+1. Identity and authorization: `profiles` (backed by Supabase Auth's
+   `auth.users`, carrying an exclusive `role` and `account_status`).
 2. Portfolio: `verticals`, `courses`, `course_verticals`, `course_versions`,
    `accreditation_records`.
 3. Internal workflow: `course_flags`, `notes`, `revamp_proposals`.
@@ -109,16 +105,16 @@ unapplied migration until a separate production-database authorization.
 
 Authorization is deny-by-default. UI affordances improve usability but are not
 the security boundary; APIs and database policies enforce permissions again.
-The initial role set is:
+Each user has exactly one exclusive role — no additive/composed permissions:
 
-- Administrator
-- Course Manager
-- Instructional Designer
-- Accreditation Reviewer
-- Reporting User
-- Read-Only User
+- `super_admin`
+- `admin`
+- `accreditation`
+- `content`
 
-See [`permissions.md`](permissions.md) for the permission matrix.
+See [`permissions.md`](permissions.md) for the access matrix and
+[`auth-setup.md`](auth-setup.md) for authentication setup and the
+super_admin bootstrap procedure.
 
 ## Sample-data strategy
 

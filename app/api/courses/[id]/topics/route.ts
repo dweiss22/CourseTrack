@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getChatGPTUser } from "@/app/chatgpt-auth";
+import { requireApiRole } from "@/lib/auth";
 import { assignCourseTopic, getCourseRecord, removeCourseTopic } from "@/db";
-import { demoUser } from "@/lib/permissions";
 
 const assignSchema = z.object({
   label: z.string().trim().min(1).max(120),
@@ -11,17 +10,6 @@ const assignSchema = z.object({
 const removeSchema = z.object({
   courseTopicId: z.string().trim().min(1),
 });
-
-async function requireActorEmail(): Promise<string | NextResponse> {
-  const user = await getChatGPTUser();
-  if (!user && process.env.NODE_ENV === "production") {
-    return NextResponse.json(
-      { message: "Authentication is required to edit topics." },
-      { status: 401 },
-    );
-  }
-  return user?.email ?? demoUser.email;
-}
 
 export async function POST(
   request: Request,
@@ -38,10 +26,10 @@ export async function POST(
     return NextResponse.json({ message: "Enter a topic to assign." }, { status: 400 });
   }
 
-  const actorEmail = await requireActorEmail();
-  if (actorEmail instanceof NextResponse) return actorEmail;
+  const actor = await requireApiRole("super_admin", "admin", "content");
+  if ("error" in actor) return actor.error;
 
-  const saved = await assignCourseTopic({ courseId: id, topicLabel: parsed.data.label, actorEmail });
+  const saved = await assignCourseTopic({ courseId: id, topicLabel: parsed.data.label, actorEmail: actor.context.email });
   return NextResponse.json({
     saved,
     message: saved
@@ -65,10 +53,10 @@ export async function DELETE(
     return NextResponse.json({ message: "A topic assignment id is required." }, { status: 400 });
   }
 
-  const actorEmail = await requireActorEmail();
-  if (actorEmail instanceof NextResponse) return actorEmail;
+  const actor = await requireApiRole("super_admin", "admin", "content");
+  if ("error" in actor) return actor.error;
 
-  const removed = await removeCourseTopic({ courseTopicId: parsed.data.courseTopicId, actorEmail });
+  const removed = await removeCourseTopic({ courseTopicId: parsed.data.courseTopicId, actorEmail: actor.context.email });
   return NextResponse.json({
     removed,
     message: removed
