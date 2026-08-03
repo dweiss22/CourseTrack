@@ -15,6 +15,7 @@ import {
   Settings,
   Sparkles,
   SunMoon,
+  Tags,
   X,
 } from "lucide-react";
 import Link from "next/link";
@@ -35,6 +36,7 @@ const navigation = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/courses", label: "Course Library", icon: BookOpen },
   { href: "/accreditation", label: "Accreditation", icon: Award },
+  { href: "/topics-tags", label: "Topics & Tags", icon: Tags },
   { href: "/versions", label: "Versions", icon: History },
   { href: "/revamp", label: "Revamp Planning", icon: Sparkles },
   { href: "/flags", label: "Flags & Follow-Up", icon: Flag },

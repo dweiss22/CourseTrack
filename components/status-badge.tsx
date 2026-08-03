@@ -7,6 +7,7 @@ const toneByLabel: Record<string, string> = {
   Completed: "success",
   CourseTrack: "success",
   Approved: "success",
+  Active: "success",
   "Lexipol managed": "success",
   "Matched between LMS and Content Metadata": "success",
   Match: "success",

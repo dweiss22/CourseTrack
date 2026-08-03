@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { CourseDetail } from "@/components/course-detail/course-detail";
-import { getCourseRecord } from "@/db";
+import { getAllTags, getAllTopics, getCourseRecord } from "@/db";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +24,17 @@ export default async function CourseDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const course = await getCourseRecord(id);
+  const [course, allTopics, allTags] = await Promise.all([
+    getCourseRecord(id),
+    getAllTopics(),
+    getAllTags(),
+  ]);
   if (!course) notFound();
-  return <CourseDetail course={course} />;
+  return (
+    <CourseDetail
+      course={course}
+      topicSuggestions={allTopics.map((topic) => topic.label)}
+      tagSuggestions={allTags.map((tag) => tag.label)}
+    />
+  );
 }

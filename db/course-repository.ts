@@ -6,6 +6,7 @@ import type {
   CourseFlag,
   CourseNote,
   CourseRelationship,
+  CourseTagAssignment,
   CourseTopicAssignment,
   CourseVersion,
   ContentMetadataRecord,
@@ -93,6 +94,7 @@ async function fetchGraph(client: SupabaseClient, courseAppId?: string): Promise
     metadataRecordRows,
     fieldComparisonRows,
     courseTopicRows,
+    courseTagRows,
     relationshipRows,
     auditLogRows,
   ] = await Promise.all([
@@ -101,7 +103,7 @@ async function fetchGraph(client: SupabaseClient, courseAppId?: string): Promise
     fetchAllRows(
       client,
       "courses",
-      "id,app_id,course_code,lms_course_id,management_classification,monitoring_enabled,reconciliation_status,resolved_fields,source_timestamps,mapping_warnings,import_validation_errors,title,short_title,description,learning_audience,primary_vertical_id,primary_topic,tags,lifecycle_status,publication_status,delivery_format,duration_minutes,authoring_tool,state_code,owner_name,instructional_designer_name,current_version,original_publish_date,last_major_revision_date,next_review_date,health_status,health_score,metadata_completeness_score,internal_summary,source_system,data_source,retrieval_status,last_retrieved_at,is_sample",
+      "id,app_id,course_code,lms_course_id,management_classification,monitoring_enabled,reconciliation_status,resolved_fields,source_timestamps,mapping_warnings,import_validation_errors,title,short_title,description,learning_audience,primary_vertical_id,primary_topic,lifecycle_status,publication_status,delivery_format,duration_minutes,authoring_tool,state_code,owner_name,instructional_designer_name,current_version,original_publish_date,last_major_revision_date,next_review_date,health_status,health_score,metadata_completeness_score,internal_summary,source_system,data_source,retrieval_status,last_retrieved_at,is_sample",
       (query) => (courseDbId ? query.eq("id", courseDbId) : query),
     ),
     fetchAllRows(client, "course_verticals", "course_id,vertical_id,relationship_type", byCourse),
@@ -156,6 +158,12 @@ async function fetchGraph(client: SupabaseClient, courseAppId?: string): Promise
     ),
     fetchAllRows(
       client,
+      "course_tags",
+      "id,course_id,assignment_source,created_at,tags(display_label)",
+      byCourse,
+    ),
+    fetchAllRows(
+      client,
       "course_relationships",
       "id,course_id,relationship_type,related_course_id,related_lms_course_id,source,validation_status",
       byCourse,
@@ -183,6 +191,7 @@ async function fetchGraph(client: SupabaseClient, courseAppId?: string): Promise
   const metadataRecordByCourse = groupBy(metadataRecordRows, "course_id");
   const fieldComparisonsByCourse = groupBy(fieldComparisonRows, "course_id");
   const topicAssignmentsByCourse = groupBy(courseTopicRows, "course_id");
+  const tagAssignmentsByCourse = groupBy(courseTagRows, "course_id");
   const relationshipsByCourse = groupBy(relationshipRows, "course_id");
   const auditLogsByAppId = new Map<string, Row[]>();
   for (const row of auditLogRows) {
@@ -209,6 +218,7 @@ async function fetchGraph(client: SupabaseClient, courseAppId?: string): Promise
     metadataRecordByCourse,
     fieldComparisonsByCourse,
     topicAssignmentsByCourse,
+    tagAssignmentsByCourse,
     relationshipsByCourse,
     auditLogsByAppId,
   }));
@@ -242,6 +252,7 @@ interface GraphMaps {
   metadataRecordByCourse: Map<string, Row[]>;
   fieldComparisonsByCourse: Map<string, Row[]>;
   topicAssignmentsByCourse: Map<string, Row[]>;
+  tagAssignmentsByCourse: Map<string, Row[]>;
   relationshipsByCourse: Map<string, Row[]>;
   auditLogsByAppId: Map<string, Row[]>;
 }
@@ -381,6 +392,18 @@ function buildCourseFromRows(row: Row, maps: GraphMaps): Course {
     },
   );
 
+  const tagAssignments: CourseTagAssignment[] = (maps.tagAssignmentsByCourse.get(courseDbId) ?? []).map(
+    (assignment) => {
+      const tag = assignment.tags as { display_label?: string } | null;
+      return {
+        id: assignment.id as string,
+        tag: tag?.display_label ?? "",
+        source: "Manual",
+        assignedAt: assignment.created_at as string,
+      } satisfies CourseTagAssignment;
+    },
+  );
+
   const relationships: CourseRelationship[] = (maps.relationshipsByCourse.get(courseDbId) ?? []).map(
     (relationship) => ({
       id: relationship.id as string,
@@ -468,7 +491,7 @@ function buildCourseFromRows(row: Row, maps: GraphMaps): Course {
     primaryVertical,
     secondaryVerticals,
     primaryTopic: row.primary_topic as string,
-    tags: (row.tags as string[]) ?? [],
+    tags: tagAssignments.map((assignment) => assignment.tag),
     lifecycleStatus: row.lifecycle_status as Course["lifecycleStatus"],
     publicationStatus: row.publication_status as Course["publicationStatus"],
     deliveryFormat: row.delivery_format as string,
@@ -516,6 +539,7 @@ function buildCourseFromRows(row: Row, maps: GraphMaps): Course {
     },
     mappingWarnings: (row.mapping_warnings as string[]) ?? [],
     topicAssignments,
+    tagAssignments,
     verticalAssignments,
     relationships,
     importHistory,
@@ -642,12 +666,13 @@ export async function fetchPortfolioSummaries(client: SupabaseClient): Promise<P
     metadataRows,
     conflictRows,
     topicRows,
+    tagRows,
   ] = await Promise.all([
     fetchAllRows(client, "verticals", "id,slug"),
     fetchAllRows(
       client,
       "courses",
-      "id,app_id,title,short_title,course_code,lms_course_id,description,primary_vertical_id,management_classification,reconciliation_status,retrieval_status,last_retrieved_at,health_status,lifecycle_status,primary_topic,tags,owner_name,duration_minutes,data_source,next_review_date,metadata_completeness_score,import_validation_errors",
+      "id,app_id,title,short_title,course_code,lms_course_id,description,primary_vertical_id,management_classification,reconciliation_status,retrieval_status,last_retrieved_at,health_status,lifecycle_status,primary_topic,owner_name,duration_minutes,data_source,next_review_date,metadata_completeness_score,import_validation_errors",
     ),
     fetchAllRows(client, "course_flags", "course_id"),
     fetchAllRows(client, "lms_snapshots", "course_id", (query) => query.eq("is_current", true)),
@@ -659,6 +684,7 @@ export async function fetchPortfolioSummaries(client: SupabaseClient): Promise<P
       (query) => query.eq("comparison_status", "Conflict").is("selected_source", null),
     ),
     fetchAllRows(client, "course_topics", "course_id,topics(display_label)"),
+    fetchAllRows(client, "course_tags", "course_id,tags(display_label)"),
   ]);
 
   const verticalById = new Map(verticalRows.map((row) => [row.id as string, row.slug as string]));
@@ -683,6 +709,15 @@ export async function fetchPortfolioSummaries(client: SupabaseClient): Promise<P
     list.push({ topic });
     topicsByCourse.set(courseId, list);
   }
+  const tagsByCourse = new Map<string, string[]>();
+  for (const row of tagRows) {
+    const courseId = row.course_id as string;
+    const tag = (row.tags as { display_label?: string } | null)?.display_label;
+    if (!tag) continue;
+    const list = tagsByCourse.get(courseId) ?? [];
+    list.push(tag);
+    tagsByCourse.set(courseId, list);
+  }
 
   return courseRows.map((row) => {
     const courseDbId = row.id as string;
@@ -702,7 +737,7 @@ export async function fetchPortfolioSummaries(client: SupabaseClient): Promise<P
       healthStatus: row.health_status as Course["healthStatus"],
       lifecycleStatus: row.lifecycle_status as Course["lifecycleStatus"],
       primaryTopic: row.primary_topic as string,
-      tags: (row.tags as string[]) ?? [],
+      tags: tagsByCourse.get(courseDbId) ?? [],
       owner: (row.owner_name as string) ?? null,
       durationMinutes: Number(row.duration_minutes ?? 0),
       dataSource: row.data_source as Course["dataSource"],
@@ -945,4 +980,83 @@ export async function fetchSampleDataCounts(client: SupabaseClient): Promise<Sam
     countForSampleCourses("course_flags"),
   ]);
   return { courses, versions, accreditations, flags };
+}
+
+export interface TaxonomySummary {
+  id: string;
+  label: string;
+  courseCount: number;
+}
+
+export interface TaxonomyCourseEntry {
+  assignmentId: string;
+  courseId: string;
+  title: string;
+  courseCode: string;
+}
+
+async function fetchTaxonomySummaries(
+  client: SupabaseClient,
+  entityTable: "topics" | "tags",
+  assignmentTable: "course_topics" | "course_tags",
+  foreignKey: "topic_id" | "tag_id",
+): Promise<TaxonomySummary[]> {
+  const [entityRows, assignmentRows] = await Promise.all([
+    fetchAllRows(client, entityTable, "id,display_label"),
+    fetchAllRows(client, assignmentTable, foreignKey),
+  ]);
+  const counts = new Map<string, number>();
+  for (const row of assignmentRows) {
+    const id = row[foreignKey] as string;
+    counts.set(id, (counts.get(id) ?? 0) + 1);
+  }
+  return entityRows
+    .map((row) => ({
+      id: row.id as string,
+      label: row.display_label as string,
+      courseCount: counts.get(row.id as string) ?? 0,
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+}
+
+export function fetchAllTopics(client: SupabaseClient): Promise<TaxonomySummary[]> {
+  return fetchTaxonomySummaries(client, "topics", "course_topics", "topic_id");
+}
+
+export function fetchAllTags(client: SupabaseClient): Promise<TaxonomySummary[]> {
+  return fetchTaxonomySummaries(client, "tags", "course_tags", "tag_id");
+}
+
+async function fetchCoursesForTaxonomy(
+  client: SupabaseClient,
+  assignmentTable: "course_topics" | "course_tags",
+  foreignKey: "topic_id" | "tag_id",
+  entityId: string,
+): Promise<TaxonomyCourseEntry[]> {
+  const rows = await fetchAllRows(
+    client,
+    assignmentTable,
+    "id,course_id,courses(app_id,title,course_code)",
+    (query) => query.eq(foreignKey, entityId),
+  );
+  return rows
+    .map((row) => {
+      const course = row.courses as { app_id?: string; title?: string; course_code?: string } | null;
+      if (!course?.app_id) return null;
+      return {
+        assignmentId: row.id as string,
+        courseId: course.app_id,
+        title: course.title ?? "",
+        courseCode: course.course_code ?? "",
+      };
+    })
+    .filter((entry): entry is TaxonomyCourseEntry => entry !== null);
+}
+
+export function fetchCoursesForTopic(client: SupabaseClient, topicId: string): Promise<TaxonomyCourseEntry[]> {
+  return fetchCoursesForTaxonomy(client, "course_topics", "topic_id", topicId);
+}
+
+export function fetchCoursesForTag(client: SupabaseClient, tagId: string): Promise<TaxonomyCourseEntry[]> {
+  return fetchCoursesForTaxonomy(client, "course_tags", "tag_id", tagId);
 }

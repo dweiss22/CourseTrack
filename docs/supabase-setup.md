@@ -15,7 +15,7 @@ key.
 
 ## 2. Apply migrations
 
-Apply all five SQL files, in order, either through the Supabase Dashboard's
+Apply all six SQL files, in order, either through the Supabase Dashboard's
 SQL Editor (paste and run each file one at a time) or with the Supabase CLI:
 
 1. `supabase/migrations/202607300001_phase1_foundation.sql`
@@ -23,6 +23,7 @@ SQL Editor (paste and run each file one at a time) or with the Supabase CLI:
 3. `supabase/migrations/202607310003_lexipol_verticals.sql`
 4. `supabase/migrations/202607310004_source_reconciliation.sql`
 5. `supabase/migrations/202607310005_app_owned_versions_wrike.sql`
+6. `supabase/migrations/202608030001_manual_taxonomy.sql`
 
 With the Supabase CLI:
 
