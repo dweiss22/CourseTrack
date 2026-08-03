@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { ensureDatabase } from "@/db";
-import { sampleCourses } from "@/lib/sample-data";
+import { ensureDatabase, SAMPLE_COURSE_COUNT } from "@/db";
 
 export async function GET() {
   try {
@@ -16,7 +15,7 @@ export async function GET() {
         available: false,
         configured: true,
         seeded: false,
-        courseCount: sampleCourses.length,
+        courseCount: SAMPLE_COURSE_COUNT,
         databaseProvider: "Sample fallback",
         lmsProvider: "Mock LMS",
         mode: "sample-fallback",

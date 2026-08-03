@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { AppShell } from "@/components/app-shell";
+import { getCourseIndex } from "@/db";
 import "./globals.css";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -49,15 +50,16 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const courseIndex = await getCourseIndex();
   return (
     <html lang="en">
       <body>
-        <AppShell>{children}</AppShell>
+        <AppShell courseIndex={courseIndex}>{children}</AppShell>
       </body>
     </html>
   );

@@ -17,21 +17,23 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import {
-  sampleCourses,
-  sampleRetrievalRuns,
-} from "@/lib/sample-data";
 import { demoUser, rolePermissions } from "@/lib/permissions";
+import type {
+  AccreditationBoardEntry,
+  FlagBoardEntry,
+  ImportPreviewSummary,
+  PortfolioReportMetrics,
+  RevampBoardEntry,
+  SampleDataCounts,
+  VersionBoardEntry,
+} from "@/db";
 import { StatusBadge } from "./status-badge";
 import { ImportPreview } from "./import-preview/import-preview";
-import { sampleWrikeTasks } from "@/lib/sample-wrike-data";
-import type { Course, CourseVersion } from "@/types/course";
+import type { CourseVersion, RetrievalRun } from "@/types/course";
 import type { WrikeTask } from "@/providers/wrike";
 
-export function AccreditationWorkspace() {
-  const records = sampleCourses.flatMap((course) =>
-    course.accreditations.map((record) => ({ course, record })),
-  );
+export function AccreditationWorkspace({ entries }: { entries: AccreditationBoardEntry[] }) {
+  const records = entries;
   const atRisk = records.filter(({ record }) =>
     ["Expiring Soon", "Expired", "Approved with Conditions"].includes(
       record.status,
@@ -79,7 +81,7 @@ export function AccreditationWorkspace() {
                 .slice(0, 12)
                 .map(({ course, record }) => (
                   <tr key={record.id}>
-                    <td><Link href={`/courses/${course.id}`} className="table-link">{course.title}</Link></td>
+                    <td><Link href={`/courses/${course.courseId}`} className="table-link">{course.courseTitle}</Link></td>
                     <td>{record.organization}</td>
                     <td>{record.jurisdiction}</td>
                     <td><StatusBadge>{record.status}</StatusBadge></td>
@@ -95,19 +97,19 @@ export function AccreditationWorkspace() {
   );
 }
 
-export function VersionsWorkspace() {
-  const versions = sampleCourses
-    .flatMap((course) =>
-      course.versions.map((version) => ({ course, version })),
-    )
-    .sort((a, b) =>
-      b.version.publicationDate.localeCompare(a.version.publicationDate),
-    );
-  const [availableTasks, setAvailableTasks] = useState<WrikeTask[]>(
-    sampleWrikeTasks.slice(0, 12),
+export function VersionsWorkspace({
+  entries,
+  initialWrikeTasks,
+}: {
+  entries: VersionBoardEntry[];
+  initialWrikeTasks: WrikeTask[];
+}) {
+  const versions = [...entries].sort((a, b) =>
+    b.version.publicationDate.localeCompare(a.version.publicationDate),
   );
+  const [availableTasks, setAvailableTasks] = useState<WrikeTask[]>(initialWrikeTasks);
   const [selectedVersion, setSelectedVersion] = useState<{
-    course: Course;
+    course: VersionBoardEntry["course"];
     version: CourseVersion;
   } | null>(null);
   const [sessionTaskIds, setSessionTaskIds] = useState<Record<string, string[]>>({});
@@ -199,7 +201,7 @@ export function VersionsWorkspace() {
             <tbody>
               {versions.slice(0, 14).map(({ course, version }) => (
                 <tr key={version.id}>
-                  <td><Link href={`/courses/${course.id}`} className="table-link">{course.title}</Link></td>
+                  <td><Link href={`/courses/${course.courseId}`} className="table-link">{course.courseTitle}</Link></td>
                   <td className="mono-cell">v{version.versionNumber}</td>
                   <td>{version.versionType}</td>
                   <td>{version.publicationDate}</td>
@@ -319,10 +321,8 @@ function VersionWrikeSummary({
   );
 }
 
-export function RevampWorkspace() {
-  const proposals = sampleCourses
-    .filter((course) => course.revampProposal)
-    .map((course) => ({ course, proposal: course.revampProposal! }));
+export function RevampWorkspace({ entries }: { entries: RevampBoardEntry[] }) {
+  const proposals = entries;
   const columns = ["Submitted", "Under Review", "Approved", "In Progress"] as const;
   return (
     <WorkspaceFrame
@@ -349,7 +349,7 @@ export function RevampWorkspace() {
                 <div className="kanban-empty">No proposals in this stage.</div>
               ) : (
                 items.map(({ course, proposal }) => (
-                  <Link href={`/courses/${course.id}`} className="kanban-card" key={proposal.id}>
+                  <Link href={`/courses/${course.courseId}`} className="kanban-card" key={proposal.id}>
                     <div><StatusBadge tone={proposal.priority === "High" ? "warning" : "neutral"}>{proposal.priority}</StatusBadge><span>Score {proposal.score}</span></div>
                     <strong>{proposal.title}</strong>
                     <p>{course.primaryVertical}</p>
@@ -365,11 +365,9 @@ export function RevampWorkspace() {
   );
 }
 
-export function FlagsWorkspace() {
+export function FlagsWorkspace({ entries }: { entries: FlagBoardEntry[] }) {
   const [priority, setPriority] = useState("All priorities");
-  const flags = sampleCourses.flatMap((course) =>
-    course.flags.map((flag) => ({ course, flag })),
-  );
+  const flags = entries;
   const filtered =
     priority === "All priorities"
       ? flags
@@ -398,9 +396,9 @@ export function FlagsWorkspace() {
         </div>
         <div className="issue-list">
           {filtered.slice(0, 18).map(({ course, flag }) => (
-            <Link href={`/courses/${course.id}`} key={flag.id}>
+            <Link href={`/courses/${course.courseId}`} key={flag.id}>
               <span className={`priority-dot priority-${flag.priority.toLowerCase()}`} />
-              <div><strong>{flag.title}</strong><small>{course.title} · Due {flag.dueDate}</small></div>
+              <div><strong>{flag.title}</strong><small>{course.courseTitle} · Due {flag.dueDate}</small></div>
               <span>{flag.owner ?? "Unassigned"}</span>
               <StatusBadge tone={flag.priority === "Critical" ? "danger" : flag.priority === "High" ? "warning" : "neutral"}>{flag.priority}</StatusBadge>
               <StatusBadge>{flag.status}</StatusBadge>
@@ -412,18 +410,21 @@ export function FlagsWorkspace() {
   );
 }
 
-const reportCatalog = [
-  ["Complete Course Inventory", `${sampleCourses.length.toLocaleString()} records`, "All course and source metadata"],
-  ["Accreditation Expiration Report", `${sampleCourses.filter((course) => course.nearestAccreditationExpiration).length.toLocaleString()} records`, "Courses with supplied accreditation expiration dates"],
-  ["Courses Due for Review", `${sampleCourses.filter((course) => course.nextReviewDate && course.nextReviewDate <= "2026-10-31").length.toLocaleString()} records`, "Upcoming and overdue review dates"],
-  ["Revamp Proposal Pipeline", `${sampleCourses.filter((course) => course.revampProposal).length.toLocaleString()} records`, "Status, score, priority, and schedule"],
-  ["Open Flag Report", `${sampleCourses.reduce((total, course) => total + course.flags.length, 0).toLocaleString()} records`, "Unresolved source conflicts and import issues"],
-  ["Metadata Completeness", `${sampleCourses.filter((course) => course.metadataCompletenessScore < 80).length.toLocaleString()} records`, "Courses below the 80% threshold"],
-  ["LMS Retrieval Exceptions", `${sampleCourses.filter((course) => !course.lmsSnapshot || course.retrievalStatus !== "Retrieved").length.toLocaleString()} records`, "Missing, warned, or unmapped LMS records"],
-  ["Portfolio Health Report", `${sampleCourses.length.toLocaleString()} records`, "Scores, factors, and recommended action"],
-];
+function buildReportCatalog(metrics: PortfolioReportMetrics) {
+  return [
+    ["Complete Course Inventory", `${metrics.totalCourses.toLocaleString()} records`, "All course and source metadata"],
+    ["Accreditation Expiration Report", `${metrics.coursesWithAccreditationExpiration.toLocaleString()} records`, "Courses with supplied accreditation expiration dates"],
+    ["Courses Due for Review", `${metrics.coursesDueForReview.toLocaleString()} records`, "Upcoming and overdue review dates"],
+    ["Revamp Proposal Pipeline", `${metrics.coursesWithRevampProposal.toLocaleString()} records`, "Status, score, priority, and schedule"],
+    ["Open Flag Report", `${metrics.totalOpenFlags.toLocaleString()} records`, "Unresolved source conflicts and import issues"],
+    ["Metadata Completeness", `${metrics.coursesBelowCompletenessThreshold.toLocaleString()} records`, "Courses below the 80% threshold"],
+    ["LMS Retrieval Exceptions", `${metrics.coursesWithLmsRetrievalExceptions.toLocaleString()} records`, "Missing, warned, or unmapped LMS records"],
+    ["Portfolio Health Report", `${metrics.totalCourses.toLocaleString()} records`, "Scores, factors, and recommended action"],
+  ] as const;
+}
 
-export function ReportsWorkspace() {
+export function ReportsWorkspace({ metrics }: { metrics: PortfolioReportMetrics }) {
+  const reportCatalog = buildReportCatalog(metrics);
   const [message, setMessage] = useState("");
   const runReport = (name: string) => {
     setMessage(`${name} is ready in the sample workspace.`);
@@ -452,7 +453,15 @@ export function ReportsWorkspace() {
   );
 }
 
-export function AdminWorkspace() {
+export function AdminWorkspace({
+  sampleDataCounts,
+  retrievalRuns,
+  importPreview,
+}: {
+  sampleDataCounts: SampleDataCounts;
+  retrievalRuns: RetrievalRun[];
+  importPreview: ImportPreviewSummary;
+}) {
   const [activeTab, setActiveTab] = useState("LMS provider");
   const [status, setStatus] = useState("");
   const [running, setRunning] = useState(false);
@@ -527,16 +536,16 @@ export function AdminWorkspace() {
           )}
           {activeTab === "Sample data" && (
             <>
-              <div className="panel-heading"><div><h2>Sample data controls</h2><p>Generated from the supplied LMS, Content Metadata, and Topics workbooks</p></div><StatusBadge tone="sample">{sampleCourses.length.toLocaleString()} sample courses</StatusBadge></div>
+              <div className="panel-heading"><div><h2>Sample data controls</h2><p>Generated from the supplied LMS, Content Metadata, and Topics workbooks</p></div><StatusBadge tone="sample">{sampleDataCounts.courses.toLocaleString()} sample courses</StatusBadge></div>
               <div className="sample-data-summary">
-                <div><strong>{sampleCourses.length.toLocaleString()}</strong><span>Courses</span></div><div><strong>{sampleCourses.reduce((total, course) => total + course.versions.length, 0).toLocaleString()}</strong><span>Versions</span></div><div><strong>{sampleCourses.reduce((total, course) => total + course.accreditations.length, 0).toLocaleString()}</strong><span>Accreditations</span></div><div><strong>{sampleCourses.reduce((total, course) => total + course.flags.length, 0).toLocaleString()}</strong><span>Flags</span></div>
+                <div><strong>{sampleDataCounts.courses.toLocaleString()}</strong><span>Courses</span></div><div><strong>{sampleDataCounts.versions.toLocaleString()}</strong><span>Versions</span></div><div><strong>{sampleDataCounts.accreditations.toLocaleString()}</strong><span>Accreditations</span></div><div><strong>{sampleDataCounts.flags.toLocaleString()}</strong><span>Flags</span></div>
               </div>
               <div className="readonly-callout"><AlertTriangle size={18} /><span><strong>Safe reset boundary</strong>Reset removes only records marked <code>is_sample</code>. Users, configuration, imports, audit records, and non-sample data are preserved.</span></div>
               <div className="button-row"><button className="button button-primary" onClick={() => setStatus("Sample data was regenerated from the deterministic seed.")}>Regenerate sample data</button><button className="button button-secondary" onClick={() => setStatus("Sample reset preview completed; no non-sample data would be removed.")}>Preview reset</button></div>
             </>
           )}
           {activeTab === "Import mapping" && (
-            <ImportPreview />
+            <ImportPreview importPreview={importPreview} />
           )}
           {activeTab === "Users & roles" && (
             <>
@@ -547,7 +556,7 @@ export function AdminWorkspace() {
           {activeTab === "Retrieval history" && (
             <>
               <div className="panel-heading"><div><h2>Retrieval history</h2><p>Immutable record of read-only LMS retrieval attempts</p></div></div>
-              <div className="table-scroll"><table className="data-table"><thead><tr><th>Run</th><th>Status</th><th>Requested</th><th>Received</th><th>Failed</th><th>Message</th></tr></thead><tbody>{sampleRetrievalRuns.map((run) => <tr key={run.id}><td className="mono-cell">{run.id}</td><td><StatusBadge>{run.status}</StatusBadge></td><td>{run.recordsRequested}</td><td>{run.recordsReceived}</td><td>{run.recordsFailed}</td><td>{run.message}</td></tr>)}</tbody></table></div>
+              <div className="table-scroll"><table className="data-table"><thead><tr><th>Run</th><th>Status</th><th>Requested</th><th>Received</th><th>Failed</th><th>Message</th></tr></thead><tbody>{retrievalRuns.map((run) => <tr key={run.id}><td className="mono-cell">{run.id}</td><td><StatusBadge>{run.status}</StatusBadge></td><td>{run.recordsRequested}</td><td>{run.recordsReceived}</td><td>{run.recordsFailed}</td><td>{run.message}</td></tr>)}</tbody></table></div>
             </>
           )}
         </section>

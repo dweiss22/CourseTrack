@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { CourseDetail } from "@/components/course-detail/course-detail";
 import { getCourseRecord } from "@/db";
-import { getCourse } from "@/lib/sample-data";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +11,7 @@ export async function generateMetadata({
   params: Promise<{ id: string }>;
 }): Promise<Metadata> {
   const { id } = await params;
-  const course = getCourse(id);
+  const course = await getCourseRecord(id);
   return {
     title: course?.title ?? "Course not found",
     description: course?.description,

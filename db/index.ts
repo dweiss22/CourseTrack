@@ -1,13 +1,40 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { cache } from "react";
 import { getSupabaseAdminClient } from "@/lib/supabase-server";
+import {
+  fetchAccreditationBoard,
+  fetchCourseGraphByAppId,
+  fetchFlagBoard,
+  fetchFullCourseGraph,
+  fetchReportMetrics,
+  fetchRevampBoard,
+  fetchSampleDataCounts,
+  fetchVersionBoard,
+  type AccreditationBoardEntry,
+  type CourseSummary,
+  type FlagBoardEntry,
+  type PortfolioReportMetrics,
+  type RevampBoardEntry,
+  type SampleDataCounts,
+  type VersionBoardEntry,
+} from "@/db/course-repository";
+export type {
+  AccreditationBoardEntry,
+  CourseSummary,
+  FlagBoardEntry,
+  PortfolioReportMetrics,
+  RevampBoardEntry,
+  SampleDataCounts,
+  VersionBoardEntry,
+};
 import {
   sampleCourses,
   sampleRetrievalRuns,
+  sampleImportPreviews,
 } from "@/lib/sample-data";
+import { sampleCourseIndex } from "@/lib/sample-course-index";
 import type { Course, RetrievalRun } from "@/types/course";
 
-const SAMPLE_COURSE_COUNT = sampleCourses.length;
-const SAMPLE_IDS = sampleCourses.map((course) => course.id);
+export const SAMPLE_COURSE_COUNT = sampleCourses.length;
 
 type DatabaseStatus = {
   available: boolean;
@@ -15,13 +42,6 @@ type DatabaseStatus = {
   seeded: boolean;
   courseCount: number;
   databaseProvider: "Supabase/Postgres" | "Sample fallback";
-};
-
-type PersistedCourseFields = {
-  app_id: string | null;
-  internal_summary: string;
-  owner_name: string | null;
-  next_review_date: string | null;
 };
 
 type PersistedRetrievalRun = {
@@ -37,118 +57,22 @@ type PersistedRetrievalRun = {
   message: string;
 };
 
+export type ImportPreviewSummary = typeof sampleImportPreviews;
+export type CourseIndexEntry = {
+  id: string;
+  title: string;
+  courseCode: string;
+  primaryVertical: string;
+};
+
 function databaseError(context: string, error: { message: string; code?: string }) {
   const migrationHint =
     error.code === "PGRST204" ||
     error.code === "PGRST205" ||
     /app_id|relation .* does not exist|schema cache/i.test(error.message)
-      ? " Apply the checked-in Supabase migrations before enabling the database."
+      ? " Apply the checked-in Supabase migrations and run scripts/seed-supabase.mjs before enabling the database."
       : "";
   return new Error(`${context}: ${error.message}.${migrationHint}`);
-}
-
-async function seedSamplePortfolio(client: SupabaseClient): Promise<void> {
-  const { data: verticalRows, error: verticalError } = await client
-    .from("verticals")
-    .select("id,slug");
-  if (verticalError) {
-    throw databaseError("Could not read Supabase verticals", verticalError);
-  }
-
-  const verticalIds = new Map(
-    (verticalRows ?? []).map((vertical) => [
-      (vertical.slug as string).toLowerCase(),
-      vertical.id as string,
-    ]),
-  );
-
-  const rows = sampleCourses.map((course) => {
-    const primaryVerticalId = verticalIds.get(course.primaryVertical.toLowerCase());
-    if (!primaryVerticalId) {
-      throw new Error(
-        `Supabase vertical seed is missing "${course.primaryVertical}". Apply the checked-in migrations and retry.`,
-      );
-    }
-
-    return {
-      app_id: course.id,
-      course_code: course.courseCode,
-      lms_course_id: course.lmsCourseId,
-      management_classification: course.managementClassification,
-      monitoring_enabled: course.monitoringEnabled,
-      reconciliation_status: course.reconciliationStatus,
-      resolved_fields: course.resolvedFields,
-      source_timestamps: course.sourceTimestamps,
-      mapping_warnings: course.mappingWarnings,
-      import_validation_errors: course.importValidationErrors,
-      title: course.title,
-      short_title: course.shortTitle,
-      description: course.description,
-      learning_audience: course.learningAudience,
-      primary_vertical_id: primaryVerticalId,
-      primary_topic: course.primaryTopic,
-      tags: course.tags,
-      lifecycle_status: course.lifecycleStatus,
-      publication_status: course.publicationStatus,
-      delivery_format: course.deliveryFormat,
-      duration_minutes: course.durationMinutes,
-      authoring_tool: course.authoringTool,
-      state_code: course.stateCode,
-      owner_name: course.owner,
-      instructional_designer_name: course.instructionalDesigner,
-      current_version: course.currentVersion,
-      original_publish_date: course.originalPublishDate,
-      last_major_revision_date: course.lastMajorRevisionDate,
-      next_review_date: course.nextReviewDate,
-      health_status: course.healthStatus,
-      health_score: course.healthScore,
-      metadata_completeness_score: course.metadataCompletenessScore,
-      internal_summary: course.internalSummary,
-      source_system: course.sourceSystem,
-      data_source: course.dataSource,
-      retrieval_status: course.retrievalStatus,
-      last_retrieved_at: course.lastRetrievedAt,
-      is_sample: true,
-      source_payload: course,
-    };
-  });
-
-  for (let start = 0; start < rows.length; start += 25) {
-    const { error } = await client
-      .from("courses")
-      .upsert(rows.slice(start, start + 25), {
-        onConflict: "app_id",
-        ignoreDuplicates: true,
-      });
-    if (error) {
-      throw databaseError("Could not seed Supabase sample courses", error);
-    }
-  }
-
-  const retrievalRows = sampleRetrievalRuns.map((run) => ({
-    external_run_id: run.id,
-    provider: run.provider,
-    started_at: run.startedAt,
-    completed_at: run.completedAt,
-    status: run.status,
-    records_requested: run.recordsRequested,
-    records_received: run.recordsReceived,
-    records_failed: run.recordsFailed,
-    message: run.message,
-    initiated_by_email: "sample@coursetrack.local",
-  }));
-  const { error: retrievalError } = await client
-    .from("lms_retrieval_runs")
-    .upsert(retrievalRows, {
-      onConflict: "external_run_id",
-      ignoreDuplicates: true,
-    });
-  if (retrievalError) {
-    throw databaseError(
-      "Could not seed Supabase retrieval history",
-      retrievalError,
-    );
-  }
 }
 
 export async function ensureDatabase(): Promise<DatabaseStatus> {
@@ -158,38 +82,21 @@ export async function ensureDatabase(): Promise<DatabaseStatus> {
       available: false,
       configured: false,
       seeded: false,
-      courseCount: SAMPLE_COURSE_COUNT,
+      courseCount: sampleCourses.length,
       databaseProvider: "Sample fallback",
     };
   }
 
-  const { count: initialCount, error: countError } = await client
-    .from("courses")
-    .select("id", { count: "exact", head: true });
-  if (countError) {
-    throw databaseError("Could not reach the Supabase course schema", countError);
+  const { count, error } = await client.from("courses").select("id", { count: "exact", head: true });
+  if (error) {
+    throw databaseError("Could not reach the Supabase course schema", error);
   }
 
-  const before = initialCount ?? 0;
-  if (before < SAMPLE_COURSE_COUNT) {
-    await seedSamplePortfolio(client);
-  }
-
-  const { count: finalCount, error: finalCountError } = await client
-    .from("courses")
-    .select("id", { count: "exact", head: true });
-  if (finalCountError) {
-    throw databaseError(
-      "Could not verify the Supabase course seed",
-      finalCountError,
-    );
-  }
-
-  const courseCount = finalCount ?? before;
+  const courseCount = count ?? 0;
   return {
     available: true,
     configured: true,
-    seeded: courseCount > before,
+    seeded: courseCount > 0,
     courseCount,
     databaseProvider: "Supabase/Postgres",
   };
@@ -200,50 +107,29 @@ export async function getPortfolioCourses(): Promise<Course[]> {
   if (!client) return sampleCourses;
 
   try {
-    await ensureDatabase();
-    const { data, error } = await client
-      .from("courses")
-      .select("app_id,internal_summary,owner_name,next_review_date")
-      .in("app_id", SAMPLE_IDS);
-    if (error) {
-      throw databaseError("Could not read Supabase course metadata", error);
-    }
-
-    const persistedById = new Map(
-      ((data ?? []) as PersistedCourseFields[])
-        .filter((row) => row.app_id)
-        .map((row) => [row.app_id as string, row]),
-    );
-
-    return sampleCourses.map((course) => {
-      const persisted = persistedById.get(course.id);
-      return persisted
-        ? {
-            ...course,
-            internalSummary: persisted.internal_summary,
-            owner: persisted.owner_name,
-            nextReviewDate: persisted.next_review_date,
-          }
-        : course;
-    });
+    return await fetchFullCourseGraph(client);
   } catch {
     return sampleCourses;
   }
 }
 
-export async function getCourseRecord(
-  courseId: string,
-): Promise<Course | undefined> {
-  const courses = await getPortfolioCourses();
-  return courses.find((course) => course.id === courseId);
-}
+export const getCourseRecord = cache(async (courseId: string): Promise<Course | undefined> => {
+  const client = getSupabaseAdminClient();
+  if (!client) return sampleCourses.find((course) => course.id === courseId);
+
+  try {
+    const course = await fetchCourseGraphByAppId(client, courseId);
+    return course ?? undefined;
+  } catch {
+    return sampleCourses.find((course) => course.id === courseId);
+  }
+});
 
 export async function getRecentRetrievalRuns(): Promise<RetrievalRun[]> {
   const client = getSupabaseAdminClient();
   if (!client) return sampleRetrievalRuns;
 
   try {
-    await ensureDatabase();
     const { data, error } = await client
       .from("lms_retrieval_runs")
       .select(
@@ -271,6 +157,205 @@ export async function getRecentRetrievalRuns(): Promise<RetrievalRun[]> {
   }
 }
 
+export async function getImportPreviewSummary(): Promise<ImportPreviewSummary> {
+  const client = getSupabaseAdminClient();
+  if (!client) return sampleImportPreviews;
+
+  try {
+    const { data, error } = await client
+      .from("content_metadata_import_runs")
+      .select("source_filename,preview_summary");
+    if (error) {
+      throw databaseError("Could not read Supabase import preview summaries", error);
+    }
+    const { count: courseCount, error: countError } = await client
+      .from("courses")
+      .select("id", { count: "exact", head: true });
+    if (countError) {
+      throw databaseError("Could not read Supabase course count", countError);
+    }
+
+    const contentMetadataRun = data?.find((run) => run.source_filename.includes("master"));
+    const topicsRun = data?.find((run) => run.source_filename.includes("Topics"));
+    const total = courseCount ?? 0;
+    return {
+      contentMetadata: (contentMetadataRun?.preview_summary as ImportPreviewSummary["contentMetadata"]) ?? sampleImportPreviews.contentMetadata,
+      topics: (topicsRun?.preview_summary as ImportPreviewSummary["topics"]) ?? sampleImportPreviews.topics,
+      monitoring: {
+        fixtureLabel: "Supabase-backed monitoring preview",
+        rows: total,
+        enabled: total,
+        excluded: 0,
+      },
+    };
+  } catch {
+    return sampleImportPreviews;
+  }
+}
+
+export async function getCourseIndex(): Promise<CourseIndexEntry[]> {
+  const client = getSupabaseAdminClient();
+  if (!client) return sampleCourseIndex;
+
+  try {
+    const { data: verticalRows, error: verticalError } = await client.from("verticals").select("id,slug");
+    if (verticalError) {
+      throw databaseError("Could not read Supabase verticals", verticalError);
+    }
+    const verticalLabelById = new Map(
+      (verticalRows ?? []).map((row) => [row.id as string, (row.slug as string).toUpperCase()]),
+    );
+
+    const entries: CourseIndexEntry[] = [];
+    const pageSize = 1000;
+    for (let from = 0; ; from += pageSize) {
+      const { data, error } = await client
+        .from("courses")
+        .select("app_id,title,course_code,primary_vertical_id")
+        .range(from, from + pageSize - 1);
+      if (error) {
+        throw databaseError("Could not read the Supabase course index", error);
+      }
+      for (const row of data ?? []) {
+        entries.push({
+          id: row.app_id as string,
+          title: row.title as string,
+          courseCode: row.course_code as string,
+          primaryVertical: verticalLabelById.get(row.primary_vertical_id as string) ?? "",
+        });
+      }
+      if (!data || data.length < pageSize) break;
+    }
+    return entries;
+  } catch {
+    return sampleCourseIndex;
+  }
+}
+
+export async function getAccreditationBoard(): Promise<AccreditationBoardEntry[]> {
+  const client = getSupabaseAdminClient();
+  if (!client) {
+    return sampleCourses.flatMap((course) =>
+      course.accreditations.map((record) => ({
+        course: { courseId: course.id, courseTitle: course.title, courseCode: course.courseCode },
+        record,
+      })),
+    );
+  }
+  try {
+    return await fetchAccreditationBoard(client);
+  } catch {
+    return sampleCourses.flatMap((course) =>
+      course.accreditations.map((record) => ({
+        course: { courseId: course.id, courseTitle: course.title, courseCode: course.courseCode },
+        record,
+      })),
+    );
+  }
+}
+
+export async function getVersionBoard(): Promise<VersionBoardEntry[]> {
+  const client = getSupabaseAdminClient();
+  if (!client) {
+    return sampleCourses.flatMap((course) =>
+      course.versions.map((version) => ({
+        course: { courseId: course.id, courseTitle: course.title, courseCode: course.courseCode },
+        version,
+      })),
+    );
+  }
+  try {
+    return await fetchVersionBoard(client);
+  } catch {
+    return sampleCourses.flatMap((course) =>
+      course.versions.map((version) => ({
+        course: { courseId: course.id, courseTitle: course.title, courseCode: course.courseCode },
+        version,
+      })),
+    );
+  }
+}
+
+export async function getRevampBoard(): Promise<RevampBoardEntry[]> {
+  const client = getSupabaseAdminClient();
+  const sampleBoard = () =>
+    sampleCourses
+      .filter((course) => course.revampProposal)
+      .map((course) => ({
+        course: {
+          courseId: course.id,
+          courseTitle: course.title,
+          courseCode: course.courseCode,
+          primaryVertical: course.primaryVertical,
+        },
+        proposal: course.revampProposal!,
+      }));
+  if (!client) return sampleBoard();
+  try {
+    return await fetchRevampBoard(client);
+  } catch {
+    return sampleBoard();
+  }
+}
+
+export async function getFlagBoard(): Promise<FlagBoardEntry[]> {
+  const client = getSupabaseAdminClient();
+  const sampleBoard = () =>
+    sampleCourses.flatMap((course) =>
+      course.flags.map((flag) => ({
+        course: { courseId: course.id, courseTitle: course.title, courseCode: course.courseCode },
+        flag,
+      })),
+    );
+  if (!client) return sampleBoard();
+  try {
+    return await fetchFlagBoard(client);
+  } catch {
+    return sampleBoard();
+  }
+}
+
+export async function getReportMetrics(reviewDueBy: string): Promise<PortfolioReportMetrics> {
+  const client = getSupabaseAdminClient();
+  const sampleMetrics = (): PortfolioReportMetrics => ({
+    totalCourses: sampleCourses.length,
+    coursesWithAccreditationExpiration: sampleCourses.filter((course) => course.nearestAccreditationExpiration)
+      .length,
+    coursesDueForReview: sampleCourses.filter(
+      (course) => course.nextReviewDate && course.nextReviewDate <= reviewDueBy,
+    ).length,
+    coursesWithRevampProposal: sampleCourses.filter((course) => course.revampProposal).length,
+    totalOpenFlags: sampleCourses.reduce((total, course) => total + course.flags.length, 0),
+    coursesBelowCompletenessThreshold: sampleCourses.filter((course) => course.metadataCompletenessScore < 80)
+      .length,
+    coursesWithLmsRetrievalExceptions: sampleCourses.filter(
+      (course) => !course.lmsSnapshot || course.retrievalStatus !== "Retrieved",
+    ).length,
+  });
+  if (!client) return sampleMetrics();
+  try {
+    return await fetchReportMetrics(client, reviewDueBy);
+  } catch {
+    return sampleMetrics();
+  }
+}
+
+export async function getSampleDataCounts(): Promise<SampleDataCounts> {
+  const client = getSupabaseAdminClient();
+  const sampleCounts = (): SampleDataCounts => ({
+    courses: sampleCourses.length,
+    versions: sampleCourses.reduce((total, course) => total + course.versions.length, 0),
+    accreditations: sampleCourses.reduce((total, course) => total + course.accreditations.length, 0),
+    flags: sampleCourses.reduce((total, course) => total + course.flags.length, 0),
+  });
+  if (!client) return sampleCounts();
+  try {
+    return await fetchSampleDataCounts(client);
+  } catch {
+    return sampleCounts();
+  }
+}
+
 export async function updateInternalCourseMetadata(input: {
   courseId: string;
   actorEmail: string;
@@ -280,7 +365,6 @@ export async function updateInternalCourseMetadata(input: {
 }): Promise<boolean> {
   const client = getSupabaseAdminClient();
   if (!client) return false;
-  await ensureDatabase();
 
   const { data, error } = await client.rpc(
     "update_internal_course_metadata",
@@ -312,7 +396,6 @@ export async function persistFieldResolution(input: {
 }): Promise<boolean> {
   const client = getSupabaseAdminClient();
   if (!client) return false;
-  await ensureDatabase();
 
   const { data, error } = await client.rpc("resolve_course_field", {
     p_app_id: input.courseId,
@@ -339,7 +422,6 @@ export async function recordRetrievalRun(input: {
 }): Promise<string | null> {
   const client = getSupabaseAdminClient();
   if (!client) return null;
-  await ensureDatabase();
 
   const externalRunId = `RUN-${Date.now()}`;
   const now = new Date().toISOString();
