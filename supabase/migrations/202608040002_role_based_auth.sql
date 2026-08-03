@@ -141,6 +141,47 @@ begin
     raise exception 'Users cannot change their own role or account status.';
   end if;
 
+  -- The service-role write path (auth.uid() is null) enforces the rest of
+  -- the access matrix in db/user-repository.ts. But profiles_admin_write's
+  -- RLS policy grants any 'admin' or 'super_admin' full write access to this
+  -- table for any *other* row, so a plain 'admin' calling Supabase directly
+  -- (bypassing the app entirely) could otherwise promote themselves via a
+  -- second account, touch a super_admin/admin row, or grant super_admin/
+  -- admin to someone else. Re-check the matrix here too, keyed off the
+  -- caller's own profile row, so this holds even for direct API/SQL access.
+  if auth.uid() is not null and (new.role is distinct from old.role or new.account_status is distinct from old.account_status) then
+    declare
+      actor_role text;
+    begin
+      select role into actor_role from public.profiles where id = auth.uid();
+
+      if actor_role is distinct from 'super_admin' and actor_role is distinct from 'admin' then
+        raise exception 'You do not have permission to change roles or account status.';
+      end if;
+
+      if actor_role = 'admin' and (
+        old.role in ('super_admin', 'admin') or new.role in ('super_admin', 'admin')
+      ) then
+        raise exception 'Admins may only manage accreditation and content users.';
+      end if;
+    end;
+  end if;
+
+  -- profiles_self_update_display_name's RLS policy authorizes a self-update
+  -- of the whole row (RLS restricts rows, not columns) -- reject any
+  -- self-update that touches a column other than display_name, so a direct
+  -- API/SQL call can't rewrite email/created_by/role/account_status via
+  -- that policy either (role/account_status are already covered above, but
+  -- this closes the rest of the column set).
+  if auth.uid() is not null and auth.uid() = old.id and (
+    new.email is distinct from old.email
+    or new.created_by is distinct from old.created_by
+    or new.created_at is distinct from old.created_at
+    or new.id is distinct from old.id
+  ) then
+    raise exception 'Users may only update their own display name.';
+  end if;
+
   -- Never allow the last active super_admin to be demoted, disabled, or
   -- have their role changed, no matter who (or what) is asking.
   if old.role = 'super_admin' and old.account_status = 'active'

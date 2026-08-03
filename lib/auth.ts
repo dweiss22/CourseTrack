@@ -2,9 +2,10 @@ import { redirect } from "next/navigation";
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase-ssr";
 import { getSupabaseAdminClient } from "@/lib/supabase-server";
+import { APPLICATION_ROLES, type ApplicationRole } from "@/lib/roles";
 
-export const APPLICATION_ROLES = ["super_admin", "admin", "accreditation", "content"] as const;
-export type ApplicationRole = (typeof APPLICATION_ROLES)[number];
+export { APPLICATION_ROLES };
+export type { ApplicationRole };
 
 export interface AuthContext {
   userId: string;

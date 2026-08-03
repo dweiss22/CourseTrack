@@ -51,10 +51,23 @@ export async function proxy(request: NextRequest) {
   }
 
   if (user && (pathname === "/login" || pathname === "/recover")) {
-    const redirectUrl = request.nextUrl.clone();
-    redirectUrl.pathname = "/";
-    redirectUrl.search = "";
-    return NextResponse.redirect(redirectUrl);
+    // A valid Auth session isn't enough on its own -- a user with no
+    // application membership (or a disabled one) must be able to stay on
+    // /login instead of bouncing to "/" and immediately back here via the
+    // unauthenticated-redirect branch above (getAuthContext() returns null
+    // for exactly this case). Only bump away from /login once there's a
+    // confirmed active profile.
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("account_status")
+      .eq("id", user.id)
+      .maybeSingle();
+    if (profile?.account_status === "active") {
+      const redirectUrl = request.nextUrl.clone();
+      redirectUrl.pathname = "/";
+      redirectUrl.search = "";
+      return NextResponse.redirect(redirectUrl);
+    }
   }
 
   return response;

@@ -19,6 +19,7 @@ import {
 import Link from "next/link";
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import type { AuthContext } from "@/lib/auth";
+import { APPLICATION_ROLES, type ApplicationRole } from "@/lib/roles";
 import { accreditationDisplayLabel } from "@/lib/accreditation-grouping";
 import type {
   AccreditationBoardEntry,
@@ -35,7 +36,6 @@ import type {
   WrikeConnectionSummary,
   WrikeSyncStatus,
 } from "@/db";
-import { APPLICATION_ROLES, type ApplicationRole } from "@/lib/auth";
 import { StatusBadge } from "./status-badge";
 import { ImportPreview } from "./import-preview/import-preview";
 import type { CourseVersion, RetrievalRun } from "@/types/course";

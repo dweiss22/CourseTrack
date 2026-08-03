@@ -12,11 +12,17 @@ const root = new URL("../", import.meta.url);
 // guards are verified by inspecting the source rather than executing it.
 
 test("APPLICATION_ROLES is exactly the four exclusive roles", async () => {
-  const source = await readFile(new URL("lib/auth.ts", root), "utf8");
+  // Lives in lib/roles.ts, not lib/auth.ts -- split out so client components
+  // can import the role list/type without pulling in lib/auth.ts's
+  // server-only Supabase clients (lib/supabase-ssr.ts imports next/headers,
+  // which Next.js rejects from a client bundle).
+  const source = await readFile(new URL("lib/roles.ts", root), "utf8");
   assert.match(
     source,
     /APPLICATION_ROLES = \["super_admin", "admin", "accreditation", "content"\] as const/,
   );
+  const authSource = await readFile(new URL("lib/auth.ts", root), "utf8");
+  assert.match(authSource, /from "@\/lib\/roles"/);
 });
 
 test("getAuthContext never trusts a role from anywhere but the profiles row, and requires an active account", async () => {

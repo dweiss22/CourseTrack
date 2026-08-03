@@ -38,7 +38,7 @@ begin
   where c.conrelid = 'public.version_wrike_task_references'::regclass
     and c.contype = 'u'
     and (
-      select array_agg(a.attname order by a.attname)
+      select array_agg(a.attname::text order by a.attname)
       from unnest(c.conkey) as k(attnum)
       join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum
     ) = array['course_version_id', 'external_task_id']
