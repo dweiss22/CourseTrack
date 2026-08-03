@@ -113,3 +113,18 @@ test("fetchAllWrikePages follows nextPageToken across multiple pages", async () 
   assert.deepEqual(items.map((item) => item.id), ["1", "2", "3"]);
   assert.equal(call, 3);
 });
+
+test("fetchAllWrikePages throws when the pagination cap is hit with more pages remaining", async () => {
+  const fetchImpl = async () =>
+    withHeadersGet(jsonResponse(200, { kind: "tasks", data: [{ id: "x" }], nextPageToken: "always-more" }));
+  await assert.rejects(
+    () =>
+      fetchAllWrikePages({
+        apiHost: "https://www.wrike.com",
+        accessToken: "token",
+        path: "/api/v4/folders/ABC/tasks",
+        fetchImpl,
+      }),
+    (error) => error instanceof WrikeApiError && /pagination cap/i.test(error.message),
+  );
+});

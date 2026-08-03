@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
-import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { triggerWrikeSync } from "@/db";
 import { getWrikeSyncCronSecret } from "@/lib/wrike-env";
-import { demoUser, hasPermission } from "@/lib/permissions";
+import { requireWrikePermission } from "@/lib/wrike-authz";
 
 function isAuthorizedCronCaller(request: Request): boolean {
   const secret = getWrikeSyncCronSecret();
@@ -16,14 +15,9 @@ export async function POST(request: Request) {
   let triggeredBy = "scheduled";
 
   if (!isCron) {
-    const user = await getChatGPTUser();
-    if (!user && process.env.NODE_ENV === "production") {
-      return NextResponse.json({ message: "Authentication is required." }, { status: 401 });
-    }
-    if (!hasPermission(demoUser.role, "administration:manage")) {
-      return NextResponse.json({ message: "Only administrators can run a Wrike sync." }, { status: 403 });
-    }
-    triggeredBy = `manual:${user?.email ?? demoUser.email}`;
+    const actor = await requireWrikePermission("administration:manage");
+    if ("error" in actor) return actor.error;
+    triggeredBy = `manual:${actor.email}`;
   }
 
   try {

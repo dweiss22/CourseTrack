@@ -12,12 +12,42 @@ alter table public.version_wrike_task_references
   add constraint version_wrike_task_references_link_method_check
   check (link_method is null or link_method in ('manual_permalink', 'selected_candidate'));
 
+-- Scoped to Live Wrike only: sample/mock fixtures deliberately reuse a small
+-- fixed set of task ids across many courses (see lib/sample-wrike-data.ts)
+-- and are not subject to the "one real Wrike task, one version" invariant.
 create unique index if not exists version_wrike_task_one_active_per_version_idx
   on public.version_wrike_task_references(course_version_id)
-  where unlinked_at is null;
+  where unlinked_at is null and provider_name = 'Live Wrike';
 create unique index if not exists version_wrike_task_one_active_per_task_idx
   on public.version_wrike_task_references(external_task_id)
-  where unlinked_at is null;
+  where unlinked_at is null and provider_name = 'Live Wrike';
+
+-- The original table declared a full (not partial) uniqueness constraint on
+-- (course_version_id, external_task_id). That constraint still matches a
+-- historical, unlinked row and would block re-linking the same task to the
+-- same version after an unlink. The partial indexes above are the intended
+-- replacement, scoped to active links only. The constraint's auto-generated
+-- name may have been truncated by Postgres's identifier length limit, so it
+-- is looked up dynamically rather than assumed.
+do $$
+declare
+  target_conname text;
+begin
+  select c.conname into target_conname
+  from pg_constraint c
+  where c.conrelid = 'public.version_wrike_task_references'::regclass
+    and c.contype = 'u'
+    and (
+      select array_agg(a.attname order by a.attname)
+      from unnest(c.conkey) as k(attnum)
+      join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum
+    ) = array['course_version_id', 'external_task_id']
+  limit 1;
+
+  if target_conname is not null then
+    execute format('alter table public.version_wrike_task_references drop constraint %I', target_conname);
+  end if;
+end $$;
 
 -- Singleton connection row holding the encrypted Wrike permanent access token.
 create table if not exists public.wrike_connection (
@@ -183,5 +213,33 @@ create policy wrike_sync_runs_admin_all on public.wrike_sync_runs
 for all to authenticated
 using (public.has_permission('administration:manage'))
 with check (public.has_permission('administration:manage'));
+
+-- The Wrike API routes run through the Supabase service-role client (which
+-- bypasses RLS, same as every other write path in this codebase) rather than
+-- a per-request authenticated session, so public.has_permission() (keyed off
+-- auth.uid()) cannot be used to gate them. This mirrors it, keyed by email
+-- instead, so those routes can check the caller's actual role rather than a
+-- hardcoded demo role.
+create or replace function public.has_permission_for_email(p_email text, p_permission text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.profiles pr
+    join public.user_roles ur on ur.user_id = pr.id
+    join public.role_permissions rp on rp.role_id = ur.role_id
+    join public.permissions perm on perm.id = rp.permission_id
+    where pr.email = p_email
+      and pr.active
+      and perm.key = p_permission
+  );
+$$;
+
+revoke all on function public.has_permission_for_email(text, text) from public, anon, authenticated;
+grant execute on function public.has_permission_for_email(text, text) to service_role;
 
 commit;

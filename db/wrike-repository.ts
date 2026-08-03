@@ -532,6 +532,18 @@ export async function linkCourseVersionWrikeTask(
     throw new Error("Provide either a Wrike permalink or a selected candidate task id.");
   }
 
+  // Relinking replaces whatever is currently active on this version. Retire
+  // it first so the new insert doesn't collide with the one-active-link
+  // partial unique index; a no-op when there was nothing active.
+  const { error: supersedeError } = await client
+    .from("version_wrike_task_references")
+    .update({ unlinked_at: new Date().toISOString() })
+    .eq("course_version_id", input.courseVersionId)
+    .is("unlinked_at", null);
+  if (supersedeError) {
+    throw repositoryError("Could not supersede the previous Wrike link", supersedeError);
+  }
+
   const { data, error } = await client
     .from("version_wrike_task_references")
     .insert({

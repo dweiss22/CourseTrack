@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { connectToWrike } from "@/db";
 import { readWrikeEnvFallback } from "@/lib/wrike-env";
-import { demoUser, hasPermission } from "@/lib/permissions";
+import { requireWrikePermission } from "@/lib/wrike-authz";
 
 const connectSchema = z.object({
   token: z.string().trim().min(1).max(500).optional(),
@@ -11,13 +10,8 @@ const connectSchema = z.object({
 });
 
 export async function POST(request: Request) {
-  const user = await getChatGPTUser();
-  if (!user && process.env.NODE_ENV === "production") {
-    return NextResponse.json({ message: "Authentication is required." }, { status: 401 });
-  }
-  if (!hasPermission(demoUser.role, "administration:manage")) {
-    return NextResponse.json({ message: "Only administrators can connect Wrike." }, { status: 403 });
-  }
+  const actor = await requireWrikePermission("administration:manage");
+  if ("error" in actor) return actor.error;
 
   const parsed = connectSchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) {
@@ -38,7 +32,7 @@ export async function POST(request: Request) {
     const connection = await connectToWrike({
       token,
       apiHost,
-      actorEmail: user?.email ?? demoUser.email,
+      actorEmail: actor.email,
     });
     return NextResponse.json({ connection, message: "Wrike connected." });
   } catch (error) {

@@ -1,21 +1,15 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { verifyWrikeTaskLink } from "@/db";
-import { demoUser, hasPermission } from "@/lib/permissions";
+import { requireWrikePermission } from "@/lib/wrike-authz";
 
 const verifySchema = z.object({
   referenceId: z.string().trim().min(1),
 });
 
 export async function POST(request: Request) {
-  const user = await getChatGPTUser();
-  if (!user && process.env.NODE_ENV === "production") {
-    return NextResponse.json({ message: "Authentication is required." }, { status: 401 });
-  }
-  if (!hasPermission(demoUser.role, "versions:manage")) {
-    return NextResponse.json({ message: "Only version managers can verify Wrike links." }, { status: 403 });
-  }
+  const actor = await requireWrikePermission("versions:manage");
+  if ("error" in actor) return actor.error;
 
   const parsed = verifySchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) {

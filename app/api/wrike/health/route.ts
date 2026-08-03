@@ -1,16 +1,10 @@
 import { NextResponse } from "next/server";
-import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { checkWrikeConnectionHealth } from "@/db";
-import { demoUser, hasPermission } from "@/lib/permissions";
+import { requireWrikePermission } from "@/lib/wrike-authz";
 
 export async function GET() {
-  const user = await getChatGPTUser();
-  if (!user && process.env.NODE_ENV === "production") {
-    return NextResponse.json({ message: "Authentication is required." }, { status: 401 });
-  }
-  if (!hasPermission(demoUser.role, "administration:manage")) {
-    return NextResponse.json({ message: "Only administrators can check Wrike health." }, { status: 403 });
-  }
+  const actor = await requireWrikePermission("administration:manage");
+  if ("error" in actor) return actor.error;
 
   try {
     const connection = await checkWrikeConnectionHealth();
