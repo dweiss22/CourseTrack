@@ -171,7 +171,8 @@ export interface ContentMetadataRecord {
 export type TopicAssignmentSource =
   | "LMS Public Topic"
   | "LMS Private Topic"
-  | "Topics import";
+  | "Topics import"
+  | "Manual";
 
 export interface CourseTopicAssignment {
   id: string;
@@ -179,6 +180,13 @@ export interface CourseTopicAssignment {
   originalTopicLabel: string;
   source: TopicAssignmentSource;
   importRunId: string | null;
+  assignedAt: string;
+}
+
+export interface CourseTagAssignment {
+  id: string;
+  tag: string;
+  source: "Manual";
   assignedAt: string;
 }
 
@@ -425,6 +433,7 @@ export interface Course {
   sourceTimestamps: CourseSourceTimestamps;
   mappingWarnings: string[];
   topicAssignments: CourseTopicAssignment[];
+  tagAssignments: CourseTagAssignment[];
   verticalAssignments: VerticalAssignment[];
   relationships: CourseRelationship[];
   importHistory: SourceHistoryRecord[];

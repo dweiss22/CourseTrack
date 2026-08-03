@@ -17,6 +17,7 @@ import type {
   CourseNote,
   CourseRelationship,
   CourseSourceTimestamps,
+  CourseTagAssignment,
   CourseTopicAssignment,
   CourseVersion,
   FieldComparison,
@@ -444,6 +445,13 @@ function buildCourse(metadataRow: SourceRow, index: number): Course {
     lastComparedAt: comparedAt,
   };
   const primaryTopic = topicAssignments[0]?.topic ?? parsedMetadata.contentType ?? "Uncategorized";
+  const tags = [...new Set([parsedMetadata.contentType ?? "Course", ...topicAssignments.map((assignment) => assignment.topic)])].slice(0, 6);
+  const tagAssignments: CourseTagAssignment[] = tags.map((tag, tagIndex) => ({
+    id: `${courseId}-TAG-${tagIndex + 1}`,
+    tag,
+    source: "Manual" as const,
+    assignedAt: importedAt,
+  }));
   const currentVersion = versions.find((version) => version.isCurrent)?.versionNumber ?? "1.0";
   const publicationStatus = published ? "Published" as const : "Draft" as const;
   const auditHistory: AuditHistoryRecord[] = [];
@@ -462,7 +470,7 @@ function buildCourse(metadataRow: SourceRow, index: number): Course {
     primaryVertical,
     secondaryVerticals,
     primaryTopic,
-    tags: [...new Set([parsedMetadata.contentType ?? "Course", ...topicAssignments.map((assignment) => assignment.topic)])].slice(0, 6),
+    tags,
     lifecycleStatus: published ? "Published" : "In Development",
     publicationStatus,
     deliveryFormat: deliveryFormat(parsedMetadata.contentType),
@@ -502,6 +510,7 @@ function buildCourse(metadataRow: SourceRow, index: number): Course {
     sourceTimestamps,
     mappingWarnings: [...new Set(mappingWarnings)],
     topicAssignments,
+    tagAssignments,
     verticalAssignments,
     relationships,
     importHistory,

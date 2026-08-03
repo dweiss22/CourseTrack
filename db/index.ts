@@ -2,7 +2,11 @@ import { cache } from "react";
 import { getSupabaseAdminClient } from "@/lib/supabase-server";
 import {
   fetchAccreditationBoard,
+  fetchAllTags,
+  fetchAllTopics,
   fetchCourseGraphByAppId,
+  fetchCoursesForTag,
+  fetchCoursesForTopic,
   fetchFlagBoard,
   fetchFullCourseGraph,
   fetchPortfolioSummaries,
@@ -17,6 +21,8 @@ import {
   type PortfolioSummary,
   type RevampBoardEntry,
   type SampleDataCounts,
+  type TaxonomyCourseEntry,
+  type TaxonomySummary,
   type VersionBoardEntry,
 } from "@/db/course-repository";
 export type {
@@ -27,6 +33,8 @@ export type {
   PortfolioSummary,
   RevampBoardEntry,
   SampleDataCounts,
+  TaxonomyCourseEntry,
+  TaxonomySummary,
   VersionBoardEntry,
 };
 import {
@@ -458,6 +466,169 @@ export async function persistFieldResolution(input: {
     throw databaseError("Could not save the CourseTrack field resolution", error);
   }
   return data === true;
+}
+
+function sampleTaxonomySummaries(kind: "topic" | "tag"): TaxonomySummary[] {
+  const counts = new Map<string, number>();
+  for (const course of sampleCourses) {
+    const labels = kind === "topic"
+      ? course.topicAssignments.map((assignment) => assignment.topic)
+      : course.tagAssignments.map((assignment) => assignment.tag);
+    for (const label of new Set(labels)) {
+      counts.set(label, (counts.get(label) ?? 0) + 1);
+    }
+  }
+  return Array.from(counts.entries())
+    .map(([label, courseCount]) => ({ id: `sample-${kind}:${label}`, label, courseCount }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+}
+
+export async function getAllTopics(): Promise<TaxonomySummary[]> {
+  const client = getSupabaseAdminClient();
+  if (!client) return sampleTaxonomySummaries("topic");
+  try {
+    return await fetchAllTopics(client);
+  } catch {
+    return sampleTaxonomySummaries("topic");
+  }
+}
+
+export async function getAllTags(): Promise<TaxonomySummary[]> {
+  const client = getSupabaseAdminClient();
+  if (!client) return sampleTaxonomySummaries("tag");
+  try {
+    return await fetchAllTags(client);
+  } catch {
+    return sampleTaxonomySummaries("tag");
+  }
+}
+
+function sampleCoursesForTaxonomy(kind: "topic" | "tag", id: string): TaxonomyCourseEntry[] {
+  const label = id.slice(`sample-${kind}:`.length);
+  return sampleCourses
+    .filter((course) =>
+      kind === "topic"
+        ? course.topicAssignments.some((assignment) => assignment.topic === label)
+        : course.tagAssignments.some((assignment) => assignment.tag === label),
+    )
+    .map((course) => ({
+      assignmentId: `${course.id}-${kind}-${label}`,
+      courseId: course.id,
+      title: course.title,
+      courseCode: course.courseCode,
+    }));
+}
+
+export async function getCoursesForTopic(topicId: string): Promise<TaxonomyCourseEntry[]> {
+  const client = getSupabaseAdminClient();
+  if (!client) return sampleCoursesForTaxonomy("topic", topicId);
+  try {
+    return await fetchCoursesForTopic(client, topicId);
+  } catch {
+    return sampleCoursesForTaxonomy("topic", topicId);
+  }
+}
+
+export async function getCoursesForTag(tagId: string): Promise<TaxonomyCourseEntry[]> {
+  const client = getSupabaseAdminClient();
+  if (!client) return sampleCoursesForTaxonomy("tag", tagId);
+  try {
+    return await fetchCoursesForTag(client, tagId);
+  } catch {
+    return sampleCoursesForTaxonomy("tag", tagId);
+  }
+}
+
+export async function assignCourseTopic(input: {
+  courseId: string;
+  topicLabel: string;
+  actorEmail: string;
+}): Promise<boolean> {
+  const client = getSupabaseAdminClient();
+  if (!client) return false;
+  const { data, error } = await client.rpc("assign_course_topic", {
+    p_app_id: input.courseId,
+    p_topic_label: input.topicLabel,
+    p_actor_email: input.actorEmail,
+  });
+  if (error) throw databaseError("Could not assign the topic", error);
+  return data === true;
+}
+
+export async function removeCourseTopic(input: {
+  courseTopicId: string;
+  actorEmail: string;
+}): Promise<boolean> {
+  const client = getSupabaseAdminClient();
+  if (!client) return false;
+  const { data, error } = await client.rpc("remove_course_topic", {
+    p_course_topic_id: input.courseTopicId,
+    p_actor_email: input.actorEmail,
+  });
+  if (error) throw databaseError("Could not remove the topic assignment", error);
+  return data === true;
+}
+
+export async function assignTopicToCourses(input: {
+  topicLabel: string;
+  courseIds: string[];
+  actorEmail: string;
+}): Promise<number> {
+  const client = getSupabaseAdminClient();
+  if (!client) return 0;
+  const { data, error } = await client.rpc("assign_topic_to_courses", {
+    p_topic_label: input.topicLabel,
+    p_app_ids: input.courseIds,
+    p_actor_email: input.actorEmail,
+  });
+  if (error) throw databaseError("Could not bulk-assign the topic", error);
+  return Number(data ?? 0);
+}
+
+export async function assignCourseTag(input: {
+  courseId: string;
+  tagLabel: string;
+  actorEmail: string;
+}): Promise<boolean> {
+  const client = getSupabaseAdminClient();
+  if (!client) return false;
+  const { data, error } = await client.rpc("assign_course_tag", {
+    p_app_id: input.courseId,
+    p_tag_label: input.tagLabel,
+    p_actor_email: input.actorEmail,
+  });
+  if (error) throw databaseError("Could not assign the tag", error);
+  return data === true;
+}
+
+export async function removeCourseTag(input: {
+  courseTagId: string;
+  actorEmail: string;
+}): Promise<boolean> {
+  const client = getSupabaseAdminClient();
+  if (!client) return false;
+  const { data, error } = await client.rpc("remove_course_tag", {
+    p_course_tag_id: input.courseTagId,
+    p_actor_email: input.actorEmail,
+  });
+  if (error) throw databaseError("Could not remove the tag assignment", error);
+  return data === true;
+}
+
+export async function assignTagToCourses(input: {
+  tagLabel: string;
+  courseIds: string[];
+  actorEmail: string;
+}): Promise<number> {
+  const client = getSupabaseAdminClient();
+  if (!client) return 0;
+  const { data, error } = await client.rpc("assign_tag_to_courses", {
+    p_tag_label: input.tagLabel,
+    p_app_ids: input.courseIds,
+    p_actor_email: input.actorEmail,
+  });
+  if (error) throw databaseError("Could not bulk-assign the tag", error);
+  return Number(data ?? 0);
 }
 
 export async function recordRetrievalRun(input: {

@@ -167,6 +167,8 @@ async function main() {
   const fieldComparisonRows = [];
   const topicByNormalizedLabel = new Map();
   const courseTopicRows = [];
+  const tagByNormalizedLabel = new Map();
+  const courseTagRows = [];
   const relationshipRows = [];
 
   coursesToSeed.forEach((course, courseIndex) => {
@@ -409,6 +411,25 @@ async function main() {
       });
     }
 
+    for (const assignment of course.tagAssignments) {
+      const normalizedLabel = assignment.tag.trim().toLowerCase();
+      if (!normalizedLabel) continue;
+      if (!tagByNormalizedLabel.has(normalizedLabel)) {
+        tagByNormalizedLabel.set(normalizedLabel, {
+          id: uuidFor(`tag:${normalizedLabel}`),
+          normalized_label: normalizedLabel,
+          display_label: assignment.tag,
+        });
+      }
+      courseTagRows.push({
+        id: uuidFor(`course-tag:${assignment.id}`),
+        tag_id: uuidFor(`tag:${normalizedLabel}`),
+        course_id: courseDbId,
+        assignment_source: assignment.source,
+        created_at: assignment.assignedAt,
+      });
+    }
+
     for (const relationship of course.relationships) {
       relationshipRows.push({
         id: uuidFor(`relationship:${relationship.id}`),
@@ -446,6 +467,8 @@ async function main() {
   await upsertAll("field_comparisons", fieldComparisonRows, "field_comparisons");
   await upsertAll("topics", [...topicByNormalizedLabel.values()], "topics");
   await upsertAll("course_topics", courseTopicRows, "course_topics");
+  await upsertAll("tags", [...tagByNormalizedLabel.values()], "tags");
+  await upsertAll("course_tags", courseTagRows, "course_tags");
   await upsertAll("course_relationships", relationshipRows, "course_relationships");
 
   console.log("\nSeed complete.");

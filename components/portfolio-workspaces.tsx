@@ -14,17 +14,22 @@ import {
   ShieldCheck,
   Sparkles,
   Users,
+  X,
 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { demoUser, rolePermissions } from "@/lib/permissions";
+import { accreditationDisplayLabel } from "@/lib/accreditation-grouping";
 import type {
   AccreditationBoardEntry,
+  CourseIndexEntry,
   FlagBoardEntry,
   ImportPreviewSummary,
   PortfolioReportMetrics,
   RevampBoardEntry,
   SampleDataCounts,
+  TaxonomyCourseEntry,
+  TaxonomySummary,
   VersionBoardEntry,
 } from "@/db";
 import { StatusBadge } from "./status-badge";
@@ -84,7 +89,7 @@ export function AccreditationWorkspace({ entries }: { entries: AccreditationBoar
                     <td><Link href={`/courses/${course.courseId}`} className="table-link">{course.courseTitle}</Link></td>
                     <td>{record.organization}</td>
                     <td>{record.jurisdiction}</td>
-                    <td><StatusBadge>{record.status}</StatusBadge></td>
+                    <td><StatusBadge label={accreditationDisplayLabel(record, record.status !== "Expired")} /></td>
                     <td>{record.expirationDate ?? "Not set"}</td>
                     <td className="mono-cell">{record.approvalNumber ?? "Missing"}</td>
                   </tr>
@@ -598,6 +603,273 @@ export function ProfileWorkspace() {
           </div>
         </section>
       </div>
+    </WorkspaceFrame>
+  );
+}
+
+export function TopicsTagsWorkspace({
+  topics,
+  tags,
+  courseIndex,
+}: {
+  topics: TaxonomySummary[];
+  tags: TaxonomySummary[];
+  courseIndex: CourseIndexEntry[];
+}) {
+  const [kind, setKind] = useState<"topic" | "tag">("topic");
+  const [topicItems, setTopicItems] = useState(topics);
+  const [tagItems, setTagItems] = useState(tags);
+  const [search, setSearch] = useState("");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [labelInput, setLabelInput] = useState("");
+  const [assignedCourses, setAssignedCourses] = useState<TaxonomyCourseEntry[]>([]);
+  const [loadingCourses, setLoadingCourses] = useState(false);
+  const [courseSearch, setCourseSearch] = useState("");
+  const [checkedCourseIds, setCheckedCourseIds] = useState<Set<string>>(new Set());
+  const [pending, setPending] = useState(false);
+  const [message, setMessage] = useState("");
+
+  const items = kind === "topic" ? topicItems : tagItems;
+  const endpoint = kind === "topic" ? "topics" : "tags";
+  const filteredItems = items.filter(
+    (item) => !search || item.label.toLowerCase().includes(search.toLowerCase()),
+  );
+
+  const resetSelection = () => {
+    setSelectedId(null);
+    setLabelInput("");
+    setAssignedCourses([]);
+    setCheckedCourseIds(new Set());
+    setMessage("");
+  };
+
+  const loadCourses = async (id: string) => {
+    setLoadingCourses(true);
+    try {
+      const response = await fetch(`/api/${endpoint}/${id}/courses`);
+      const result = (await response.json()) as { courses?: TaxonomyCourseEntry[] };
+      setAssignedCourses(result.courses ?? []);
+    } finally {
+      setLoadingCourses(false);
+    }
+  };
+
+  const selectItem = (item: TaxonomySummary) => {
+    setSelectedId(item.id);
+    setLabelInput(item.label);
+    setCheckedCourseIds(new Set());
+    setMessage("");
+    void loadCourses(item.id);
+  };
+
+  const assignedCourseIds = new Set(assignedCourses.map((entry) => entry.courseId));
+  const pickerCourses = courseIndex
+    .filter((course) => !assignedCourseIds.has(course.id))
+    .filter(
+      (course) =>
+        !courseSearch ||
+        `${course.title} ${course.courseCode}`.toLowerCase().includes(courseSearch.toLowerCase()),
+    )
+    .slice(0, 50);
+
+  const toggleCourse = (id: string) => {
+    setCheckedCourseIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleAssign = async () => {
+    const label = labelInput.trim();
+    if (!label || checkedCourseIds.size === 0) return;
+    setPending(true);
+    setMessage("");
+    try {
+      const response = await fetch(`/api/${endpoint}/${selectedId ?? "new"}/courses`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ label, courseIds: Array.from(checkedCourseIds) }),
+      });
+      const result = (await response.json()) as { message?: string };
+      if (!response.ok) throw new Error(result.message ?? "Could not assign courses.");
+      setMessage(result.message ?? "Courses assigned.");
+      setCheckedCourseIds(new Set());
+
+      const refreshed = (await fetch(`/api/${endpoint}`).then((r) => r.json())) as {
+        topics?: TaxonomySummary[];
+        tags?: TaxonomySummary[];
+      };
+      const refreshedList = (kind === "topic" ? refreshed.topics : refreshed.tags) ?? [];
+      if (kind === "topic") setTopicItems(refreshedList);
+      else setTagItems(refreshedList);
+
+      const match = refreshedList.find((item) => item.label.toLowerCase() === label.toLowerCase());
+      if (match) {
+        setSelectedId(match.id);
+        await loadCourses(match.id);
+      }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not assign courses.");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const handleRemove = async (assignmentId: string) => {
+    if (!selectedId) return;
+    setPending(true);
+    setMessage("");
+    try {
+      const response = await fetch(`/api/${endpoint}/${selectedId}/courses`, {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ assignmentIds: [assignmentId] }),
+      });
+      const result = (await response.json()) as { message?: string };
+      if (!response.ok) throw new Error(result.message ?? "Could not remove this course.");
+      setAssignedCourses((prev) => prev.filter((entry) => entry.assignmentId !== assignmentId));
+      setMessage(result.message ?? "Course removed.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not remove this course.");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <WorkspaceFrame
+      eyebrow="Taxonomy workspace"
+      title="Topics & Tags"
+      description="Manually associate courses with topics and tags — this data is CourseTrack-owned since the LMS does not report it."
+    >
+      <MetricStrip
+        metrics={[
+          ["Topics", String(topicItems.length), "Distinct topic labels"],
+          ["Tags", String(tagItems.length), "Distinct tag labels"],
+          ["In focus", selectedId ? labelInput : "None", kind === "topic" ? "Topic selected" : "Tag selected"],
+        ]}
+      />
+      <section className="panel taxonomy-workspace-grid">
+        <div className="taxonomy-list-pane">
+          <div className="taxonomy-kind-toggle">
+            <button
+              type="button"
+              className={kind === "topic" ? "button button-secondary active" : "button button-secondary"}
+              onClick={() => {
+                setKind("topic");
+                resetSelection();
+              }}
+            >
+              Topics
+            </button>
+            <button
+              type="button"
+              className={kind === "tag" ? "button button-secondary active" : "button button-secondary"}
+              onClick={() => {
+                setKind("tag");
+                resetSelection();
+              }}
+            >
+              Tags
+            </button>
+          </div>
+          <input
+            type="text"
+            className="taxonomy-search"
+            placeholder={`Search ${kind}s…`}
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+          <ul className="taxonomy-item-list">
+            {filteredItems.map((item) => (
+              <li key={item.id}>
+                <button
+                  type="button"
+                  className={item.id === selectedId ? "taxonomy-item active" : "taxonomy-item"}
+                  onClick={() => selectItem(item)}
+                >
+                  <span>{item.label}</span>
+                  <StatusBadge tone="neutral">{item.courseCount}</StatusBadge>
+                </button>
+              </li>
+            ))}
+            {filteredItems.length === 0 && <li className="empty-hint">No {kind}s match this search.</li>}
+          </ul>
+        </div>
+        <div className="taxonomy-detail-pane">
+          <label className="taxonomy-label-field">
+            <span>{selectedId ? "Editing" : "New topic / tag label"}</span>
+            <input
+              type="text"
+              value={labelInput}
+              onChange={(event) => setLabelInput(event.target.value)}
+              placeholder={`Type a ${kind} label to create or edit…`}
+            />
+          </label>
+
+          {selectedId && (
+            <div className="taxonomy-assigned-courses">
+              <h3>Assigned courses</h3>
+              {loadingCourses ? (
+                <p>Loading…</p>
+              ) : assignedCourses.length === 0 ? (
+                <p className="empty-hint">No courses assigned yet.</p>
+              ) : (
+                <ul>
+                  {assignedCourses.map((entry) => (
+                    <li key={entry.assignmentId}>
+                      <Link href={`/courses/${entry.courseId}`} className="table-link">
+                        {entry.title}
+                      </Link>
+                      <span className="mono-cell">{entry.courseCode}</span>
+                      <button type="button" onClick={() => handleRemove(entry.assignmentId)} disabled={pending}>
+                        <X size={13} />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
+          <div className="taxonomy-course-picker">
+            <h3>Add courses</h3>
+            <input
+              type="text"
+              placeholder="Search courses by title or code…"
+              value={courseSearch}
+              onChange={(event) => setCourseSearch(event.target.value)}
+            />
+            <ul className="taxonomy-course-picker-list">
+              {pickerCourses.map((course) => (
+                <li key={course.id}>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={checkedCourseIds.has(course.id)}
+                      onChange={() => toggleCourse(course.id)}
+                    />
+                    {course.title} <span className="mono-cell">{course.courseCode}</span>
+                  </label>
+                </li>
+              ))}
+            </ul>
+            <button
+              type="button"
+              className="button button-primary"
+              disabled={pending || !labelInput.trim() || checkedCourseIds.size === 0}
+              onClick={handleAssign}
+            >
+              Add {checkedCourseIds.size || ""} course{checkedCourseIds.size === 1 ? "" : "s"} to &ldquo;
+              {labelInput.trim() || "…"}
+              &rdquo;
+            </button>
+            {message && <p className="taxonomy-editor-error">{message}</p>}
+          </div>
+        </div>
+      </section>
     </WorkspaceFrame>
   );
 }

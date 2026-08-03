@@ -26,9 +26,16 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
-import { type FormEvent, useState } from "react";
-import type { Course, FieldComparison } from "@/types/course";
+import { type Dispatch, type FormEvent, type SetStateAction, useState } from "react";
+import type {
+  AccreditationRecord,
+  Course,
+  CourseTagAssignment,
+  CourseTopicAssignment,
+  FieldComparison,
+} from "@/types/course";
 import { StatusBadge } from "../status-badge";
+import { accreditationDisplayLabel, groupAccreditationRecords } from "@/lib/accreditation-grouping";
 
 const tabs = [
   "Overview",
@@ -49,7 +56,15 @@ type ResolutionAction =
   | "Keep Content Team value"
   | "Clear resolution and review again";
 
-export function CourseDetail({ course }: { course: Course }) {
+export function CourseDetail({
+  course,
+  topicSuggestions,
+  tagSuggestions,
+}: {
+  course: Course;
+  topicSuggestions: string[];
+  tagSuggestions: string[];
+}) {
   const [activeTab, setActiveTab] = useState<Tab>("Overview");
   const [currentCourse, setCurrentCourse] = useState(course);
   const [editing, setEditing] = useState(false);
@@ -410,7 +425,12 @@ export function CourseDetail({ course }: { course: Course }) {
             <AccreditationTab course={currentCourse} />
           )}
           {activeTab === "Topics & Tags" && (
-            <TopicsTab course={currentCourse} />
+            <TopicsTab
+              course={currentCourse}
+              onCourseChange={setCurrentCourse}
+              topicSuggestions={topicSuggestions}
+              tagSuggestions={tagSuggestions}
+            />
           )}
           {activeTab === "Notes" && <NotesTab course={currentCourse} />}
           {activeTab === "Flags" && <FlagsTab course={currentCourse} />}
@@ -799,30 +819,33 @@ function AccreditationTab({ course }: { course: Course }) {
       </div>
     );
   }
+  const groups = groupAccreditationRecords(course.accreditations);
   return (
     <div className="detail-section-stack">
-      {course.accreditations.map((record) => (
-        <article className="panel accreditation-card" key={record.id}>
+      {groups.map((group) => (
+        <article className="panel accreditation-card" key={group.key}>
           <div className="panel-heading">
             <div>
-              <h2>{record.organization}</h2>
-              <p>{record.jurisdiction} · {record.creditHours} credit hours</p>
+              <h2>{group.organization}</h2>
+              <p>{group.jurisdiction}</p>
             </div>
-            <StatusBadge>{record.status}</StatusBadge>
+            {group.current && (
+              <StatusBadge label={accreditationDisplayLabel(group.current, true)} />
+            )}
           </div>
-          <div className="field-grid">
-            <ProvenanceField label="Approval number" value={record.approvalNumber ?? "Missing"} source={record.source === "lms" ? "LMS" : "CourseTrack"} locked={record.source === "lms"} />
-            <ProvenanceField label="Effective date" value={record.effectiveDate ?? "Not set"} source="CourseTrack" />
-            <ProvenanceField label="Expiration date" value={record.expirationDate ?? "Not set"} source="CourseTrack" />
-            <ProvenanceField label="Jurisdiction" value={record.jurisdiction} source="CourseTrack" />
-          </div>
-          {record.riskReasons.length > 0 && (
-            <div className="risk-reasons">
-              <AlertTriangle size={17} />
-              <span>
-                <strong>Risk factors</strong>
-                {record.riskReasons.join(" · ")}
-              </span>
+          {group.current && <AccreditationRecordFields record={group.current} />}
+          {group.expired.length > 0 && (
+            <div className="accreditation-history">
+              <h3>Expired history</h3>
+              {group.expired.map((record) => (
+                <div className="accreditation-history-entry" key={record.id}>
+                  <div className="panel-heading">
+                    <p>{record.creditHours} credit hours</p>
+                    <StatusBadge label="Expired" />
+                  </div>
+                  <AccreditationRecordFields record={record} />
+                </div>
+              ))}
             </div>
           )}
         </article>
@@ -831,7 +854,39 @@ function AccreditationTab({ course }: { course: Course }) {
   );
 }
 
-function TopicsTab({ course }: { course: Course }) {
+function AccreditationRecordFields({ record }: { record: AccreditationRecord }) {
+  return (
+    <>
+      <div className="field-grid">
+        <ProvenanceField label="Approval number" value={record.approvalNumber ?? "Missing"} source={record.source === "lms" ? "LMS" : "CourseTrack"} locked={record.source === "lms"} />
+        <ProvenanceField label="Effective date" value={record.effectiveDate ?? "Not set"} source="CourseTrack" />
+        <ProvenanceField label="Expiration date" value={record.expirationDate ?? "Not set"} source="CourseTrack" />
+        <ProvenanceField label="Credit hours" value={String(record.creditHours)} source="CourseTrack" />
+      </div>
+      {record.riskReasons.length > 0 && (
+        <div className="risk-reasons">
+          <AlertTriangle size={17} />
+          <span>
+            <strong>Risk factors</strong>
+            {record.riskReasons.join(" · ")}
+          </span>
+        </div>
+      )}
+    </>
+  );
+}
+
+function TopicsTab({
+  course,
+  onCourseChange,
+  topicSuggestions,
+  tagSuggestions,
+}: {
+  course: Course;
+  onCourseChange: Dispatch<SetStateAction<Course>>;
+  topicSuggestions: string[];
+  tagSuggestions: string[];
+}) {
   return (
     <article className="panel">
       <div className="panel-heading">
@@ -846,12 +901,177 @@ function TopicsTab({ course }: { course: Course }) {
         <strong>{course.primaryTopic}</strong>
         <small>{course.primaryVertical} / {course.primaryTopic}</small>
       </div>
-      <div className="tag-list">
-        {course.tags.map((tag) => (
-          <span key={tag}>{tag}</span>
-        ))}
-      </div>
+      <TaxonomyEditor
+        courseId={course.id}
+        kind="topic"
+        title="Topics"
+        assignments={course.topicAssignments}
+        onCourseChange={onCourseChange}
+        suggestions={topicSuggestions}
+      />
+      <TaxonomyEditor
+        courseId={course.id}
+        kind="tag"
+        title="Tags"
+        suggestions={tagSuggestions}
+        assignments={course.tagAssignments}
+        onCourseChange={onCourseChange}
+      />
+      <p className="taxonomy-note">
+        LMS- and import-sourced topics are read-only here. Manually added topics and tags are
+        CourseTrack-owned since the LMS does not report them.
+      </p>
     </article>
+  );
+}
+
+type TaxonomyAssignment = CourseTopicAssignment | CourseTagAssignment;
+
+function taxonomyLabel(kind: "topic" | "tag", assignment: TaxonomyAssignment): string {
+  return kind === "topic" ? (assignment as CourseTopicAssignment).topic : (assignment as CourseTagAssignment).tag;
+}
+
+function TaxonomyEditor({
+  courseId,
+  kind,
+  title,
+  assignments,
+  onCourseChange,
+  suggestions,
+}: {
+  courseId: string;
+  kind: "topic" | "tag";
+  title: string;
+  assignments: TaxonomyAssignment[];
+  onCourseChange: Dispatch<SetStateAction<Course>>;
+  suggestions: string[];
+}) {
+  const [input, setInput] = useState("");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+  const endpoint = kind === "topic" ? "topics" : "tags";
+  const datalistId = `${courseId}-${kind}-suggestions`;
+  const assignedLabels = new Set(assignments.map((assignment) => taxonomyLabel(kind, assignment)));
+  const unassignedSuggestions = suggestions.filter((label) => !assignedLabels.has(label));
+  const listKey: "topicAssignments" | "tagAssignments" =
+    kind === "topic" ? "topicAssignments" : "tagAssignments";
+
+  const handleAdd = async (event: FormEvent) => {
+    event.preventDefault();
+    const label = input.trim();
+    if (!label) return;
+    setPending(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/courses/${courseId}/${endpoint}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ label }),
+      });
+      const result = (await response.json()) as { saved?: boolean; message?: string };
+      if (!response.ok || !result.saved) {
+        throw new Error(result.message ?? `Could not add this ${kind}.`);
+      }
+      const newAssignment: TaxonomyAssignment =
+        kind === "topic"
+          ? {
+              id: `pending-${label}-${Date.now()}`,
+              topic: label,
+              originalTopicLabel: label,
+              source: "Manual",
+              importRunId: null,
+              assignedAt: new Date().toISOString(),
+            }
+          : {
+              id: `pending-${label}-${Date.now()}`,
+              tag: label,
+              source: "Manual",
+              assignedAt: new Date().toISOString(),
+            };
+      onCourseChange((prev) => ({
+        ...prev,
+        [listKey]: [...(prev[listKey] as TaxonomyAssignment[]), newAssignment],
+      }));
+      setInput("");
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : `Could not add this ${kind}.`);
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const handleRemove = async (assignmentId: string) => {
+    setPending(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/courses/${courseId}/${endpoint}`, {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(
+          kind === "topic" ? { courseTopicId: assignmentId } : { courseTagId: assignmentId },
+        ),
+      });
+      const result = (await response.json()) as { removed?: boolean; message?: string };
+      if (!response.ok || !result.removed) {
+        throw new Error(result.message ?? `Could not remove this ${kind}.`);
+      }
+      onCourseChange((prev) => ({
+        ...prev,
+        [listKey]: (prev[listKey] as TaxonomyAssignment[]).filter((assignment) => assignment.id !== assignmentId),
+      }));
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : `Could not remove this ${kind}.`);
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <div className="taxonomy-editor">
+      <h3>{title}</h3>
+      <div className="tag-list">
+        {assignments.map((assignment) => {
+          const locked = assignment.source !== "Manual";
+          const label = taxonomyLabel(kind, assignment);
+          return (
+            <span className={locked ? "tag-chip tag-chip-locked" : "tag-chip"} key={assignment.id}>
+              {locked && <LockKeyhole size={11} />}
+              {label}
+              {!locked && (
+                <button
+                  type="button"
+                  onClick={() => handleRemove(assignment.id)}
+                  disabled={pending}
+                  aria-label={`Remove ${label}`}
+                >
+                  <X size={11} />
+                </button>
+              )}
+            </span>
+          );
+        })}
+        {assignments.length === 0 && <span className="empty-hint">No {title.toLowerCase()} assigned yet.</span>}
+      </div>
+      <form className="taxonomy-add-form" onSubmit={handleAdd}>
+        <input
+          type="text"
+          value={input}
+          onChange={(event) => setInput(event.target.value)}
+          placeholder={`Add an existing or new ${kind}…`}
+          list={datalistId}
+          disabled={pending}
+        />
+        <datalist id={datalistId}>
+          {unassignedSuggestions.map((label) => (
+            <option value={label} key={label} />
+          ))}
+        </datalist>
+        <button type="submit" className="button button-secondary" disabled={pending || !input.trim()}>
+          Add
+        </button>
+      </form>
+      {error && <p className="taxonomy-editor-error">{error}</p>}
+    </div>
   );
 }
 
