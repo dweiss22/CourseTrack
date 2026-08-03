@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
-import { recordRetrievalRun } from "@/db";
+import { getPortfolioCourses, recordRetrievalRun } from "@/db";
 import { demoUser } from "@/lib/permissions";
-import { sampleCourses } from "@/lib/sample-data";
 import {
   MockLmsProvider,
   type MockLmsMode,
@@ -34,7 +33,7 @@ export async function POST(request: Request) {
   const provider = new MockLmsProvider(parsed.data.mode as MockLmsMode);
   const requested = parsed.data.courseId
     ? 1
-    : sampleCourses.filter((course) => course.lmsSnapshot).length;
+    : (await getPortfolioCourses()).filter((course) => course.lmsSnapshot).length;
 
   try {
     const response = parsed.data.courseId

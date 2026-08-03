@@ -3,7 +3,7 @@ import {
   type DashboardCourse,
 } from "@/components/dashboard/dashboard";
 import {
-  getPortfolioCourses,
+  getPortfolioSummaries,
   getRecentRetrievalRuns,
 } from "@/db";
 
@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 
 export default async function Home() {
   const [courses, retrievalRuns] = await Promise.all([
-    getPortfolioCourses(),
+    getPortfolioSummaries(),
     getRecentRetrievalRuns(),
   ]);
   const records: DashboardCourse[] = courses.map((course) => ({
@@ -26,10 +26,10 @@ export default async function Home() {
     reconciliationStatus: course.reconciliationStatus,
     retrievalStatus: course.retrievalStatus,
     conflictCount: course.conflictCount,
-    flagCount: course.flags.length,
-    hasLmsSnapshot: Boolean(course.lmsSnapshot),
-    hasContentMetadata: Boolean(course.contentMetadata),
-    importValidationErrorCount: course.importValidationErrors.length,
+    flagCount: course.flagCount,
+    hasLmsSnapshot: course.hasLmsSnapshot,
+    hasContentMetadata: course.hasContentMetadata,
+    importValidationErrorCount: course.importValidationErrorCount,
   }));
   return <Dashboard courses={records} retrievalRuns={retrievalRuns} />;
 }

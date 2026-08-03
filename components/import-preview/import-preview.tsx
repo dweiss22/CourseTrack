@@ -9,7 +9,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { useState } from "react";
-import { sampleImportPreviews } from "@/lib/sample-data";
+import type { ImportPreviewSummary } from "@/db";
 import { StatusBadge } from "../status-badge";
 
 type ImportSource = "Content Metadata" | "Topics" | "Monitoring list";
@@ -31,13 +31,13 @@ function PreviewMetric({
   );
 }
 
-export function ImportPreview() {
+export function ImportPreview({ importPreview }: { importPreview: ImportPreviewSummary }) {
   const [source, setSource] = useState<ImportSource>("Content Metadata");
   const [reviewed, setReviewed] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
-  const content = sampleImportPreviews.contentMetadata;
-  const topics = sampleImportPreviews.topics;
-  const monitoring = sampleImportPreviews.monitoring;
+  const content = importPreview.contentMetadata;
+  const topics = importPreview.topics;
+  const monitoring = importPreview.monitoring;
 
   const changeSource = (nextSource: ImportSource) => {
     setSource(nextSource);

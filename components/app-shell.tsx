@@ -26,11 +26,8 @@ import {
   useRef,
   useState,
 } from "react";
+import type { CourseIndexEntry } from "@/db";
 import { demoUser } from "@/lib/permissions";
-import {
-  sampleCourseCount,
-  sampleCourseIndex,
-} from "@/lib/sample-course-index";
 import { RuntimeInitializer } from "./runtime-initializer";
 import { StatusBadge } from "./status-badge";
 
@@ -55,7 +52,13 @@ function currentSection(pathname: string) {
   );
 }
 
-export function AppShell({ children }: { children: ReactNode }) {
+export function AppShell({
+  children,
+  courseIndex,
+}: {
+  children: ReactNode;
+  courseIndex: CourseIndexEntry[];
+}) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
@@ -103,7 +106,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       .filter((item) => !query || item.label.toLowerCase().includes(query))
       .slice(0, 4)
       .map((item) => ({ href: item.href, label: item.label, type: "Page" }));
-    const courses = sampleCourseIndex
+    const courses = courseIndex
       .filter(
         (course) =>
           !query ||
@@ -118,7 +121,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         type: course.courseCode,
       }));
     return [...pages, ...courses];
-  }, [commandQuery]);
+  }, [commandQuery, courseIndex]);
 
   const toggleTheme = () => {
     const current = document.documentElement.dataset.theme ?? "light";
@@ -157,7 +160,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         <div className="workspace-chip">
           <StatusBadge tone="sample">Sample workspace</StatusBadge>
-          <span>{sampleCourseCount.toLocaleString()} courses</span>
+          <span>{courseIndex.length.toLocaleString()} courses</span>
         </div>
 
         <nav className="primary-nav" aria-label="Primary navigation">
