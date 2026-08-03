@@ -31,6 +31,8 @@ import type {
   TaxonomyCourseEntry,
   TaxonomySummary,
   VersionBoardEntry,
+  WrikeConnectionSummary,
+  WrikeSyncStatus,
 } from "@/db";
 import { StatusBadge } from "./status-badge";
 import { ImportPreview } from "./import-preview/import-preview";
@@ -462,10 +464,14 @@ export function AdminWorkspace({
   sampleDataCounts,
   retrievalRuns,
   importPreview,
+  wrikeConnection,
+  wrikeSync,
 }: {
   sampleDataCounts: SampleDataCounts;
   retrievalRuns: RetrievalRun[];
   importPreview: ImportPreviewSummary;
+  wrikeConnection: WrikeConnectionSummary;
+  wrikeSync: WrikeSyncStatus;
 }) {
   const [activeTab, setActiveTab] = useState("LMS provider");
   const [status, setStatus] = useState("");
@@ -537,6 +543,7 @@ export function AdminWorkspace({
                 <ConfigRow label="Task and project fields" value="Awaiting documented payloads" />
                 <ConfigRow label="Pagination and rate limits" value="Not assumed" />
               </div>
+              <WrikeConnectionPanel initialConnection={wrikeConnection} initialSync={wrikeSync} />
             </>
           )}
           {activeTab === "Sample data" && (
@@ -567,6 +574,183 @@ export function AdminWorkspace({
         </section>
       </div>
     </WorkspaceFrame>
+  );
+}
+
+function WrikeConnectionPanel({
+  initialConnection,
+  initialSync,
+}: {
+  initialConnection: WrikeConnectionSummary;
+  initialSync: WrikeSyncStatus;
+}) {
+  const [connection, setConnection] = useState(initialConnection);
+  const [sync, setSync] = useState(initialSync);
+  const [token, setToken] = useState("");
+  const [pending, setPending] = useState(false);
+  const [message, setMessage] = useState("");
+
+  const runAction = async (action: () => Promise<void>) => {
+    setPending(true);
+    setMessage("");
+    try {
+      await action();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "The Wrike request failed.");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const handleConnect = () =>
+    runAction(async () => {
+      const response = await fetch("/api/wrike/connect", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(token.trim() ? { token: token.trim() } : {}),
+      });
+      const result = (await response.json()) as { connection?: WrikeConnectionSummary; message?: string };
+      if (!response.ok || !result.connection) throw new Error(result.message ?? "Could not connect to Wrike.");
+      setConnection(result.connection);
+      setToken("");
+      setMessage(result.message ?? "Wrike connected.");
+    });
+
+  const handleDisconnect = () =>
+    runAction(async () => {
+      const response = await fetch("/api/wrike/disconnect", { method: "POST" });
+      const result = (await response.json()) as { message?: string };
+      if (!response.ok) throw new Error(result.message ?? "Could not disconnect Wrike.");
+      setConnection({
+        connected: false,
+        apiHost: null,
+        accountId: null,
+        accountName: null,
+        status: null,
+        lastError: null,
+        connectedByEmail: null,
+        updatedAt: null,
+      });
+      setMessage(result.message ?? "Wrike disconnected.");
+    });
+
+  const handleHealthCheck = () =>
+    runAction(async () => {
+      const response = await fetch("/api/wrike/health");
+      const result = (await response.json()) as { connection?: WrikeConnectionSummary; message?: string };
+      if (!response.ok || !result.connection) throw new Error(result.message ?? "Health check failed.");
+      setConnection(result.connection);
+      setMessage(
+        result.connection.status === "connected" ? "Wrike connection is healthy." : "Wrike connection reported an error.",
+      );
+    });
+
+  const handleSyncNow = () =>
+    runAction(async () => {
+      const response = await fetch("/api/wrike/sync", { method: "POST" });
+      const result = (await response.json()) as { run?: WrikeSyncStatus["lastRun"]; message?: string };
+      if (!response.ok || !result.run) throw new Error(result.message ?? "The Wrike sync could not run.");
+      const statusResponse = await fetch("/api/wrike/sync/status");
+      if (statusResponse.ok) {
+        setSync((await statusResponse.json()) as WrikeSyncStatus);
+      }
+      setMessage(`Sync ${result.run.status}: ${result.run.tasksUpserted} task(s) synchronized.`);
+    });
+
+  return (
+    <div className="wrike-connection-panel">
+      <div className="panel-heading">
+        <div>
+          <h2>Live Wrike connection</h2>
+          <p>Permanent-token connection used to synchronize approved-folder tasks</p>
+        </div>
+        <StatusBadge tone={connection.connected ? "success" : "neutral"}>
+          {connection.connected ? "Connected" : "Disconnected"}
+        </StatusBadge>
+      </div>
+      {connection.connected ? (
+        <div className="configuration-grid">
+          <ConfigRow label="Account" value={connection.accountName ?? "Unknown"} />
+          <ConfigRow label="API host" value={connection.apiHost ?? "Unknown"} />
+          <ConfigRow label="Connected by" value={connection.connectedByEmail ?? "Unknown"} />
+          <ConfigRow label="Status" value={connection.lastError ?? connection.status ?? "connected"} />
+        </div>
+      ) : (
+        <div className="taxonomy-add-form">
+          <input
+            type="password"
+            placeholder="Paste Wrike permanent access token…"
+            value={token}
+            onChange={(event) => setToken(event.target.value)}
+            disabled={pending}
+          />
+          <button type="button" className="button button-primary" disabled={pending} onClick={handleConnect}>
+            Connect
+          </button>
+        </div>
+      )}
+      <div className="button-row">
+        {connection.connected && (
+          <>
+            <button type="button" className="button button-secondary" disabled={pending} onClick={handleHealthCheck}>
+              Check health
+            </button>
+            <button type="button" className="button button-secondary" disabled={pending} onClick={handleSyncNow}>
+              Run sync now
+            </button>
+            <button type="button" className="button button-danger-ghost" disabled={pending} onClick={handleDisconnect}>
+              Disconnect
+            </button>
+          </>
+        )}
+      </div>
+      {message && <p className="taxonomy-editor-error">{message}</p>}
+
+      <div className="panel-heading">
+        <div>
+          <h2>Sync status</h2>
+          <p>{sync.isRunning ? "A sync is currently running." : "Approved-folder synchronization history"}</p>
+        </div>
+        {sync.lastRun && <StatusBadge>{sync.lastRun.status}</StatusBadge>}
+      </div>
+      {sync.lastRun ? (
+        <div className="configuration-grid">
+          <ConfigRow label="Last run" value={new Date(sync.lastRun.startedAt).toLocaleString()} />
+          <ConfigRow label="Tasks synchronized" value={String(sync.lastRun.tasksUpserted)} />
+          <ConfigRow
+            label="Folders"
+            value={`${sync.lastRun.foldersSucceeded}/${sync.lastRun.foldersAttempted} succeeded`}
+          />
+          <ConfigRow label="Marked inactive" value={String(sync.lastRun.tasksMarkedInactive)} />
+        </div>
+      ) : (
+        <p className="empty-hint">No sync has run yet.</p>
+      )}
+      <div className="table-scroll">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Folder</th>
+              <th>Enabled</th>
+              <th>Last sync</th>
+              <th>Tasks</th>
+              <th>Last error</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sync.folders.map((folder) => (
+              <tr key={folder.folderId}>
+                <td>{folder.name}</td>
+                <td>{folder.enabled ? "Yes" : "No"}</td>
+                <td>{folder.lastSyncAt ? new Date(folder.lastSyncAt).toLocaleString() : "Never"}</td>
+                <td>{folder.lastSyncTaskCount ?? "—"}</td>
+                <td>{folder.lastSyncError ?? "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
 

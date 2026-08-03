@@ -38,6 +38,32 @@ export type {
   VersionBoardEntry,
 };
 import {
+  checkWrikeHealth,
+  connectWrike,
+  disconnectWrike,
+  getCourseVersionSearchContext,
+  getWrikeConnectionSummary,
+  getWrikeSyncStatus,
+  linkCourseVersionWrikeTask,
+  runWrikeSync,
+  searchLocalWrikeTasks,
+  unlinkCourseVersionWrikeTask,
+  verifyCourseVersionWrikeTask,
+  type WrikeConnectionSummary,
+  type WrikeSyncStatus,
+  type WrikeTaskCandidate,
+  type WrikeTaskSearchFilters,
+  type WrikeVersionLink,
+} from "@/db/wrike-repository";
+export type {
+  WrikeConnectionSummary,
+  WrikeSyncStatus,
+  WrikeTaskCandidate,
+  WrikeTaskSearchFilters,
+  WrikeVersionLink,
+};
+import { buildWrikeTaskSearchQuery } from "@/lib/wrike-matching";
+import {
   sampleCourses,
   sampleRetrievalRuns,
   sampleImportPreviews,
@@ -664,4 +690,114 @@ export async function recordRetrievalRun(input: {
     throw databaseError("Could not record the Supabase retrieval run", error);
   }
   return (data?.external_run_id as string | undefined) ?? externalRunId;
+}
+
+const disconnectedWrikeSummary: WrikeConnectionSummary = {
+  connected: false,
+  apiHost: null,
+  accountId: null,
+  accountName: null,
+  status: null,
+  lastError: null,
+  connectedByEmail: null,
+  updatedAt: null,
+};
+
+function requireDatabaseClient() {
+  const client = getSupabaseAdminClient();
+  if (!client) {
+    throw new Error(
+      "The Wrike integration requires Supabase to be configured; it is not available in sample-data mode.",
+    );
+  }
+  return client;
+}
+
+export async function getWrikeConnection(): Promise<WrikeConnectionSummary> {
+  const client = getSupabaseAdminClient();
+  if (!client) return disconnectedWrikeSummary;
+  try {
+    return await getWrikeConnectionSummary(client);
+  } catch {
+    return disconnectedWrikeSummary;
+  }
+}
+
+export async function connectToWrike(input: {
+  token: string;
+  apiHost: string;
+  actorEmail: string;
+}): Promise<WrikeConnectionSummary> {
+  return connectWrike(requireDatabaseClient(), input);
+}
+
+export async function disconnectFromWrike(): Promise<void> {
+  const client = getSupabaseAdminClient();
+  if (!client) return;
+  await disconnectWrike(client);
+}
+
+export async function checkWrikeConnectionHealth(): Promise<WrikeConnectionSummary> {
+  const client = getSupabaseAdminClient();
+  if (!client) return disconnectedWrikeSummary;
+  return checkWrikeHealth(client);
+}
+
+export async function triggerWrikeSync(triggeredBy: string) {
+  return runWrikeSync(requireDatabaseClient(), triggeredBy);
+}
+
+export async function getWrikeSync(): Promise<WrikeSyncStatus> {
+  const client = getSupabaseAdminClient();
+  if (!client) return { lastRun: null, isRunning: false, folders: [] };
+  try {
+    return await getWrikeSyncStatus(client);
+  } catch {
+    return { lastRun: null, isRunning: false, folders: [] };
+  }
+}
+
+export async function searchWrikeTasks(filters: WrikeTaskSearchFilters) {
+  const client = getSupabaseAdminClient();
+  if (!client) return { items: [], total: 0, hasMore: false };
+  try {
+    return await searchLocalWrikeTasks(client, filters);
+  } catch {
+    return { items: [], total: 0, hasMore: false };
+  }
+}
+
+export async function searchWrikeTasksForCourseVersion(
+  courseVersionId: string,
+  searchText?: string,
+): Promise<{ items: WrikeTaskCandidate[]; total: number; hasMore: boolean }> {
+  const client = getSupabaseAdminClient();
+  if (!client) return { items: [], total: 0, hasMore: false };
+  try {
+    const query = searchText?.trim() ||
+      (await (async () => {
+        const context = await getCourseVersionSearchContext(client, courseVersionId);
+        return context ? buildWrikeTaskSearchQuery(context) : "";
+      })());
+    return await searchLocalWrikeTasks(client, { query: query || undefined, pageSize: 10 });
+  } catch {
+    return { items: [], total: 0, hasMore: false };
+  }
+}
+
+export async function linkWrikeTaskToCourseVersion(input: {
+  courseVersionId: string;
+  permalink?: string;
+  candidateTaskId?: string;
+  actorEmail: string;
+}): Promise<WrikeVersionLink> {
+  return linkCourseVersionWrikeTask(requireDatabaseClient(), input);
+}
+
+export async function verifyWrikeTaskLink(referenceId: string) {
+  return verifyCourseVersionWrikeTask(requireDatabaseClient(), { referenceId });
+}
+
+export async function unlinkWrikeTaskFromCourseVersion(referenceId: string): Promise<boolean> {
+  return unlinkCourseVersionWrikeTask(requireDatabaseClient(), { referenceId });
 }
