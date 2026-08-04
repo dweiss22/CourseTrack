@@ -69,7 +69,7 @@ import {
   listApplicationUsers,
   resendUserRecoveryEmail,
   transferSuperAdmin,
-  updateOwnDisplayName,
+  updateOwnProfile,
   type ApplicationUserSummary,
   type SuperAdminTransferResult,
 } from "@/db/user-repository";
@@ -814,8 +814,16 @@ export async function unlinkWrikeTaskFromCourseVersion(referenceId: string): Pro
   return unlinkCourseVersionWrikeTask(requireDatabaseClient(), { referenceId });
 }
 
-export async function updateMyDisplayName(input: { userId: string; displayName: string }): Promise<void> {
-  return updateOwnDisplayName(requireDatabaseClient(), input);
+export async function updateMyProfile(input: {
+  userId: string;
+  firstName: string;
+  lastName: string;
+  displayName: string;
+  jobTitle: string;
+  department: string;
+  timezone: string;
+}): Promise<void> {
+  return updateOwnProfile(requireDatabaseClient(), input);
 }
 
 export async function listUsers(filters: {

@@ -247,7 +247,7 @@ export function AppShell({
             <span className="avatar">{initialsFor(authContext.displayName)}</span>
             <span>
               <strong>{authContext.displayName}</strong>
-              <small>{ROLE_LABELS[authContext.role]}</small>
+              <small>{authContext.jobTitle || ROLE_LABELS[authContext.role]}</small>
             </span>
             <ChevronRight size={16} aria-hidden="true" />
           </Link>

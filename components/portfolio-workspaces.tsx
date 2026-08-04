@@ -774,17 +774,25 @@ const PROFILE_ROLE_LABELS: Record<AuthContext["role"], string> = {
 };
 
 export function ProfileWorkspace({ authContext }: { authContext: AuthContext }) {
+  const router = useRouter();
   const [notifications, setNotifications] = useState({
     accreditation: true,
     review: true,
     assignments: true,
     retrieval: false,
   });
-  const [displayName, setDisplayName] = useState(authContext.displayName);
+  const [profile, setProfile] = useState({
+    firstName: authContext.firstName,
+    lastName: authContext.lastName,
+    displayName: authContext.displayName,
+    jobTitle: authContext.jobTitle,
+    department: authContext.department,
+    timezone: authContext.timezone,
+  });
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
 
-  const saveDisplayName = async (event: FormEvent) => {
+  const saveProfile = async (event: FormEvent) => {
     event.preventDefault();
     setSaving(true);
     setMessage("");
@@ -792,13 +800,14 @@ export function ProfileWorkspace({ authContext }: { authContext: AuthContext }) 
       const response = await fetch("/api/profile", {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ displayName }),
+        body: JSON.stringify(profile),
       });
       const result = (await response.json()) as { message?: string };
-      if (!response.ok) throw new Error(result.message ?? "Could not update your display name.");
-      setMessage(result.message ?? "Display name updated.");
+      if (!response.ok) throw new Error(result.message ?? "Could not update your profile.");
+      setMessage(result.message ?? "Profile updated.");
+      router.refresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not update your display name.");
+      setMessage(error instanceof Error ? error.message : "Could not update your profile.");
     } finally {
       setSaving(false);
     }
@@ -812,14 +821,28 @@ export function ProfileWorkspace({ authContext }: { authContext: AuthContext }) 
     >
       <div className="profile-layout">
         <section className="panel profile-card-large">
-          <span className="profile-avatar-large">{initialsFor(authContext.displayName)}</span>
-          <div><h2>{authContext.displayName}</h2><p>{authContext.email}</p><StatusBadge tone="info">{PROFILE_ROLE_LABELS[authContext.role]}</StatusBadge></div>
+          <span className="profile-avatar-large">{initialsFor(profile.displayName)}</span>
+          <div>
+            <h2>{profile.displayName}</h2>
+            <p>{profile.jobTitle || profile.department || authContext.email}</p>
+            <StatusBadge tone="info">{PROFILE_ROLE_LABELS[authContext.role]}</StatusBadge>
+          </div>
+          <div className="profile-facts">
+            <span><small>Email</small><strong>{authContext.email}</strong></span>
+            <span><small>Department</small><strong>{profile.department || "Not set"}</strong></span>
+            <span><small>Time zone</small><strong>{profile.timezone}</strong></span>
+          </div>
         </section>
-        <section className="panel">
-          <div className="panel-heading"><div><h2>Display name</h2><p>The only profile field you can edit yourself — your role and email are managed by an administrator.</p></div></div>
-          <form className="taxonomy-add-form profile-name-form" onSubmit={saveDisplayName}>
-            <input type="text" value={displayName} onChange={(event) => setDisplayName(event.target.value)} disabled={saving} />
-            <button type="submit" className="button button-primary" disabled={saving || !displayName.trim()}>Save</button>
+        <section className="panel profile-details-panel">
+          <div className="panel-heading"><div><h2>Profile details</h2><p>These details personalize CourseTrack. Email, role, and account access remain administrator-managed.</p></div></div>
+          <form className="profile-details-form" onSubmit={saveProfile}>
+            <label><span>First name</span><input type="text" value={profile.firstName} onChange={(event) => setProfile((current) => ({ ...current, firstName: event.target.value }))} maxLength={80} disabled={saving} /></label>
+            <label><span>Last name</span><input type="text" value={profile.lastName} onChange={(event) => setProfile((current) => ({ ...current, lastName: event.target.value }))} maxLength={80} disabled={saving} /></label>
+            <label className="profile-field-full"><span>Display name</span><input type="text" value={profile.displayName} onChange={(event) => setProfile((current) => ({ ...current, displayName: event.target.value }))} maxLength={120} required disabled={saving} /></label>
+            <label><span>Job title</span><input type="text" value={profile.jobTitle} onChange={(event) => setProfile((current) => ({ ...current, jobTitle: event.target.value }))} maxLength={120} disabled={saving} /></label>
+            <label><span>Department or team</span><input type="text" value={profile.department} onChange={(event) => setProfile((current) => ({ ...current, department: event.target.value }))} maxLength={120} disabled={saving} /></label>
+            <label className="profile-field-full"><span>Time zone</span><select value={profile.timezone} onChange={(event) => setProfile((current) => ({ ...current, timezone: event.target.value }))} disabled={saving}><option value="America/New_York">Eastern (America/New_York)</option><option value="America/Chicago">Central (America/Chicago)</option><option value="America/Denver">Mountain (America/Denver)</option><option value="America/Los_Angeles">Pacific (America/Los_Angeles)</option><option value="UTC">UTC</option></select></label>
+            <div className="profile-form-actions profile-field-full"><button type="submit" className="button button-primary" disabled={saving || !profile.displayName.trim()}>{saving ? "Saving…" : "Save profile"}</button></div>
           </form>
           {message && <p className="taxonomy-editor-error profile-name-message">{message}</p>}
         </section>

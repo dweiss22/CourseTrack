@@ -181,7 +181,7 @@ function buildVersions(
             provider: task.providerName,
             retrievedAt: task.retrievedAt,
             linkedAt: `${date}T14:00:00.000Z`,
-            linkedBy: "Dana Weiss",
+            linkedBy: "Sample data generator",
             isSample: true,
             linkMethod: null,
             lastVerifiedAt: null,
