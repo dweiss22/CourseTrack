@@ -85,7 +85,6 @@ test("every Wrike and course API route checks the real authenticated role, not a
     "app/api/admin/users/[id]/resend/route.ts",
     "app/api/admin/users/transfer-superadmin/route.ts",
     "app/api/profile/route.ts",
-    "app/api/wrike/tasks/route.ts",
     "app/api/wrike/synced-tasks/route.ts",
   ];
   const sources = await Promise.all(routeFiles.map((file) => readFile(new URL(file, root), "utf8")));
@@ -97,10 +96,18 @@ test("every Wrike and course API route checks the real authenticated role, not a
 
 test("login verifies application membership after Supabase accepts the password", async () => {
   const login = await readFile(new URL("components/auth/login-form.tsx", root), "utf8");
+  const browserClient = await readFile(new URL("lib/supabase-browser.ts", root), "utf8");
+  const runtimeConfig = await readFile(new URL("app/api/auth/config/route.ts", root), "utf8");
   const access = await readFile(new URL("app/api/auth/access/route.ts", root), "utf8");
   assert.match(login, /signInWithPassword/);
+  assert.match(login, /await createSupabaseBrowserClient\(\)/);
   assert.match(login, /fetch\("\/api\/auth\/access"/);
   assert.match(login, /supabase\.auth\.signOut\(\)/);
+  assert.match(browserClient, /fetch\("\/api\/auth\/config"/);
+  assert.doesNotMatch(browserClient, /process\.env/);
+  assert.match(runtimeConfig, /NEXT_PUBLIC_SUPABASE_URL/);
+  assert.match(runtimeConfig, /NEXT_PUBLIC_SUPABASE_ANON_KEY/);
+  assert.match(runtimeConfig, /Cache-Control/);
   assert.match(access, /membership_missing/);
   assert.match(access, /account_disabled/);
   assert.match(access, /auth_schema_not_ready/);

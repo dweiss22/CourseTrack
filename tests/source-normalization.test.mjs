@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import "../scripts/register-aliases.mjs";
 
 const normalization = await import("../lib/source-normalization.ts");
 
@@ -285,7 +286,7 @@ test("field resolutions persist across comparison, clear cleanly, and create aud
   assert.equal(cleared.audit.action, "field_resolution.cleared");
 });
 
-test("classification, monitoring fixtures, excluded metrics, and failed snapshot preservation are deterministic", () => {
+test("classification, monitoring records, excluded metrics, and failed snapshot preservation are deterministic", () => {
   assert.deepEqual(determineManagementClassification({ hasLmsRecord: true, hasContentMetadataMatch: true }), {
     classification: "Lexipol managed",
     monitoringEnabled: true,

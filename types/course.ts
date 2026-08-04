@@ -73,6 +73,7 @@ export interface FieldComparison {
   resolvedBy: string | null;
   resolvedAt: string | null;
   lastComparedAt: string;
+  updatedAt: string;
 }
 
 export interface NormalizedTrainingCredit {
@@ -313,13 +314,13 @@ export interface VersionWrikeTaskReference {
   assigneeNames: string[];
   dueDate: string | null;
   permalink: string | null;
-  provider: "Mock Wrike" | "Live Wrike";
+  provider: "Live Wrike";
   retrievedAt: string;
   linkedAt: string;
   linkedBy: string;
-  isSample: boolean;
   linkMethod: "manual_permalink" | "selected_candidate" | null;
   lastVerifiedAt: string | null;
+  updatedAt: string;
 }
 
 export interface CourseVersion {
@@ -402,18 +403,37 @@ export interface AccreditationHistoryGroup {
   isAtRisk: boolean;
 }
 
-export interface CourseFlag {
+export interface TaskCalloutActor {
   id: string;
-  type: string;
+  displayName: string;
+  email: string;
+}
+
+export interface TaskCalloutRecord {
+  id: string;
+  recordKind: "Task" | "Callout";
+  category: string;
   title: string;
+  description: string;
   priority: "Low" | "Medium" | "High" | "Critical";
-  status: "Open" | "Under Review" | "In Progress" | "Blocked" | "Resolved";
-  owner: string | null;
+  status: "Open" | "In Progress" | "Blocked" | "Completed" | "Resolved";
+  assignee: TaskCalloutActor | null;
+  assigneeId: string | null;
   dueDate: string | null;
-  updatedAt?: string;
+  completionNotes: string | null;
+  completedBy: TaskCalloutActor | null;
+  completedAt: string | null;
+  resolvedBy: TaskCalloutActor | null;
+  resolvedAt: string | null;
+  createdBy: TaskCalloutActor | null;
+  createdAt: string;
+  updatedBy: TaskCalloutActor | null;
+  updatedAt: string;
   archivedAt?: string | null;
   provenance?: Provenance;
 }
+
+export type CourseFlag = TaskCalloutRecord;
 
 export interface CourseNote {
   id: string;

@@ -13,7 +13,7 @@ test("the dashboard greeting uses the authenticated profile instead of a hardcod
 });
 
 test("stale personal sample labels cannot be mistaken for the signed-in user", async () => {
-  const files = ["components/course-detail/course-detail.tsx", "lib/imported-sample-data.ts"];
+  const files = ["components/course-detail/course-detail.tsx", "components/dashboard/dashboard.tsx"];
   const sources = await Promise.all(files.map((file) => readFile(new URL(file, root), "utf8")));
   for (const source of sources) assert.doesNotMatch(source, /Dana Weiss/);
 });

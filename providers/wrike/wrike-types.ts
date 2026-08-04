@@ -14,8 +14,7 @@ export interface WrikeTask {
   dueDate: string | null;
   permalink: string | null;
   retrievedAt: string;
-  providerName: "Mock Wrike" | "Live Wrike";
-  isSample: boolean;
+  providerName: "Live Wrike";
   rawPayload: Record<string, unknown>;
 }
 
@@ -28,7 +27,7 @@ export interface PaginatedWrikeTaskResponse {
 }
 
 export interface WrikeProviderHealth {
-  providerName: "Mock Wrike" | "Live Wrike";
+  providerName: "Live Wrike";
   status: "available" | "degraded" | "unavailable" | "not-configured";
   checkedAt: string;
   message: string;

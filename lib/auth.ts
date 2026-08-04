@@ -106,7 +106,7 @@ export type ApiAuthResult = { context: AuthContext } | { error: NextResponse };
 export async function requireApiUser(): Promise<ApiAuthResult> {
   const context = await getAuthContext();
   if (!context) {
-    return { error: NextResponse.json({ message: "Authentication is required." }, { status: 401 }) };
+    return { error: NextResponse.json({ code: "unauthorized", message: "Authentication is required." }, { status: 401 }) };
   }
   return { context };
 }
@@ -116,7 +116,7 @@ export async function requireApiRole(...allowedRoles: ApplicationRole[]): Promis
   if ("error" in result) return result;
   if (!allowedRoles.includes(result.context.role)) {
     return {
-      error: NextResponse.json({ message: "You do not have permission to perform this action." }, { status: 403 }),
+      error: NextResponse.json({ code: "forbidden", message: "You do not have permission to perform this action." }, { status: 403 }),
     };
   }
   return result;

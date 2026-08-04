@@ -2,11 +2,13 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { linkWrikeTaskToCourseVersion, unlinkWrikeTaskFromCourseVersion } from "@/db";
 import { requireApiRole } from "@/lib/auth";
+import { apiError, validationError } from "@/lib/api-response";
 
 const linkSchema = z
   .object({
     permalink: z.string().trim().url().max(500).optional(),
     candidateTaskId: z.string().trim().min(1).max(80).optional(),
+    expectedUpdatedAt: z.string().datetime().optional(),
   })
   .refine((value) => Boolean(value.permalink) !== Boolean(value.candidateTaskId), {
     message: "Provide either a permalink or a candidateTaskId, not both.",
@@ -14,6 +16,7 @@ const linkSchema = z
 
 const unlinkSchema = z.object({
   referenceId: z.string().trim().min(1),
+  expectedUpdatedAt: z.string().datetime(),
 });
 
 export async function POST(
@@ -26,10 +29,7 @@ export async function POST(
 
   const parsed = linkSchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) {
-    return NextResponse.json(
-      { message: "Provide either a Wrike permalink or a selected candidate task id." },
-      { status: 400 },
-    );
+    return validationError("Provide either a Wrike permalink or a selected candidate task id.", parsed.error.issues);
   }
 
   try {
@@ -37,14 +37,13 @@ export async function POST(
       courseVersionId: id,
       permalink: parsed.data.permalink,
       candidateTaskId: parsed.data.candidateTaskId,
+      expectedUpdatedAt: parsed.data.expectedUpdatedAt,
+      actorId: actor.context.userId,
       actorEmail: actor.context.email,
     });
     return NextResponse.json({ link, message: "Wrike task linked. Wrike was not changed." });
   } catch (error) {
-    return NextResponse.json(
-      { message: error instanceof Error ? error.message : "Could not link this Wrike task." },
-      { status: 409 },
-    );
+    return apiError(error);
   }
 }
 
@@ -58,14 +57,18 @@ export async function DELETE(
 
   const parsed = unlinkSchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) {
-    return NextResponse.json({ message: "A reference id is required to unlink." }, { status: 400 });
+    return validationError("A reference id and concurrency token are required to unlink.", parsed.error.issues);
   }
 
-  const unlinked = await unlinkWrikeTaskFromCourseVersion(parsed.data.referenceId);
-  return NextResponse.json({
-    unlinked,
-    message: unlinked
-      ? "Wrike task unlinked. This only changed CourseTrack; Wrike was not modified."
-      : "No active Wrike link was found for that reference.",
-  });
+  try {
+    const unlinked = await unlinkWrikeTaskFromCourseVersion({ ...parsed.data, actorId: actor.context.userId, actorEmail: actor.context.email });
+    return NextResponse.json({
+      unlinked,
+      message: unlinked
+        ? "Wrike task unlinked. This only changed CourseTrack; Wrike was not modified."
+        : "No active Wrike link was found for that reference.",
+    });
+  } catch (error) {
+    return apiError(error);
+  }
 }

@@ -43,12 +43,13 @@ import {
   getWrikeSyncStatus,
   linkCourseVersionWrikeTask,
   runWrikeSync,
-  searchLocalWrikeTasks,
+  searchWrikeTaskIndex,
   unlinkCourseVersionWrikeTask,
   verifyCourseVersionWrikeTask,
   type WrikeConnectionSummary,
   type WrikeSyncStatus,
   type WrikeTaskCandidate,
+  type WrikeConnectorState,
   type WrikeTaskSearchFilters,
   type WrikeVersionLink,
 } from "@/db/wrike-repository";
@@ -56,6 +57,7 @@ export type {
   WrikeConnectionSummary,
   WrikeSyncStatus,
   WrikeTaskCandidate,
+  WrikeConnectorState,
   WrikeTaskSearchFilters,
   WrikeVersionLink,
 };
@@ -71,6 +73,8 @@ import {
   type SuperAdminTransferResult,
 } from "@/db/user-repository";
 export type { ApplicationUserSummary, SuperAdminTransferResult };
+export { getActiveAssignees } from "@/db/profile-repository";
+export { getIntegrationMappingSummary } from "@/db/integration-repository";
 import type { ApplicationRole } from "@/lib/auth";
 export {
   archiveWorkflowRecord,
@@ -81,6 +85,7 @@ export {
   getFavoriteCourseIds,
   moveRevampTask,
   removeCourseRelationship,
+  restoreTaskCallout,
   saveAccreditation,
   saveFlag,
   saveNote,
@@ -94,7 +99,7 @@ import type { Course, RetrievalRun } from "@/types/course";
 type DatabaseStatus = {
   available: boolean;
   configured: boolean;
-  seeded: boolean;
+  dataPresent: boolean;
   courseCount: number;
   databaseProvider: "Supabase/Postgres";
 };
@@ -138,7 +143,7 @@ export type ImportPreviewSummary = {
     emptyTopics: number;
     normalizedTopicNames: number;
   };
-  monitoring: { fixtureLabel: string; rows: number; enabled: number; excluded: number };
+  monitoring: { sourceLabel: string; rows: number; enabled: number; excluded: number };
 };
 export type CourseIndexEntry = {
   id: string;
@@ -152,7 +157,7 @@ function databaseError(context: string, error: { message: string; code?: string 
     error.code === "PGRST204" ||
     error.code === "PGRST205" ||
     /app_id|relation .* does not exist|schema cache/i.test(error.message)
-      ? " Apply the checked-in Supabase migrations and run scripts/seed-supabase.mjs before enabling the database."
+      ? " Apply the checked-in Supabase migrations, then configure and run the authorized workbook import."
       : "";
   return new Error(`${context}: ${error.message}.${migrationHint}`);
 }
@@ -172,7 +177,7 @@ export async function ensureDatabase(): Promise<DatabaseStatus> {
   return {
     available: true,
     configured: true,
-    seeded: courseCount > 0,
+    dataPresent: courseCount > 0,
     courseCount,
     databaseProvider: "Supabase/Postgres",
   };
@@ -254,7 +259,7 @@ export async function getImportPreviewSummary(): Promise<ImportPreviewSummary> {
       contentMetadata: (contentMetadataRun?.preview_summary as ImportPreviewSummary["contentMetadata"]) ?? emptyContent,
       topics: (topicsRun?.preview_summary as ImportPreviewSummary["topics"]) ?? emptyTopics,
       monitoring: {
-        fixtureLabel: "Uploaded monitoring preview",
+        sourceLabel: "Uploaded monitoring data",
         rows: total,
         enabled: total,
         excluded: 0,
@@ -350,28 +355,30 @@ export async function updateInternalCourseMetadata(input: {
 
 export async function persistFieldResolution(input: {
   courseId: string;
+  actorId: string;
   actorEmail: string;
   fieldKey: string;
   selectedSource: "lms" | "content_metadata" | null;
-  resolvedValue: unknown;
   resolutionReason: string | null;
-  resolvedAt: string;
-}): Promise<boolean> {
+  expectedUpdatedAt: string;
+}): Promise<string> {
   const client = requireDatabaseClient();
 
-  const { data, error } = await client.rpc("resolve_course_field", {
+  const { data, error } = await client.rpc("resolve_course_field_v2", {
     p_app_id: input.courseId,
+    p_actor_id: input.actorId,
     p_actor_email: input.actorEmail,
     p_field_key: input.fieldKey,
     p_selected_source: input.selectedSource,
-    p_resolved_value: input.resolvedValue,
     p_resolution_reason: input.resolutionReason,
-    p_resolved_at: input.resolvedAt,
+    p_expected_updated_at: input.expectedUpdatedAt,
   });
   if (error) {
     throw databaseError("Could not save the CourseTrack field resolution", error);
   }
-  return data === true;
+  const saved = data as { updated_at?: string } | null;
+  if (!saved?.updated_at) throw new Error("Could not save the CourseTrack field resolution: no concurrency token was returned.");
+  return saved.updated_at;
 }
 
 export async function getAllTopics(): Promise<TaxonomySummary[]> {
@@ -527,21 +534,22 @@ export async function getWrikeConnection(): Promise<WrikeConnectionSummary> {
 export async function connectToWrike(input: {
   token: string;
   apiHost: string;
+  actorId: string;
   actorEmail: string;
 }): Promise<WrikeConnectionSummary> {
   return connectWrike(requireDatabaseClient(), input);
 }
 
-export async function disconnectFromWrike(): Promise<void> {
-  await disconnectWrike(requireDatabaseClient());
+export async function disconnectFromWrike(actorId: string, actorEmail: string): Promise<void> {
+  await disconnectWrike(requireDatabaseClient(), actorId, actorEmail);
 }
 
 export async function checkWrikeConnectionHealth(): Promise<WrikeConnectionSummary> {
   return checkWrikeHealth(requireDatabaseClient());
 }
 
-export async function triggerWrikeSync(triggeredBy: string) {
-  return runWrikeSync(requireDatabaseClient(), triggeredBy);
+export async function triggerWrikeSync(triggeredBy: string, actorId: string | null = null) {
+  return runWrikeSync(requireDatabaseClient(), triggeredBy, actorId);
 }
 
 export async function getWrikeSync(): Promise<WrikeSyncStatus> {
@@ -549,37 +557,37 @@ export async function getWrikeSync(): Promise<WrikeSyncStatus> {
 }
 
 export async function searchWrikeTasks(filters: WrikeTaskSearchFilters) {
-  return searchLocalWrikeTasks(requireDatabaseClient(), filters);
+  return searchWrikeTaskIndex(requireDatabaseClient(), filters);
 }
 
 export async function searchWrikeTasksForCourseVersion(
   courseVersionId: string,
   searchText?: string,
-): Promise<{ items: WrikeTaskCandidate[]; total: number; hasMore: boolean }> {
+): Promise<{ items: WrikeTaskCandidate[]; total: number; hasMore: boolean; state: WrikeConnectorState }> {
   const client = requireDatabaseClient();
-  const query = searchText?.trim() ||
-    (await (async () => {
-      const context = await getCourseVersionSearchContext(client, courseVersionId);
-      return context ? buildWrikeTaskSearchQuery(context) : "";
-    })());
-  return searchLocalWrikeTasks(client, { query: query || undefined, pageSize: 10 });
+  const context = await getCourseVersionSearchContext(client, courseVersionId);
+  if (!context) throw new Error("Course version not found.");
+  const query = searchText?.trim() || buildWrikeTaskSearchQuery(context);
+  return searchWrikeTaskIndex(client, { query: query || undefined, pageSize: 10 });
 }
 
 export async function linkWrikeTaskToCourseVersion(input: {
   courseVersionId: string;
   permalink?: string;
   candidateTaskId?: string;
+  expectedUpdatedAt?: string;
+  actorId: string;
   actorEmail: string;
 }): Promise<WrikeVersionLink> {
   return linkCourseVersionWrikeTask(requireDatabaseClient(), input);
 }
 
-export async function verifyWrikeTaskLink(referenceId: string) {
-  return verifyCourseVersionWrikeTask(requireDatabaseClient(), { referenceId });
+export async function verifyWrikeTaskLink(input: { referenceId: string; expectedUpdatedAt: string; actorId: string; actorEmail: string }) {
+  return verifyCourseVersionWrikeTask(requireDatabaseClient(), input);
 }
 
-export async function unlinkWrikeTaskFromCourseVersion(referenceId: string): Promise<boolean> {
-  return unlinkCourseVersionWrikeTask(requireDatabaseClient(), { referenceId });
+export async function unlinkWrikeTaskFromCourseVersion(input: { referenceId: string; expectedUpdatedAt: string; actorId: string; actorEmail: string }): Promise<boolean> {
+  return unlinkCourseVersionWrikeTask(requireDatabaseClient(), input);
 }
 
 export async function updateMyProfile(input: {

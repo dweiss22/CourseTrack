@@ -37,7 +37,7 @@ export function getTokenEncryptionKey(): string {
 }
 
 /**
- * Reads the fallback permanent-token configuration used to seed the
+ * Reads the fallback permanent-token configuration used to initialize the
  * connection the first time (via POST /api/wrike/connect). Returns null
  * fields when unset — the connect route also accepts a token pasted through
  * the admin UI, so this is optional.

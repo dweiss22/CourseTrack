@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { AdminWorkspace } from "@/components/portfolio-workspaces";
-import { getImportPreviewSummary, getRecentRetrievalRuns } from "@/db";
+import { getIntegrationMappingSummary, getRecentRetrievalRuns, getWrikeConnection, getWrikeSync } from "@/db";
 import { requireAdmin } from "@/lib/auth";
 
 export const metadata: Metadata = { title: "Administration" };
@@ -9,14 +9,18 @@ export const dynamic = "force-dynamic";
 
 export default async function AdministrationPage() {
   await requireAdmin();
-  const [retrievalRuns, importPreview] = await Promise.all([
+  const [retrievalRuns, mappingSummary, wrikeConnection, wrikeSync] = await Promise.all([
     getRecentRetrievalRuns(),
-    getImportPreviewSummary(),
+    getIntegrationMappingSummary(),
+    getWrikeConnection(),
+    getWrikeSync(),
   ]);
   return (
     <AdminWorkspace
       retrievalRuns={retrievalRuns}
-      importPreview={importPreview}
+      mappingSummary={mappingSummary}
+      wrikeConnection={wrikeConnection}
+      wrikeSync={wrikeSync}
     />
   );
 }

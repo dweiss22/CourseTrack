@@ -45,13 +45,24 @@ export const versionSchema = z.object({
 }).strict();
 
 export const flagSchema = z.object({
-  type: z.string().trim().min(2).max(120),
+  recordKind: z.enum(["Task", "Callout"]),
+  category: z.string().trim().min(2).max(120),
   title: z.string().trim().min(3).max(240),
+  description: z.string().trim().max(5_000),
   priority: z.enum(["Low", "Medium", "High", "Critical"]),
-  status: z.enum(["Open", "Under Review", "In Progress", "Blocked", "Resolved"]),
+  status: z.enum(["Open", "In Progress", "Blocked", "Completed", "Resolved"]),
+  assigneeId: z.string().uuid().nullable(),
   dueDate: optionalDate,
+  completionNotes: z.string().trim().max(5_000).nullable(),
   expectedUpdatedAt: z.string().datetime().optional(),
-}).strict();
+}).strict().superRefine((value, context) => {
+  if (value.recordKind === "Task" && value.status === "Resolved") {
+    context.addIssue({ code: "custom", path: ["status"], message: "Tasks are completed, not resolved." });
+  }
+  if (value.recordKind === "Callout" && value.status === "Completed") {
+    context.addIssue({ code: "custom", path: ["status"], message: "Callouts are resolved, not completed." });
+  }
+});
 
 export const noteSchema = z.object({
   type: z.string().trim().min(2).max(120),

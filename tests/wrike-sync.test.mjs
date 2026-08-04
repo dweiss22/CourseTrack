@@ -20,6 +20,7 @@ test("normalizeWrikeTask discards fields not tracked by the wrike_tasks schema",
   assert.deepEqual(Object.keys(normalized).sort(), [
     "customFields",
     "customStatusId",
+    "dueDate",
     "parentIds",
     "permalink",
     "rawPayload",

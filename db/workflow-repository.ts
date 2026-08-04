@@ -293,27 +293,90 @@ export async function saveVersion(input: {
 export async function saveFlag(input: {
   id?: string;
   courseAppId?: string;
-  type: string;
+  recordKind: CourseFlag["recordKind"];
+  category: string;
   title: string;
+  description: string;
   priority: CourseFlag["priority"];
   status: CourseFlag["status"];
+  assigneeId: string | null;
   dueDate: string | null;
+  completionNotes: string | null;
   expectedUpdatedAt?: string;
   actor: Actor;
 }): Promise<CourseFlag> {
-  const data = await saveWorkflowEntity({ entity: "flag", id: input.id, courseAppId: input.courseAppId, expectedUpdatedAt: input.expectedUpdatedAt, payload: { type: input.type, title: input.title, priority: input.priority, status: input.status, dueDate: input.dueDate }, actor: input.actor });
+  const client = database();
+  const { data, error } = await client.rpc("save_task_callout", {
+    p_record_id: input.id ?? null,
+    p_course_app_id: input.courseAppId ?? null,
+    p_payload: {
+      recordKind: input.recordKind,
+      category: input.category,
+      title: input.title,
+      description: input.description,
+      priority: input.priority,
+      status: input.status,
+      assigneeId: input.assigneeId,
+      dueDate: input.dueDate,
+      completionNotes: input.completionNotes,
+    },
+    p_expected_updated_at: input.expectedUpdatedAt ?? null,
+    p_actor_id: input.actor.userId,
+    p_actor_email: input.actor.email,
+  });
+  if (error) throw new Error(`Could not save the task or callout: ${error.message}`);
+  const row = data as Row;
+  const actorIds = [row.owner_id, row.completed_by, row.resolved_by, row.created_by, row.updated_by]
+    .filter((value): value is string => typeof value === "string");
+  const profileById = new Map<string, { id: string; display_name: string | null; email: string }>();
+  if (actorIds.length > 0) {
+    const { data: profiles, error: profileError } = await client
+      .from("profiles")
+      .select("id,display_name,email")
+      .in("id", [...new Set(actorIds)]);
+    if (profileError) throw new Error(`Could not load task or callout people: ${profileError.message}`);
+    for (const profile of profiles ?? []) profileById.set(profile.id as string, profile as { id: string; display_name: string | null; email: string });
+  }
+  const person = (id: unknown): CourseFlag["assignee"] => {
+    if (typeof id !== "string") return null;
+    const profile = profileById.get(id);
+    return profile ? { id, displayName: profile.display_name || profile.email, email: profile.email } : null;
+  };
   return {
-    id: data.id as string,
-    type: data.type as string,
-    title: data.title as string,
-    priority: data.priority as CourseFlag["priority"],
-    status: data.status as CourseFlag["status"],
-    owner: (data.owner_id as string) ?? null,
-    dueDate: (data.due_date as string) ?? null,
-    updatedAt: data.updated_at as string,
-    archivedAt: (data.archived_at as string) ?? null,
+    id: row.id as string,
+    recordKind: row.record_kind as CourseFlag["recordKind"],
+    category: row.type as string,
+    title: row.title as string,
+    description: (row.description as string) ?? "",
+    priority: row.priority as CourseFlag["priority"],
+    status: row.status as CourseFlag["status"],
+    assignee: person(row.owner_id),
+    assigneeId: (row.owner_id as string) ?? null,
+    dueDate: (row.due_date as string) ?? null,
+    completionNotes: (row.completion_notes as string) ?? null,
+    completedBy: person(row.completed_by),
+    completedAt: (row.completed_at as string) ?? null,
+    resolvedBy: person(row.resolved_by),
+    resolvedAt: (row.resolved_at as string) ?? null,
+    createdBy: person(row.created_by),
+    createdAt: row.created_at as string,
+    updatedBy: person(row.updated_by),
+    updatedAt: row.updated_at as string,
+    archivedAt: (row.archived_at as string) ?? null,
     provenance: "coursetrack",
   };
+}
+
+export async function restoreTaskCallout(input: { id: string; expectedUpdatedAt: string; actor: Actor }): Promise<void> {
+  const { data, error } = await database().rpc("restore_task_callout", {
+    p_record_id: input.id,
+    p_expected_updated_at: input.expectedUpdatedAt,
+    p_actor_id: input.actor.userId,
+    p_actor_email: input.actor.email,
+  });
+  if (error || data !== true) {
+    throw new Error(`Could not restore the task or callout: ${error?.message ?? "Database did not confirm restoration."}`);
+  }
 }
 
 export async function saveNote(input: {

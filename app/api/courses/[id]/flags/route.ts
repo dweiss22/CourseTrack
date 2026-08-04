@@ -8,10 +8,10 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const auth = await requireApiUser();
   if ("error" in auth) return auth.error;
   const parsed = flagSchema.safeParse(await request.json().catch(() => ({})));
-  if (!parsed.success) return validationError("Review the flag fields.", parsed.error.issues);
+  if (!parsed.success) return validationError("Review the task or callout fields.", parsed.error.issues);
   try {
     const { id } = await context.params;
     const flag = await saveFlag({ ...parsed.data, courseAppId: id, actor: auth.context });
-    return NextResponse.json({ flag, ...mutationMetadata(auth.context.userId, flag.updatedAt), message: "Flag created." }, { status: 201 });
+    return NextResponse.json({ flag, ...mutationMetadata(auth.context.userId, flag.updatedAt), message: `${flag.recordKind} created.` }, { status: 201 });
   } catch (error) { return apiError(error); }
 }

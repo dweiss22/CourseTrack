@@ -46,7 +46,7 @@ const navigation: Array<{ href: string; label: string; icon: typeof LayoutDashbo
   { href: "/topics-tags", label: "Topics & Tags", icon: Tags, roles: ["super_admin", "admin", "content"] },
   { href: "/versions", label: "Versions", icon: History, roles: ["super_admin", "admin", "content"] },
   { href: "/revamp", label: "Revamp Planning", icon: Sparkles, roles: ["super_admin", "admin", "content"] },
-  { href: "/flags", label: "Flags & Follow-Up", icon: Flag, roles: ALL_ROLES },
+  { href: "/flags", label: "Tasks & Callouts", icon: Flag, roles: ALL_ROLES },
   { href: "/reports", label: "Reports", icon: BarChart3, roles: ALL_ROLES },
   { href: "/admin", label: "Administration", icon: Settings, roles: ["super_admin", "admin"] },
   { href: "/admin/users", label: "User Management", icon: Users, roles: ["super_admin", "admin"] },
@@ -171,7 +171,7 @@ export function AppShell({
 
   const handleSignOut = async () => {
     try {
-      const supabase = createSupabaseBrowserClient();
+      const supabase = await createSupabaseBrowserClient();
       await supabase.auth.signOut();
     } catch {
       // A missing browser client is still followed by a return to sign-in.
@@ -246,7 +246,7 @@ export function AppShell({
               >
                 <Icon size={18} aria-hidden="true" />
                 <span>{item.label}</span>
-                {item.label === "Flags & Follow-Up" && (
+                {item.label === "Tasks & Callouts" && (
                   <span className="nav-count">6</span>
                 )}
               </Link>

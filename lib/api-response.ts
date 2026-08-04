@@ -11,7 +11,9 @@ export function apiError(error: unknown): NextResponse {
         ? 404
         : lower.includes("not configured")
           ? 503
-          : 500;
+          : lower.includes("invalid") || lower.includes("review the") || lower.includes("required")
+            ? 422
+            : 500;
   const code = status === 409
     ? "conflict"
     : status === 403
@@ -20,7 +22,9 @@ export function apiError(error: unknown): NextResponse {
         ? "not_found"
         : status === 503
           ? "persistence_unavailable"
-          : "server_error";
+          : status === 422
+            ? "validation_error"
+            : "server_error";
   return NextResponse.json({ code, message }, { status });
 }
 

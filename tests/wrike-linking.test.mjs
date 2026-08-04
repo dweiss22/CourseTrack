@@ -29,9 +29,9 @@ test("normalizeForMatch collapses whitespace, case, and common punctuation", () 
   assert.equal(normalizeForMatch("  EMS-101:  Airway  Management "), "ems 101 airway management");
 });
 
-test("buildWrikeTaskSearchQuery prefers the exact course code over the title", () => {
-  assert.equal(buildWrikeTaskSearchQuery({ courseCode: "EMS1-102035773", title: "Anything" }), "EMS1-102035773");
-  assert.equal(buildWrikeTaskSearchQuery({ courseCode: "", title: "Airway Management" }), "Airway Management");
+test("buildWrikeTaskSearchQuery uses meaningful title tokens instead of a CourseTrack code", () => {
+  assert.equal(buildWrikeTaskSearchQuery({ courseCode: "EMS1-102035773", title: "The Critical Incident Leadership Course" }), "critical incident leadership");
+  assert.equal(buildWrikeTaskSearchQuery({ courseCode: "", title: "Airway Management" }), "airway management");
 });
 
 test("the migration enforces zero-or-one active Wrike link per version and per task, scoped to Live Wrike only", async () => {
@@ -99,16 +99,20 @@ test("unlinking a Wrike task never calls the Wrike HTTP client", async () => {
 test("linking a Wrike task verifies it server-side before persisting", async () => {
   const source = await readFile(new URL("db/wrike-repository.ts", root), "utf8");
   const start = source.indexOf("export async function linkCourseVersionWrikeTask");
-  const insertIndex = source.indexOf(".insert({", start);
+  const persistIndex = source.indexOf('client.rpc("save_version_wrike_link"', start);
   const callIndex = source.indexOf("callWrikeApi", start);
-  assert.ok(callIndex >= 0 && callIndex < insertIndex, "the Wrike task must be verified before the insert");
+  assert.ok(callIndex >= 0 && persistIndex >= 0 && callIndex < persistIndex, "the Wrike task must be verified before the atomic persistence RPC");
 });
 
-test("relinking supersedes any existing active reference before inserting the replacement", async () => {
-  const source = await readFile(new URL("db/wrike-repository.ts", root), "utf8");
-  const start = source.indexOf("export async function linkCourseVersionWrikeTask");
-  const insertIndex = source.indexOf(".insert({", start);
-  const body = source.slice(start, insertIndex);
-  assert.match(body, /\.update\(\{\s*unlinked_at:/, "must retire the prior active reference before inserting");
-  assert.match(body, /\.is\("unlinked_at", null\)/);
+test("relinking atomically retires and replaces the active reference with audit and concurrency checks", async () => {
+  const migration = await readFile(new URL("supabase/migrations/202608040007_course_operations.sql", root), "utf8");
+  const start = migration.indexOf("create or replace function public.save_version_wrike_link");
+  const end = migration.indexOf("revoke all on function public.save_version_wrike_link", start);
+  const body = migration.slice(start, end);
+  const retireIndex = body.indexOf("update public.version_wrike_task_references set unlinked_at");
+  const insertIndex = body.indexOf("insert into public.version_wrike_task_references");
+  assert.ok(retireIndex >= 0 && retireIndex < insertIndex, "must retire the prior active reference before replacing it");
+  assert.match(body, /for update/i);
+  assert.match(body, /p_expected_updated_at/);
+  assert.match(body, /insert into public\.audit_logs/);
 });
