@@ -171,7 +171,7 @@ export function AppShell({
 
   const handleSignOut = async () => {
     try {
-      const supabase = createSupabaseBrowserClient();
+      const supabase = await createSupabaseBrowserClient();
       await supabase.auth.signOut();
     } catch {
       // A missing browser client is still followed by a return to sign-in.

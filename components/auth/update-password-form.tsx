@@ -24,7 +24,7 @@ export function UpdatePasswordForm() {
     setPending(true);
     setError("");
     try {
-      const supabase = createSupabaseBrowserClient();
+      const supabase = await createSupabaseBrowserClient();
       const { error: updateError } = await supabase.auth.updateUser({ password });
       if (updateError) throw new Error(updateError.message);
       router.push("/");

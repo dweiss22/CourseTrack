@@ -16,7 +16,7 @@ export function RecoverForm() {
     event.preventDefault();
     setPending(true);
     try {
-      const supabase = createSupabaseBrowserClient();
+      const supabase = await createSupabaseBrowserClient();
       // Never branch UI on the result -- this must not reveal whether the
       // email address has an account.
       await supabase.auth.resetPasswordForEmail(email, {
