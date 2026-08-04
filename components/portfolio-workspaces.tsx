@@ -600,15 +600,23 @@ function WrikeConnectionPanel({
   const [sync, setSync] = useState(initialSync);
   const [token, setToken] = useState("");
   const [pending, setPending] = useState(false);
-  const [message, setMessage] = useState("");
+  const [feedback, setFeedback] = useState<{
+    tone: "success" | "danger";
+    title: string;
+    message: string;
+  } | null>(null);
 
   const runAction = async (action: () => Promise<void>) => {
     setPending(true);
-    setMessage("");
+    setFeedback(null);
     try {
       await action();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "The Wrike request failed.");
+      setFeedback({
+        tone: "danger",
+        title: "Wrike action failed",
+        message: error instanceof Error ? error.message : "The Wrike request failed.",
+      });
     } finally {
       setPending(false);
     }
@@ -625,7 +633,13 @@ function WrikeConnectionPanel({
       if (!response.ok || !result.connection) throw new Error(result.message ?? "Could not connect to Wrike.");
       setConnection(result.connection);
       setToken("");
-      setMessage(result.message ?? "Wrike connected.");
+      setFeedback({
+        tone: "success",
+        title: "Wrike connected",
+        message: result.connection.accountName
+          ? `${result.connection.accountName} is ready for read-only synchronization.`
+          : (result.message ?? "The Wrike connection is ready for read-only synchronization."),
+      });
     });
 
   const handleDisconnect = () =>
@@ -643,7 +657,11 @@ function WrikeConnectionPanel({
         connectedByEmail: null,
         updatedAt: null,
       });
-      setMessage(result.message ?? "Wrike disconnected.");
+      setFeedback({
+        tone: "success",
+        title: "Wrike disconnected",
+        message: result.message ?? "The stored CourseTrack connection was removed. Wrike was not changed.",
+      });
     });
 
   const handleHealthCheck = () =>
@@ -652,9 +670,14 @@ function WrikeConnectionPanel({
       const result = (await response.json()) as { connection?: WrikeConnectionSummary; message?: string };
       if (!response.ok || !result.connection) throw new Error(result.message ?? "Health check failed.");
       setConnection(result.connection);
-      setMessage(
-        result.connection.status === "connected" ? "Wrike connection is healthy." : "Wrike connection reported an error.",
-      );
+      if (result.connection.status !== "connected") {
+        throw new Error(result.connection.lastError ?? "Wrike connection reported an error.");
+      }
+      setFeedback({
+        tone: "success",
+        title: "Connection healthy",
+        message: "CourseTrack successfully reached Wrike using the stored credentials.",
+      });
     });
 
   const handleSyncNow = () =>
@@ -666,7 +689,16 @@ function WrikeConnectionPanel({
       if (statusResponse.ok) {
         setSync((await statusResponse.json()) as WrikeSyncStatus);
       }
-      setMessage(`Sync ${result.run.status}: ${result.run.tasksUpserted} task(s) synchronized.`);
+      if (result.run.status === "failed") {
+        throw new Error("Wrike synchronization failed. Review the folder results below for details.");
+      }
+      setFeedback({
+        tone: "success",
+        title: result.run.status === "partial" ? "Sync partially completed" : "Sync completed",
+        message: `${result.run.tasksUpserted} task(s) synchronized${
+          result.run.status === "partial" ? "; review the folder results below for items needing attention." : "."
+        }`,
+      });
     });
 
   return (
@@ -716,7 +748,19 @@ function WrikeConnectionPanel({
           </>
         )}
       </div>
-      {message && <p className="taxonomy-editor-error">{message}</p>}
+      {feedback && (
+        <div
+          className={`inline-alert alert-${feedback.tone} wrike-action-feedback`}
+          role={feedback.tone === "danger" ? "alert" : "status"}
+          aria-live="polite"
+        >
+          {feedback.tone === "success" ? <ShieldCheck size={18} /> : <AlertTriangle size={18} />}
+          <span>
+            <strong>{feedback.title}</strong>
+            {feedback.message}
+          </span>
+        </div>
+      )}
 
       <div className="panel-heading">
         <div>
