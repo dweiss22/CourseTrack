@@ -1487,7 +1487,7 @@ function LmsTab({
 function ActivityTab({ course }: { course: Course }) {
   const items = [
     ["LMS snapshot retrieved", course.lastRetrievedAt ?? "2026-07-30", "Mock LMS"],
-    ["Internal metadata reviewed", "2026-07-22", "Dana Weiss"],
+    ["Internal metadata reviewed", "2026-07-22", "Sample metadata reviewer"],
     ["Current version confirmed", course.versions.at(-1)?.publicationDate ?? "2026-07-01", "Jamie Patel"],
     ["Course record created", course.originalPublishDate ?? "2025-01-15", "Sample generator"],
   ];

@@ -12,6 +12,12 @@ test("the dashboard greeting uses the authenticated profile instead of a hardcod
   assert.match(page, /context\.firstName/);
 });
 
+test("stale personal sample labels cannot be mistaken for the signed-in user", async () => {
+  const files = ["components/course-detail/course-detail.tsx", "lib/imported-sample-data.ts"];
+  const sources = await Promise.all(files.map((file) => readFile(new URL(file, root), "utf8")));
+  for (const source of sources) assert.doesNotMatch(source, /Dana Weiss/);
+});
+
 test("authenticated profile context includes user-managed identity details", async () => {
   const auth = await readFile(new URL("lib/auth.ts", root), "utf8");
   assert.match(auth, /first_name,last_name,display_name,job_title,department,timezone/);
