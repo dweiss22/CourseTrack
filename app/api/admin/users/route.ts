@@ -11,7 +11,7 @@ const listQuerySchema = z.object({
 const createSchema = z.object({
   email: z.string().trim().email(),
   displayName: z.string().trim().min(1).max(120),
-  role: z.enum(APPLICATION_ROLES),
+  role: z.enum(["admin", "accreditation", "content"]),
 });
 
 export async function GET(request: Request) {

@@ -42,9 +42,10 @@ see [`docs/supabase-setup.md`](supabase-setup.md). It:
 - redefines `has_permission()`/`has_permission_for_email()` (same names, so
   every existing RLS policy elsewhere in the schema keeps working
   unchanged) to key off the new `profiles.role` instead;
-- adds a trigger that rejects a user changing their own role/status, and
-  independently blocks removing/disabling/demoting the last active
-  `super_admin` — regardless of which Postgres role performs the update.
+- conservatively migrates legacy memberships and explicitly disables the
+  CourseTrack import identity; and
+- adds a second migration that permits one `super_admin` holder and provides
+  an atomic, audited transfer workflow.
 
 ## 3. Supabase Dashboard configuration
 
@@ -75,12 +76,16 @@ deployment):
    ```
    (Find the UUID on the Authentication → Users page.)
 
-**Option B — one-time local script**: write a small script using
-`SUPABASE_SECRET_KEY` that calls `supabase.auth.admin.createUser({...})` and
-inserts the corresponding `profiles` row with `role: 'super_admin'`, run
-once by an authorized operator with the secret key in their own environment.
-Do not check such a script into the repo with real values, and do not wire
-it up as an HTTP endpoint.
+**Option B — checked-in bootstrap utility**: after the migrations are applied,
+run the idempotent server-only utility for an existing, confirmed Auth user:
+
+```powershell
+node --env-file=.env.local scripts/bootstrap-super-admin.mjs --email person@example.com --display-name "Person Name"
+```
+
+The utility refuses to run before the role migration, refuses an unconfirmed
+Auth identity, and refuses to replace another superadmin. It never creates an
+HTTP endpoint or exposes the secret key.
 
 Once one `super_admin` exists, all further users are created through the
 in-app **Add user** workflow (Administration → User Management).
@@ -128,13 +133,15 @@ Landing page after sign-in: `super_admin`/`admin` → `/`; `accreditation` →
 | Change a user between `accreditation` and `content` | ✓ | ✓ |
 | Disable/reactivate `accreditation`/`content` users | ✓ | ✓ |
 | Resend setup/reset email | ✓ | ✓ |
-| Create, modify, disable, or demote a `super_admin` | ✓ (not self) | ✗ |
+| Transfer the single `super_admin` role | ✓ (protected workflow) | ✗ |
 | Create or modify an `admin` | ✓ | ✗ |
 | Change their own role | ✗ | ✗ |
 
-The last active `super_admin` can never be demoted, disabled, or removed —
-enforced both in `db/user-repository.ts` and by a database trigger, so the
-invariant holds even if an application-layer check were ever bypassed.
+There is exactly one `super_admin`. Ordinary role/status updates cannot create,
+demote, disable, or delete that holder. Transfer requires an active successor
+who has confirmed their email and signed in at least once; it atomically
+promotes the successor, demotes the former holder to `admin`, and writes an
+audit record.
 
 ## 8. Troubleshooting
 
@@ -145,8 +152,8 @@ invariant holds even if an application-layer check were ever bypassed.
   cover that page; use the "Go to my dashboard" link.
 - **Recovery link says expired/invalid**: Supabase recovery links expire;
   request a new one from `/recover` (or have an admin use "Resend email").
-- **"Cannot remove, disable, or demote the last active super_admin"**:
-  promote a second `super_admin` first.
+- **Superadmin transfer is unavailable**: the successor must be active, have
+  confirmed their email, and have signed in at least once.
 - **New user never received an email**: check spam, confirm the Supabase
   project's email provider/templates are configured, and try "Resend
   email" from User Management.

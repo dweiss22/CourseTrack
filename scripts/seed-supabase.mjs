@@ -85,7 +85,8 @@ async function ensureSystemProfile() {
     id: created.user.id,
     email: SYSTEM_PROFILE_EMAIL,
     display_name: "CourseTrack Import",
-    active: true,
+    role: "content",
+    account_status: "disabled",
   });
   if (profileError) throw new Error(`Could not create system profile: ${profileError.message}`);
   return created.user.id;

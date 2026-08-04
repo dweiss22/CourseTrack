@@ -33,9 +33,13 @@ export interface ApplicationUserSummary {
   accountStatus: AccountStatus;
   createdBy: string | null;
   createdAt: string;
+  invitationStatus: "pending" | "ready";
 }
 
-function toUserSummary(row: Row): ApplicationUserSummary {
+function toUserSummary(
+  row: Row,
+  invitationStatus: ApplicationUserSummary["invitationStatus"] = "pending",
+): ApplicationUserSummary {
   return {
     id: row.id as string,
     email: row.email as string,
@@ -44,7 +48,39 @@ function toUserSummary(row: Row): ApplicationUserSummary {
     accountStatus: row.account_status as AccountStatus,
     createdBy: (row.created_by as string) ?? null,
     createdAt: row.created_at as string,
+    invitationStatus,
   };
+}
+
+async function authReadinessByUserId(
+  client: SupabaseClient,
+): Promise<Map<string, ApplicationUserSummary["invitationStatus"]>> {
+  const readiness = new Map<string, ApplicationUserSummary["invitationStatus"]>();
+  let page = 1;
+  const perPage = 1000;
+
+  while (true) {
+    const { data, error } = await client.auth.admin.listUsers({ page, perPage });
+    if (error) throw repositoryError("Could not read Auth invitation status", error);
+    for (const user of data.users) {
+      readiness.set(
+        user.id,
+        user.email_confirmed_at && user.last_sign_in_at ? "ready" : "pending",
+      );
+    }
+    if (data.users.length < perPage) break;
+    page += 1;
+  }
+  return readiness;
+}
+
+async function invitationStatusForUser(
+  client: SupabaseClient,
+  userId: string,
+): Promise<ApplicationUserSummary["invitationStatus"]> {
+  const { data, error } = await client.auth.admin.getUserById(userId);
+  if (error) throw repositoryError("Could not read Auth invitation status", error);
+  return data.user.email_confirmed_at && data.user.last_sign_in_at ? "ready" : "pending";
 }
 
 export async function listApplicationUsers(
@@ -60,7 +96,8 @@ export async function listApplicationUsers(
 
   const { data, error } = await query;
   if (error) throw repositoryError("Could not list users", error);
-  return (data ?? []).map(toUserSummary);
+  const readiness = await authReadinessByUserId(client);
+  return (data ?? []).map((row) => toUserSummary(row, readiness.get(row.id as string) ?? "pending"));
 }
 
 /**
@@ -70,6 +107,9 @@ export async function listApplicationUsers(
  * promotion). Anyone else may not assign roles at all.
  */
 function assertActorCanAssignRole(actorRole: ApplicationRole, targetRole: ApplicationRole): void {
+  if (targetRole === "super_admin") {
+    throw new Error("Use the protected transfer workflow to assign the super_admin role.");
+  }
   if (actorRole === "super_admin") return;
   if (actorRole === "admin") {
     if (targetRole === "accreditation" || targetRole === "content") return;
@@ -133,7 +173,8 @@ export async function createApplicationUserMembership(
     .select("id,email,display_name,role,account_status,created_by,created_at")
     .single();
   if (error) throw repositoryError("Could not create the application user", error);
-  return toUserSummary(data);
+  const invitationStatus = await invitationStatusForUser(client, authUserId);
+  return toUserSummary(data, invitationStatus);
 }
 
 export async function changeUserRoleOrStatus(
@@ -163,32 +204,19 @@ export async function changeUserRoleOrStatus(
 
   const currentRole = targetRow.role as ApplicationRole;
 
+  if (currentRole === "super_admin" || input.newRole === "super_admin") {
+    throw new Error("Use the protected transfer workflow to change the super_admin holder.");
+  }
+
   if (input.actorRole === "admin") {
-    if (currentRole === "super_admin" || currentRole === "admin") {
-      throw new Error("Admins cannot modify a super_admin or another admin.");
+    if (currentRole === "admin") {
+      throw new Error("Admins cannot modify another admin.");
     }
     if (input.newRole) {
       assertActorCanAssignRole(input.actorRole, input.newRole);
     }
   } else if (input.actorRole !== "super_admin") {
     throw new Error("You do not have permission to manage users.");
-  }
-
-  const wouldRemoveSuperAdmin =
-    currentRole === "super_admin" &&
-    targetRow.account_status === "active" &&
-    ((input.newRole && input.newRole !== "super_admin") || input.newStatus === "disabled");
-  if (wouldRemoveSuperAdmin) {
-    const { count, error: countError } = await client
-      .from("profiles")
-      .select("id", { count: "exact", head: true })
-      .eq("role", "super_admin")
-      .eq("account_status", "active")
-      .neq("id", input.targetId);
-    if (countError) throw repositoryError("Could not verify remaining super admins", countError);
-    if (!count) {
-      throw new Error("Cannot remove, disable, or demote the last active super_admin.");
-    }
   }
 
   const updates: Record<string, unknown> = {};
@@ -202,7 +230,64 @@ export async function changeUserRoleOrStatus(
     .select("id,email,display_name,role,account_status,created_by,created_at")
     .single();
   if (error) throw repositoryError("Could not update the user", error);
-  return toUserSummary(data);
+  const invitationStatus = await invitationStatusForUser(client, input.targetId);
+  return toUserSummary(data, invitationStatus);
+}
+
+export interface SuperAdminTransferResult {
+  previousSuperAdmin: ApplicationUserSummary;
+  newSuperAdmin: ApplicationUserSummary;
+}
+
+export async function transferSuperAdmin(
+  client: SupabaseClient,
+  input: {
+    actorId: string;
+    targetId: string;
+    confirmationEmail: string;
+  },
+): Promise<SuperAdminTransferResult> {
+  if (input.actorId === input.targetId) {
+    throw new Error("Choose another active user as the successor.");
+  }
+
+  const { data: target, error: targetError } = await client
+    .from("profiles")
+    .select("id,email,account_status")
+    .eq("id", input.targetId)
+    .maybeSingle();
+  if (targetError) throw repositoryError("Could not read the selected successor", targetError);
+  if (!target) throw new Error("The selected successor does not have an application membership.");
+  if ((target.email as string).toLowerCase() !== input.confirmationEmail.trim().toLowerCase()) {
+    throw new Error("Enter the successor's email exactly to confirm the transfer.");
+  }
+  if (target.account_status !== "active") {
+    throw new Error("The selected successor must have an active account.");
+  }
+
+  const readiness = await invitationStatusForUser(client, input.targetId);
+  if (readiness !== "ready") {
+    throw new Error("The selected successor must confirm their email and sign in before transfer.");
+  }
+
+  const { data, error } = await client.rpc("transfer_super_admin", {
+    p_actor_id: input.actorId,
+    p_target_id: input.targetId,
+  });
+  if (error) throw repositoryError("Could not transfer super_admin", error);
+
+  const rows = (data ?? []) as Row[];
+  const previousRow = rows.find((row) => row.id === input.actorId);
+  const targetRow = rows.find((row) => row.id === input.targetId);
+  if (!previousRow || !targetRow) throw new Error("The transfer completed without returning both users.");
+
+  return {
+    previousSuperAdmin: toUserSummary(
+      previousRow,
+      await invitationStatusForUser(client, input.actorId),
+    ),
+    newSuperAdmin: toUserSummary(targetRow, readiness),
+  };
 }
 
 export async function resendUserRecoveryEmail(

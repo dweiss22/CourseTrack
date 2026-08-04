@@ -68,10 +68,12 @@ import {
   createApplicationUserMembership,
   listApplicationUsers,
   resendUserRecoveryEmail,
+  transferSuperAdmin,
   updateOwnDisplayName,
   type ApplicationUserSummary,
+  type SuperAdminTransferResult,
 } from "@/db/user-repository";
-export type { ApplicationUserSummary };
+export type { ApplicationUserSummary, SuperAdminTransferResult };
 import type { ApplicationRole } from "@/lib/auth";
 import {
   sampleCourses,
@@ -855,4 +857,12 @@ export async function changeUserRole(input: {
 
 export async function resendRecoveryEmail(input: { email: string; redirectTo: string }): Promise<void> {
   return resendUserRecoveryEmail(requireDatabaseClient(), input);
+}
+
+export async function transferSuperAdminRole(input: {
+  actorId: string;
+  targetId: string;
+  confirmationEmail: string;
+}): Promise<SuperAdminTransferResult> {
+  return transferSuperAdmin(requireDatabaseClient(), input);
 }

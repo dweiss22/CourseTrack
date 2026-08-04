@@ -26,7 +26,19 @@ export function LoginForm() {
       const supabase = createSupabaseBrowserClient();
       const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
       if (signInError) throw new Error(signInError.message);
-      router.push(safeReturnTo(searchParams.get("return_to")));
+
+      const accessResponse = await fetch("/api/auth/access", { cache: "no-store" });
+      const access = (await accessResponse.json().catch(() => ({}))) as {
+        landingPath?: string;
+        message?: string;
+      };
+      if (!accessResponse.ok) {
+        await supabase.auth.signOut();
+        throw new Error(access.message ?? "CourseTrack could not verify your application access.");
+      }
+
+      const requestedPath = searchParams.get("return_to");
+      router.push(requestedPath ? safeReturnTo(requestedPath) : (access.landingPath ?? "/"));
       router.refresh();
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Could not sign in.");
