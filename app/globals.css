@@ -2235,6 +2235,10 @@ kbd {
   padding-top: 4px;
 }
 
+.wrike-action-feedback {
+  margin-top: 12px;
+}
+
 .taxonomy-note {
   margin: 0;
   padding: 12px 18px 18px;
