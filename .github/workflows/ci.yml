@@ -40,7 +40,7 @@ jobs:
         run: npm run typecheck
 
       - name: Run tests
-        run: node --test tests/*.test.mjs
+        run: npm test
 
       - name: Verify Vercel build
         run: npm run build:vercel
