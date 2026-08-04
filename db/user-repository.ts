@@ -9,20 +9,37 @@ function repositoryError(context: string, error: { message: string }): Error {
 }
 
 /**
- * The only self-service profile mutation: a user's own display name.
+ * Self-service profile fields. Authorization fields are deliberately absent.
  * Deliberately does not accept role/account_status -- those are handled by
  * changeUserRoleOrStatus() and gated to admins, and are additionally
  * protected by the protect_profile_role_changes() DB trigger.
  */
-export async function updateOwnDisplayName(
+export interface OwnProfileUpdate {
+  userId: string;
+  firstName: string;
+  lastName: string;
+  displayName: string;
+  jobTitle: string;
+  department: string;
+  timezone: string;
+}
+
+export async function updateOwnProfile(
   client: SupabaseClient,
-  input: { userId: string; displayName: string },
+  input: OwnProfileUpdate,
 ): Promise<void> {
   const { error } = await client
     .from("profiles")
-    .update({ display_name: input.displayName })
+    .update({
+      first_name: input.firstName || null,
+      last_name: input.lastName || null,
+      display_name: input.displayName,
+      job_title: input.jobTitle || null,
+      department: input.department || null,
+      timezone: input.timezone,
+    })
     .eq("id", input.userId);
-  if (error) throw repositoryError("Could not update your display name", error);
+  if (error) throw repositoryError("Could not update your profile", error);
 }
 
 export interface ApplicationUserSummary {

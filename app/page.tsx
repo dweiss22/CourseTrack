@@ -37,5 +37,6 @@ export default async function Home() {
     hasContentMetadata: course.hasContentMetadata,
     importValidationErrorCount: course.importValidationErrorCount,
   }));
-  return <Dashboard courses={records} retrievalRuns={retrievalRuns} />;
+  const firstName = context.firstName || context.displayName.split(/\s+/)[0] || context.email.split("@")[0];
+  return <Dashboard courses={records} retrievalRuns={retrievalRuns} firstName={firstName} />;
 }

@@ -10,7 +10,12 @@ export type { ApplicationRole };
 export interface AuthContext {
   userId: string;
   email: string;
+  firstName: string;
+  lastName: string;
   displayName: string;
+  jobTitle: string;
+  department: string;
+  timezone: string;
   role: ApplicationRole;
 }
 
@@ -29,7 +34,12 @@ export function landingPathForRole(role: ApplicationRole): string {
 const SAMPLE_AUTH_CONTEXT: AuthContext = {
   userId: "sample-super-admin",
   email: "sample-admin@coursetrack.local",
+  firstName: "Sample",
+  lastName: "Administrator",
   displayName: "Sample Super Admin",
+  jobTitle: "CourseTrack Administrator",
+  department: "Course Operations",
+  timezone: "America/Chicago",
   role: "super_admin",
 };
 
@@ -57,7 +67,7 @@ export async function getAuthContext(): Promise<AuthContext | null> {
 
   const { data: profile, error: profileError } = await adminClient
     .from("profiles")
-    .select("id,email,display_name,role,account_status")
+    .select("id,email,first_name,last_name,display_name,job_title,department,timezone,role,account_status")
     .eq("id", user.id)
     .maybeSingle();
   if (profileError || !profile || profile.account_status !== "active") return null;
@@ -65,7 +75,12 @@ export async function getAuthContext(): Promise<AuthContext | null> {
   return {
     userId: profile.id as string,
     email: profile.email as string,
+    firstName: (profile.first_name as string | null) ?? "",
+    lastName: (profile.last_name as string | null) ?? "",
     displayName: profile.display_name as string,
+    jobTitle: (profile.job_title as string | null) ?? "",
+    department: (profile.department as string | null) ?? "",
+    timezone: (profile.timezone as string | null) ?? "America/Chicago",
     role: profile.role as ApplicationRole,
   };
 }

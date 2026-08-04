@@ -158,9 +158,11 @@ function buildMetricCards(courses: DashboardCourse[], includeExcluded: boolean) 
 export function Dashboard({
   courses,
   retrievalRuns,
+  firstName,
 }: {
   courses: DashboardCourse[];
   retrievalRuns: RetrievalRun[];
+  firstName: string;
 }) {
   const [verticalFilter, setVerticalFilter] = useState("All verticals");
   const [includeExcluded, setIncludeExcluded] = useState(false);
@@ -250,7 +252,7 @@ export function Dashboard({
       <section className="page-heading">
         <div>
           <span className="eyebrow">Portfolio overview</span>
-          <h1>Good afternoon, Dana</h1>
+          <h1>Welcome, {firstName}</h1>
           <p>
             Monitor course health, accreditation risk, and the work that needs
             attention across the portfolio.
