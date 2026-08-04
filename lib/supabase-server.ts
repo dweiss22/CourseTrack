@@ -12,10 +12,9 @@ function readConfiguration(): SupabaseConfiguration | null {
   const dataMode = (
     process.env.COURSETRACK_DATA_MODE ?? "supabase"
   ).toLowerCase();
-  if (dataMode === "sample") return null;
   if (dataMode !== "supabase") {
     throw new Error(
-      'COURSETRACK_DATA_MODE must be either "supabase" or "sample".',
+      'COURSETRACK_DATA_MODE must be "supabase".',
     );
   }
 

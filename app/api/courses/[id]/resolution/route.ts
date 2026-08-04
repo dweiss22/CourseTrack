@@ -12,12 +12,14 @@ const resolutionSchema = z.object({
     "Clear resolution and review again",
   ]),
   reason: z.string().trim().max(500).nullable().optional(),
-});
+}).strict();
 
 export async function POST(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
+  const actor = await requireApiRole("super_admin", "admin", "content");
+  if ("error" in actor) return actor.error;
   const { id } = await context.params;
   const course = await getCourseRecord(id);
   if (!course) {
@@ -43,8 +45,6 @@ export async function POST(
     );
   }
 
-  const actor = await requireApiRole("super_admin", "admin", "content");
-  if ("error" in actor) return actor.error;
   const actorEmail = actor.context.email;
   const resolvedAt = new Date().toISOString();
   const resolution = applyFieldResolution(
@@ -64,13 +64,17 @@ export async function POST(
     resolvedAt,
   });
 
+  if (!saved) {
+    return NextResponse.json(
+      { code: "persistence_failed", message: "The field resolution could not be persisted." },
+      { status: 500 },
+    );
+  }
   return NextResponse.json({
     saved,
     comparison: resolution.comparison,
     audit: resolution.audit,
     readOnlyLms: true,
-    message: saved
-      ? "CourseTrack resolution saved and audited. LMS and Content Metadata source values were not changed."
-      : "Sample resolution applied for this session. LMS and Content Metadata source values were not changed.",
+    message: "CourseTrack resolution saved and audited. LMS and Content Metadata source values were not changed.",
   });
 }

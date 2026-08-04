@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { CourseDetail } from "@/components/course-detail/course-detail";
-import { getAllTags, getAllTopics, getCourseRecord } from "@/db";
+import { getAllTags, getAllTopics, getCourseIndex, getCourseRecord, getFavorite } from "@/db";
 import { requireUser } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
@@ -24,12 +24,14 @@ export default async function CourseDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  await requireUser();
+  const authContext = await requireUser();
   const { id } = await params;
-  const [course, allTopics, allTags] = await Promise.all([
+  const [course, allTopics, allTags, initialFavorite, courseOptions] = await Promise.all([
     getCourseRecord(id),
     getAllTopics(),
     getAllTags(),
+    getFavorite(id, authContext.userId),
+    getCourseIndex(),
   ]);
   if (!course) notFound();
   return (
@@ -37,6 +39,10 @@ export default async function CourseDetailPage({
       course={course}
       topicSuggestions={allTopics.map((topic) => topic.label)}
       tagSuggestions={allTags.map((tag) => tag.label)}
+      initialFavorite={initialFavorite}
+      canEditCourse={["super_admin", "admin", "content"].includes(authContext.role)}
+      lmsConnected={false}
+      courseOptions={courseOptions.filter((option) => option.id !== id)}
     />
   );
 }

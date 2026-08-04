@@ -1,66 +1,17 @@
 # Database schema
 
-## Provenance rules
+Supabase/Postgres is the only persistence layer. The operational additions are checked in at `supabase/migrations/202608040006_operational_workflows.sql` and are not applied remotely by the implementation workflow.
 
-Every externally derived record carries:
+Application-owned records carry `provenance`, `origin_provenance`, `updated_by`, `updated_at`, `archived_at`, and `archived_by`. Courses additionally carry `field_provenance`. Valid provenance values are:
 
-- source system/provider
-- external identifier where available
-- retrieval timestamp
-- retrieval run or snapshot linkage
-- normalized payload and mapping warnings where appropriate
+| Stored value | Display label | Mutation rule |
+|---|---|---|
+| `uploaded` | Uploaded | Projection editable; original upload immutable |
+| `lms_api` | Connected via LMS API | Read-only |
+| `coursetrack` | CourseTrack | Editable by authorized workflows |
 
-Internal metadata is stored separately from the immutable LMS snapshot. A
-retrieval may refresh LMS-owned fields but may not overwrite internal notes,
-owners, flags, review dates, or proposals.
+`course_favorites` is keyed by user and course and protected by per-user RLS. `course_versions` has a partial unique index enforcing one unarchived current row per course. Revamp tasks use `bucket_key`, integer `sort_order`, `updated_at`, and archive metadata. Movement and version-current changes are transactional database functions.
 
-Course versions are also internal metadata. LMS retrievals never create,
-renumber, promote, or retire CourseTrack versions. Wrike task details may be
-stored as read-only reference snapshots on a version, while the link itself is
-owned and audited by CourseTrack.
+Source tables and history tables are append-only. Courses, versions, accreditation records, notes, flags, Revamp tasks, and relationships are filtered by soft archive. Manual CourseTrack taxonomy and relationship assignments are the only audited hard-delete paths.
 
-## Core tables
-
-| Table | Purpose | Important constraints |
-| --- | --- | --- |
-| `profiles` | Application identity profile | One row per auth user; unique email |
-| `roles` | Named authorization bundles | Unique stable key |
-| `permissions` | Atomic capabilities | Unique stable key |
-| `user_roles` | User-to-role grants | Unique user/role pair |
-| `role_permissions` | Role capabilities | Unique role/permission pair |
-| `verticals` | Controlled portfolio verticals | Unique name and slug |
-| `courses` | CourseTrack portfolio record | Unique course code; unique nullable LMS ID |
-| `course_verticals` | Secondary vertical classification | Unique course/vertical pair |
-| `course_versions` | CourseTrack-owned version history | One app-controlled current version; no inferred LMS version |
-| `version_wrike_task_references` | Read-only Wrike work context linked to a version | Unique active task/version reference; no Wrike write-back |
-| `accreditation_records` | Approval and expiration tracking | Course foreign key; expiration index |
-| `course_flags` | Internal risks and tasks | Status/priority indexes |
-| `notes` | Internal collaboration notes | Soft delete timestamp |
-| `revamp_proposals` | Modernization pipeline | Score constrained to 0–100 |
-| `lms_retrieval_runs` | Retrieval execution history | Counts and explicit outcome |
-| `lms_snapshots` | Immutable normalized LMS state | Payload hash; one promoted current record |
-| `audit_logs` | Append-only accountability events | Actor, record, before/after values, correlation ID |
-
-## Index strategy
-
-- Trigram search on course title/code plus B-tree indexes for lifecycle,
-  vertical, next-review date, and health.
-- Accreditation expiration and flag status/priority indexes support risk queues.
-- Provider/external ID indexes support snapshot reconciliation.
-- Audit record and creation indexes support chronological investigations.
-
-## Delete behavior
-
-Courses are archived with lifecycle state rather than deleted. Child records use
-foreign keys and conservative deletion rules. Audit logs and LMS snapshots are
-append-only in normal application operation.
-
-## Runtime adapter
-
-`db/index.ts` uses the official Supabase client from server-only code. It seeds
-missing sample records without overwriting internal edits, reads persisted owner
-and review fields into the portfolio, records retrieval history, and calls an
-atomic PostgreSQL function for course edits plus audit logging.
-
-The SQL files under `supabase/migrations/` are the schema authority for every
-deployment target.
+The migration maps workbook/import origins to `uploaded`, manual origins to `coursetrack`, and reserves `lms_api` for future connector snapshots. Cleanup archives generated Revamp rows only when actor and justification fingerprints both match, unlinks known `Mock Wrike` references, and writes a cleanup report while leaving ambiguous rows untouched.

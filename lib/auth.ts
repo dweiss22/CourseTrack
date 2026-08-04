@@ -31,30 +31,16 @@ export function landingPathForRole(role: ApplicationRole): string {
   }
 }
 
-const SAMPLE_AUTH_CONTEXT: AuthContext = {
-  userId: "sample-super-admin",
-  email: "sample-admin@coursetrack.local",
-  firstName: "Sample",
-  lastName: "Administrator",
-  displayName: "Sample Super Admin",
-  jobTitle: "CourseTrack Administrator",
-  department: "Course Operations",
-  timezone: "America/Chicago",
-  role: "super_admin",
-};
-
 /**
  * Resolves the real signed-in user and their authoritative application
  * role. Returns null when there's no session, no application membership
- * (an administrator hasn't created one), or the account is disabled --
- * never trusts a role from anywhere but the profiles row. Falls back to a
- * synthetic sample identity only when Supabase Auth isn't configured at all
- * (sample-data mode), mirroring this app's existing sample-data-fallback
- * philosophy rather than a NODE_ENV-gated bypass.
+ * (an administrator hasn't created one), the account is disabled, or
+ * Supabase Auth is not configured. It never fabricates an identity and never
+ * trusts a role from anywhere but the profiles row.
  */
 export async function getAuthContext(): Promise<AuthContext | null> {
   const authClient = await createSupabaseServerClient();
-  if (!authClient) return SAMPLE_AUTH_CONTEXT;
+  if (!authClient) return null;
 
   const {
     data: { user },

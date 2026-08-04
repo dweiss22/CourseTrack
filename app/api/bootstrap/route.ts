@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
-import { ensureDatabase, SAMPLE_COURSE_COUNT } from "@/db";
+import { ensureDatabase } from "@/db";
 
 export async function GET() {
   try {
     const result = await ensureDatabase();
     return NextResponse.json({
       ...result,
-      lmsProvider: "Mock LMS",
-      mode: "sample",
+      lmsProvider: "Not connected",
+      mode: "database",
     });
   } catch (error) {
     return NextResponse.json(
@@ -15,16 +15,16 @@ export async function GET() {
         available: false,
         configured: true,
         seeded: false,
-        courseCount: SAMPLE_COURSE_COUNT,
-        databaseProvider: "Sample fallback",
-        lmsProvider: "Mock LMS",
-        mode: "sample-fallback",
+        courseCount: 0,
+        databaseProvider: "Unavailable",
+        lmsProvider: "Not connected",
+        mode: "unavailable",
         message:
           error instanceof Error
             ? error.message
             : "Database initialization was unavailable.",
       },
-      { status: 200 },
+      { status: 503 },
     );
   }
 }

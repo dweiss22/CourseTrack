@@ -11,8 +11,8 @@ const toneByLabel: Record<string, string> = {
   "Lexipol managed": "success",
   "Matched between LMS and Content Metadata": "success",
   Match: "success",
-  "Sample Data": "sample",
-  sample: "sample",
+  Uploaded: "info",
+  "Connected via LMS API": "neutral",
   Monitor: "info",
   Draft: "info",
   "In Progress": "info",
@@ -45,7 +45,6 @@ const toneByLabel: Record<string, string> = {
   "Missing from both": "neutral",
   Superseded: "neutral",
   "On Hold": "warning",
-  "Mock Wrike": "sample",
 };
 
 export function StatusBadge({
@@ -55,7 +54,7 @@ export function StatusBadge({
 }: {
   children?: ReactNode;
   label?: string;
-  tone?: "success" | "warning" | "danger" | "info" | "sample" | "neutral";
+  tone?: "success" | "warning" | "danger" | "info" | "neutral";
 }) {
   const text = label ?? String(children ?? "");
   const resolvedTone = tone ?? toneByLabel[text] ?? "neutral";

@@ -62,11 +62,13 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const deploymentEnvironment = resolveDeploymentEnvironment();
-  const [courseIndex, authContext, snapshotStatus] = await Promise.all([
-    getCourseIndex(),
-    getAuthContext(),
-    deploymentEnvironment === "staging" ? getEnvironmentSnapshotStatus() : Promise.resolve(null),
-  ]);
+  const authContext = await getAuthContext();
+  const [courseIndex, snapshotStatus] = authContext
+    ? await Promise.all([
+        getCourseIndex(),
+        deploymentEnvironment === "staging" ? getEnvironmentSnapshotStatus() : Promise.resolve(null),
+      ])
+    : [[], null];
   return (
     <html lang="en">
       <body>

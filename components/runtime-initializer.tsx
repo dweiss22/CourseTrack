@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Database, LoaderCircle } from "lucide-react";
 
-type RuntimeStatus = "starting" | "ready" | "fallback";
+type RuntimeStatus = "starting" | "ready" | "unavailable";
 
 export function RuntimeInitializer() {
   const [status, setStatus] = useState<RuntimeStatus>("starting");
@@ -13,10 +13,10 @@ export function RuntimeInitializer() {
     fetch("/api/bootstrap")
       .then((response) => response.json())
       .then((result: { available?: boolean }) => {
-        if (active) setStatus(result.available ? "ready" : "fallback");
+        if (active) setStatus(result.available ? "ready" : "unavailable");
       })
       .catch(() => {
-        if (active) setStatus("fallback");
+        if (active) setStatus("unavailable");
       });
     return () => {
       active = false;
@@ -32,10 +32,10 @@ export function RuntimeInitializer() {
       )}
       <span>
         {status === "starting"
-          ? "Preparing sample workspace"
+          ? "Checking database connection"
           : status === "ready"
             ? "Supabase database ready"
-            : "Sample data fallback active"}
+            : "Database unavailable"}
       </span>
     </div>
   );

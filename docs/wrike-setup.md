@@ -6,8 +6,8 @@ one existing Wrike task with a course version and open it from CourseTrack.
 Wrike itself is never modified: no tasks, custom fields, folders, statuses,
 or workflows are created, renamed, or required.
 
-This is separate from the pre-existing `WRIKE_PROVIDER=mock` "Wrike work
-reference" browse panel on `/versions`, which is untouched by this feature.
+Until these settings are present, Wrike controls show an honest unavailable
+state and no task data is generated locally.
 
 ## 1. Register a dedicated Wrike app and generate a permanent access token
 
@@ -25,7 +25,7 @@ another application's token). In the Wrike App Console:
 
 ```dotenv
 WRIKE_API_HOST=https://www.wrike.com
-WRIKE_PERMANENT_TOKEN=            # optional fallback; can also be pasted in the admin UI
+WRIKE_PERMANENT_TOKEN=            # optional server-side token; can also be pasted in the admin UI
 TOKEN_ENCRYPTION_KEY=             # 32+ random bytes; encrypts the stored token at rest
 WRIKE_SYNC_CRON_SECRET=           # shared secret for an external scheduler, see step 5
 ```

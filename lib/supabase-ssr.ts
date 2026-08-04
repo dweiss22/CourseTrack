@@ -36,8 +36,8 @@ export function isSupabaseAuthConfigured(): boolean {
 
 /**
  * A cookie-backed Supabase client for Server Components, Route Handlers, and
- * Server Actions. Returns null when Supabase Auth isn't configured (sample
- * mode) rather than throwing -- callers fall back to a synthetic identity.
+ * Server Actions. Returns null when Supabase Auth isn't configured so callers
+ * can fail closed or present the sign-in/configuration state.
  */
 export async function createSupabaseServerClient() {
   const config = readAuthConfig();

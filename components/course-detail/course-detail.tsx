@@ -2,6 +2,7 @@
 
 import {
   AlertTriangle,
+  Archive,
   ArrowLeft,
   Award,
   BookOpen,
@@ -26,6 +27,7 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { type Dispatch, type FormEvent, type SetStateAction, useState } from "react";
 import type {
   AccreditationRecord,
@@ -33,12 +35,17 @@ import type {
   CourseTagAssignment,
   CourseTopicAssignment,
   CourseVersion,
+  CourseFlag,
+  CourseNote,
+  CourseRelationship,
   FieldComparison,
   VersionWrikeTaskReference,
+  AccreditationHistoryGroup,
 } from "@/types/course";
-import type { WrikeTaskCandidate } from "@/db";
+import { provenanceLabels } from "@/types/course";
+import type { CourseIndexEntry, WrikeTaskCandidate } from "@/db";
 import { StatusBadge } from "../status-badge";
-import { accreditationDisplayLabel, groupAccreditationRecords } from "@/lib/accreditation-grouping";
+import { accreditationDisplayLabel, accreditationRiskLabels, groupAccreditationRecords } from "@/lib/accreditation-grouping";
 
 const tabs = [
   "Overview",
@@ -63,15 +70,25 @@ export function CourseDetail({
   course,
   topicSuggestions,
   tagSuggestions,
+  initialFavorite,
+  canEditCourse,
+  lmsConnected,
+  courseOptions,
 }: {
   course: Course;
   topicSuggestions: string[];
   tagSuggestions: string[];
+  initialFavorite: boolean;
+  canEditCourse: boolean;
+  lmsConnected: boolean;
+  courseOptions: CourseIndexEntry[];
 }) {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<Tab>("Overview");
   const [currentCourse, setCurrentCourse] = useState(course);
   const [editing, setEditing] = useState(false);
-  const [favorite, setFavorite] = useState(false);
+  const [favorite, setFavorite] = useState(initialFavorite);
+  const [favoritePending, setFavoritePending] = useState(false);
   const [saveState, setSaveState] = useState<
     "idle" | "saving" | "saved" | "error"
   >("idle");
@@ -86,6 +103,36 @@ export function CourseDetail({
     nextReviewDate: currentCourse.nextReviewDate ?? "",
   });
 
+  const toggleFavorite = async () => {
+    const nextFavorite = !favorite;
+    setFavoritePending(true);
+    setSaveState("saving");
+    setMessage("");
+    try {
+      const response = await fetch(`/api/courses/${currentCourse.id}/favorite`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ favorite: nextFavorite }),
+      });
+      const result = (await response.json()) as { message?: string };
+      if (!response.ok) throw new Error(result.message);
+      setFavorite(nextFavorite);
+      setSaveState("saved");
+      setMessage(nextFavorite ? "Course added to your favorites." : "Course removed from your favorites.");
+    } catch (error) {
+      setSaveState("error");
+      setMessage(error instanceof Error ? error.message : "Favorite could not be updated.");
+    } finally {
+      setFavoritePending(false);
+    }
+  };
+
+  const archiveCourse = async () => {
+    if (!window.confirm(`Archive ${currentCourse.title}?`)) return;
+    setSaveState("saving"); setMessage("");
+    try { const response = await fetch(`/api/courses/${currentCourse.id}`, { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ expectedUpdatedAt: currentCourse.updatedAt }) }); const result = (await response.json()) as { message?: string }; if (!response.ok) throw new Error(result.message); router.push("/courses"); router.refresh(); } catch (error) { setSaveState("error"); setMessage(error instanceof Error ? error.message : "Course could not be archived."); }
+  };
+
   const saveInternalMetadata = async (event: FormEvent) => {
     event.preventDefault();
     setSaveState("saving");
@@ -98,6 +145,7 @@ export function CourseDetail({
           internalSummary: form.internalSummary,
           owner: form.owner.trim() || null,
           nextReviewDate: form.nextReviewDate || null,
+          expectedUpdatedAt: currentCourse.updatedAt,
         }),
       });
       const result = (await response.json()) as {
@@ -110,6 +158,7 @@ export function CourseDetail({
         internalSummary: form.internalSummary,
         owner: form.owner.trim() || null,
         nextReviewDate: form.nextReviewDate || null,
+        updatedAt: result.course?.updatedAt ?? value.updatedAt,
       }));
       setSaveState("saved");
       setMessage(
@@ -127,7 +176,7 @@ export function CourseDetail({
     }
   };
 
-  const retrieveCourse = async (mode: "healthy" | "outage" = "healthy") => {
+  const retrieveCourse = async () => {
     setRetrievalState("running");
     setMessage("");
     try {
@@ -135,7 +184,6 @@ export function CourseDetail({
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          mode,
           courseId: currentCourse.lmsCourseId ?? currentCourse.id,
         }),
       });
@@ -225,7 +273,7 @@ export function CourseDetail({
               .map((part) => part[0])
               .join("")}
           </div>
-          <div>
+          <div className="course-identity">
             <div className="course-heading-badges">
               <StatusBadge
                 tone={
@@ -248,34 +296,30 @@ export function CourseDetail({
               {currentCourse.courseCode} · {currentCourse.primaryVertical} · v
               {currentCourse.currentVersion}
             </p>
+            <div className="course-action-row" aria-label="Course actions">
+              <button
+                className={`icon-action ${favorite ? "is-active" : ""}`}
+                onClick={toggleFavorite}
+                disabled={favoritePending}
+                aria-label={favorite ? "Remove from favorites" : "Add to favorites"}
+                data-tooltip={favorite ? "Remove from favorites" : "Add to favorites"}
+              >
+                <Star size={18} fill={favorite ? "currentColor" : "none"} />
+              </button>
+              <button
+                className="icon-action"
+                onClick={() => retrieveCourse()}
+                disabled={!lmsConnected || retrievalState === "running"}
+                aria-label={lmsConnected ? "Refresh LMS data" : "LMS refresh unavailable until a connector is configured"}
+                data-tooltip={lmsConnected ? "Refresh LMS data" : "LMS refresh unavailable until a connector is configured"}
+              >
+                <RefreshCw size={18} className={retrievalState === "running" ? "spin" : ""} />
+              </button>
+              {canEditCourse && (
+                <><button className="icon-action" onClick={() => setEditing(true)} aria-label="Edit CourseTrack fields" data-tooltip="Edit CourseTrack fields"><Pencil size={18} /></button><button className="icon-action" onClick={archiveCourse} aria-label="Archive course" data-tooltip="Archive course"><Archive size={18} /></button></>
+              )}
+            </div>
           </div>
-        </div>
-        <div className="heading-actions">
-          <button
-            className={`button button-secondary ${favorite ? "button-favorite" : ""}`}
-            onClick={() => setFavorite((value) => !value)}
-          >
-            <Star size={16} fill={favorite ? "currentColor" : "none"} />
-            {favorite ? "Favorited" : "Favorite"}
-          </button>
-          <button
-            className="button button-secondary"
-            onClick={() => retrieveCourse()}
-            disabled={retrievalState === "running"}
-          >
-            <RefreshCw
-              size={16}
-              className={retrievalState === "running" ? "spin" : ""}
-            />
-            {retrievalState === "running" ? "Retrieving…" : "Refresh LMS data"}
-          </button>
-          <button
-            className="button button-primary"
-            onClick={() => setEditing(true)}
-          >
-            <Pencil size={16} />
-            Edit internal metadata
-          </button>
         </div>
       </section>
 
@@ -299,7 +343,7 @@ export function CourseDetail({
                 ? "Prior snapshot preserved"
                 : saveState === "saved"
                   ? "CourseTrack value updated"
-                  : "Read-only retrieval complete"}
+                  : "Course action complete"}
             </strong>
             {message}
           </span>
@@ -309,10 +353,10 @@ export function CourseDetail({
       <div className="provenance-banner">
         <ShieldCheck size={20} />
         <div>
-          <strong>CourseTrack never writes to the LMS</strong>
+          <strong>Immutable sources, editable projection</strong>
           <span>
-            LMS fields below are read-only and show their retrieval source.
-            Internal fields are stored separately in CourseTrack.
+            Uploaded values can be edited in CourseTrack while the original
+            upload remains unchanged. Connected via LMS API fields are read-only.
           </span>
         </div>
         <span>Last retrieved {currentCourse.lastRetrievedAt ?? "Not available"}</span>
@@ -421,6 +465,9 @@ export function CourseDetail({
               course={currentCourse}
               resolving={saveState === "saving"}
               onResolve={resolveField}
+              onCourseChange={setCurrentCourse}
+              courseOptions={courseOptions}
+              canEdit={canEditCourse}
             />
           )}
           {activeTab === "Versions" && (
@@ -437,16 +484,13 @@ export function CourseDetail({
               tagSuggestions={tagSuggestions}
             />
           )}
-          {activeTab === "Notes" && <NotesTab course={currentCourse} />}
-          {activeTab === "Flags" && <FlagsTab course={currentCourse} />}
+          {activeTab === "Notes" && <NotesTab course={currentCourse} onCourseChange={setCurrentCourse} />}
+          {activeTab === "Flags" && <FlagsTab course={currentCourse} onCourseChange={setCurrentCourse} />}
           {activeTab === "Revamp Planning" && (
             <RevampTab course={currentCourse} />
           )}
           {activeTab === "LMS Data" && (
-            <LmsTab
-              course={currentCourse}
-              onSimulateOutage={() => retrieveCourse("outage")}
-            />
+            <LmsTab course={currentCourse} />
           )}
           {activeTab === "Activity" && <ActivityTab course={currentCourse} />}
         </div>
@@ -481,7 +525,7 @@ export function CourseDetail({
 
           <article className="panel compact-panel">
             <h3>Source & retrieval</h3>
-            <DetailRow icon={ShieldCheck} label="Data source" value="Sample / Mock LMS" />
+            <DetailRow icon={ShieldCheck} label="Data source" value={provenanceLabels[currentCourse.dataSource]} />
             <DetailRow icon={RefreshCw} label="Retrieval status" value={currentCourse.retrievalStatus} />
             <DetailRow icon={Clock} label="Last retrieved" value={currentCourse.lastRetrievedAt ?? "Not retrieved"} />
           </article>
@@ -500,7 +544,7 @@ function OverviewTab({ course }: { course: Course }) {
             <h2>Course overview</h2>
             <p>Current normalized metadata and field provenance</p>
           </div>
-          <StatusBadge tone="sample">Sample record</StatusBadge>
+          <StatusBadge>{provenanceLabels[course.dataSource]}</StatusBadge>
         </div>
         <p className="course-description">{course.description}</p>
         <div className="field-grid">
@@ -549,10 +593,16 @@ function SourceComparisonTab({
   course,
   resolving,
   onResolve,
+  onCourseChange,
+  courseOptions,
+  canEdit,
 }: {
   course: Course;
   resolving: boolean;
   onResolve: (fieldKey: string, action: ResolutionAction) => void;
+  onCourseChange: Dispatch<SetStateAction<Course>>;
+  courseOptions: CourseIndexEntry[];
+  canEdit: boolean;
 }) {
   const sourceHistory = [...course.retrievalHistory, ...course.importHistory]
     .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
@@ -703,6 +753,7 @@ function SourceComparisonTab({
                 <small>{relationship.validationStatus}</small>
               </span>
             )) : <p>No relationships supplied.</p>}
+            {canEdit && <RelationshipEditor course={course} courseOptions={courseOptions} onCourseChange={onCourseChange} />}
           </div>
         </div>
       </article>
@@ -740,6 +791,15 @@ function SourceComparisonTab({
       </article>
     </div>
   );
+}
+
+function RelationshipEditor({ course, courseOptions, onCourseChange }: { course: Course; courseOptions: CourseIndexEntry[]; onCourseChange: Dispatch<SetStateAction<Course>> }) {
+  const [relationship, setRelationship] = useState<"parent" | "child">("parent");
+  const [relatedCourseId, setRelatedCourseId] = useState(courseOptions[0]?.id ?? "");
+  const [pending, setPending] = useState(false); const [error, setError] = useState("");
+  const add = async (event: FormEvent) => { event.preventDefault(); setPending(true); setError(""); try { const response = await fetch(`/api/courses/${course.id}/relationships`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ relationship, relatedCourseId }) }); const result = (await response.json()) as { relationship?: CourseRelationship; message?: string }; if (!response.ok || !result.relationship) throw new Error(result.message); const option = courseOptions.find((item) => item.id === relatedCourseId); onCourseChange((value) => ({ ...value, relationships: [...value.relationships, { ...result.relationship!, relatedCourseTitle: option?.title ?? null }] })); } catch (submitError) { setError(submitError instanceof Error ? submitError.message : "Relationship could not be assigned."); } finally { setPending(false); } };
+  const remove = async (id: string) => { setPending(true); setError(""); try { const response = await fetch(`/api/relationships/${id}`, { method: "DELETE" }); const result = (await response.json()) as { message?: string }; if (!response.ok) throw new Error(result.message); onCourseChange((value) => ({ ...value, relationships: value.relationships.filter((item) => item.id !== id) })); } catch (submitError) { setError(submitError instanceof Error ? submitError.message : "Relationship could not be removed."); } finally { setPending(false); } };
+  return <div className="relationship-editor"><div className="tag-list">{course.relationships.filter((item) => item.source === "CourseTrack").map((item) => <span className="tag-chip" key={item.id}>{item.relationship}: {item.relatedCourseTitle ?? item.relatedCourseId}<button aria-label={`Remove relationship to ${item.relatedCourseTitle ?? item.relatedCourseId}`} disabled={pending} onClick={() => remove(item.id)}><X size={11} /></button></span>)}</div><form className="taxonomy-add-form" onSubmit={add}><select value={relationship} onChange={(event) => setRelationship(event.target.value as "parent" | "child")}><option value="parent">Parent</option><option value="child">Child</option></select><select value={relatedCourseId} onChange={(event) => setRelatedCourseId(event.target.value)} required><option value="">Choose course</option>{courseOptions.map((option) => <option key={option.id} value={option.id}>{option.courseCode} — {option.title}</option>)}</select><button className="button button-secondary" disabled={pending || !relatedCourseId}>Add</button></form>{error && <p className="taxonomy-editor-error" role="alert">{error}</p>}</div>;
 }
 
 function VersionsTab({
@@ -981,7 +1041,6 @@ function VersionWrikeCell({
           {activeReference.wrikeTaskId}
           {activeReference.lastVerifiedAt && ` · Verified ${new Date(activeReference.lastVerifiedAt).toLocaleDateString()}`}
         </small>
-        {activeReference.isSample && <StatusBadge tone="sample">Mock Wrike</StatusBadge>}
         <div className="wrike-cell-actions">
           {activeReference.permalink && (
             <a href={activeReference.permalink} target="_blank" rel="noopener noreferrer">
@@ -1050,43 +1109,67 @@ function AccreditationTab({ course }: { course: Course }) {
     return (
       <div className="empty-state panel">
         <Award size={28} />
-        <h2>No accreditation required</h2>
-        <p>This sample course has no current accreditation records.</p>
+        <h2>No accreditation records</h2>
+        <p>Add an internal accreditation record when this course requires approval tracking.</p>
       </div>
     );
   }
   const groups = groupAccreditationRecords(course.accreditations);
   return (
     <div className="detail-section-stack">
-      {groups.map((group) => (
-        <article className="panel accreditation-card" key={group.key}>
-          <div className="panel-heading">
-            <div>
-              <h2>{group.organization}</h2>
-              <p>{group.jurisdiction}</p>
-            </div>
-            {group.current && (
-              <StatusBadge label={accreditationDisplayLabel(group.current, true)} />
-            )}
-          </div>
-          {group.current && <AccreditationRecordFields record={group.current} />}
-          {group.expired.length > 0 && (
-            <div className="accreditation-history">
-              <h3>Expired history</h3>
-              {group.expired.map((record) => (
-                <div className="accreditation-history-entry" key={record.id}>
-                  <div className="panel-heading">
-                    <p>{record.creditHours} credit hours</p>
-                    <StatusBadge label="Expired" />
-                  </div>
-                  <AccreditationRecordFields record={record} />
-                </div>
-              ))}
-            </div>
-          )}
-        </article>
-      ))}
+      {groups.map((group) => <AccreditationGroupCard group={group} key={group.key} />)}
     </div>
+  );
+}
+
+function AccreditationGroupCard({ group }: { group: AccreditationHistoryGroup }) {
+  const [expanded, setExpanded] = useState(false);
+  const historyId = `accreditation-history-${group.key.replace(/[^a-z0-9]/gi, "-")}`;
+  const older = group.history;
+  return (
+    <article className="panel accreditation-card">
+      <div className="panel-heading">
+        <div>
+          <h2>{group.organization}</h2>
+          <p>{group.jurisdiction}</p>
+        </div>
+        <div className="accreditation-summary-badges">
+          <StatusBadge label={accreditationRiskLabels[group.riskState]} />
+          {group.summary.historyRole === "future" && <StatusBadge tone="info">Future</StatusBadge>}
+        </div>
+      </div>
+      <AccreditationRecordFields record={group.summary.record} />
+      {group.summary.historyRole === "future" && group.current && (
+        <div className="inline-alert alert-warning">
+          <AlertTriangle size={16} />
+          <span><strong>Not yet current</strong>The current risk remains {accreditationRiskLabels[group.current.riskState].toLowerCase()} until this record takes effect.</span>
+        </div>
+      )}
+      {older.length > 0 && (
+        <div className="accreditation-history">
+          <button
+            type="button"
+            className="history-toggle"
+            aria-expanded={expanded}
+            aria-controls={historyId}
+            onClick={() => setExpanded((value) => !value)}
+          >
+            {expanded ? "Hide" : "Show"} {older.length} older {older.length === 1 ? "record" : "records"}
+          </button>
+          <div id={historyId} hidden={!expanded}>
+            {older.map((item) => (
+              <div className="accreditation-history-entry" key={item.record.id}>
+                <div className="panel-heading">
+                  <p>{item.record.creditHours} credit hours</p>
+                  <StatusBadge label={item.historyRole === "duplicate" ? "Duplicate" : accreditationDisplayLabel(item.record, false)} />
+                </div>
+                <AccreditationRecordFields record={item.record} />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </article>
   );
 }
 
@@ -1094,10 +1177,10 @@ function AccreditationRecordFields({ record }: { record: AccreditationRecord }) 
   return (
     <>
       <div className="field-grid">
-        <ProvenanceField label="Approval number" value={record.approvalNumber ?? "Missing"} source={record.source === "lms" ? "LMS" : "CourseTrack"} locked={record.source === "lms"} />
-        <ProvenanceField label="Effective date" value={record.effectiveDate ?? "Not set"} source="CourseTrack" />
-        <ProvenanceField label="Expiration date" value={record.expirationDate ?? "Not set"} source="CourseTrack" />
-        <ProvenanceField label="Credit hours" value={String(record.creditHours)} source="CourseTrack" />
+        <ProvenanceField label="Approval number" value={record.approvalNumber ?? "Missing"} source={provenanceLabels[record.source]} locked={record.source === "lms_api"} />
+        <ProvenanceField label="Effective date" value={record.effectiveDate ?? "Not set"} source={provenanceLabels[record.source]} locked={record.source === "lms_api"} />
+        <ProvenanceField label="Expiration date" value={record.expirationDate ?? "Not set"} source={provenanceLabels[record.source]} locked={record.source === "lms_api"} />
+        <ProvenanceField label="Credit hours" value={String(record.creditHours)} source={provenanceLabels[record.source]} locked={record.source === "lms_api"} />
       </div>
       {record.riskReasons.length > 0 && (
         <div className="risk-reasons">
@@ -1311,7 +1394,7 @@ function TaxonomyEditor({
   );
 }
 
-function NotesTab({ course }: { course: Course }) {
+function NotesTabLegacy({ course }: { course: Course }) {
   return (
     <article className="panel">
       <div className="panel-heading">
@@ -1342,7 +1425,7 @@ function NotesTab({ course }: { course: Course }) {
   );
 }
 
-function FlagsTab({ course }: { course: Course }) {
+function FlagsTabLegacy({ course }: { course: Course }) {
   if (course.flags.length === 0) {
     return (
       <div className="empty-state panel">
@@ -1381,6 +1464,41 @@ function FlagsTab({ course }: { course: Course }) {
   );
 }
 
+void NotesTabLegacy;
+void FlagsTabLegacy;
+
+function NotesTab({ course, onCourseChange }: { course: Course; onCourseChange: Dispatch<SetStateAction<Course>> }) {
+  const [editing, setEditing] = useState<CourseNote | "new" | null>(null);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+  const save = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault(); const form = new FormData(event.currentTarget); const current = editing === "new" ? null : editing;
+    setPending(true); setError("");
+    try {
+      const response = await fetch(current ? `/api/notes/${current.id}` : `/api/courses/${course.id}/notes`, { method: current ? "PATCH" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: String(form.get("type")), visibility: String(form.get("visibility")), body: String(form.get("body")), expectedUpdatedAt: current?.updatedAt }) });
+      const result = (await response.json()) as { note?: CourseNote; message?: string }; if (!response.ok || !result.note) throw new Error(result.message);
+      onCourseChange((value) => ({ ...value, notes: current ? value.notes.map((note) => note.id === current.id ? result.note! : note) : [result.note!, ...value.notes] })); setEditing(null);
+    } catch (submitError) { setError(submitError instanceof Error ? submitError.message : "Note could not be saved."); } finally { setPending(false); }
+  };
+  const archive = async (note: CourseNote) => { if (!window.confirm("Archive this note?")) return; setPending(true); setError(""); try { const response = await fetch(`/api/notes/${note.id}`, { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ expectedUpdatedAt: note.updatedAt }) }); const result = (await response.json()) as { message?: string }; if (!response.ok) throw new Error(result.message); onCourseChange((value) => ({ ...value, notes: value.notes.filter((item) => item.id !== note.id) })); } catch (submitError) { setError(submitError instanceof Error ? submitError.message : "Note could not be archived."); } finally { setPending(false); } };
+  return <article className="panel"><div className="panel-heading"><div><h2>Internal notes</h2><p>CourseTrack collaboration history—not written to source systems</p></div><button className="button button-primary" onClick={() => setEditing("new")}><MessageSquareText size={16} /> Add note</button></div>
+    {editing && <form className="workflow-form" onSubmit={save}><div className="form-grid"><label>Type<input name="type" required defaultValue={editing === "new" ? "General" : editing.type} /></label><label>Visibility<select name="visibility" defaultValue={editing === "new" ? "Team" : editing.visibility}>{["Private", "Team", "Role restricted", "Organization"].map((value) => <option key={value}>{value}</option>)}</select></label><label className="form-span">Note<textarea name="body" required maxLength={5000} defaultValue={editing === "new" ? "" : editing.body} /></label></div><div className="button-row"><button type="button" className="button button-secondary" onClick={() => setEditing(null)}>Cancel</button><button className="button button-primary" disabled={pending}>{pending ? "Saving…" : "Save note"}</button></div></form>}
+    {error && <p className="taxonomy-editor-error" role="alert">{error}</p>}
+    {course.notes.length === 0 ? <div className="empty-state compact-empty"><MessageSquareText size={22} /><h3>No notes</h3><p>Add the first internal note.</p></div> : <div className="timeline-list">{course.notes.map((note) => <div key={note.id}><span className="timeline-marker"><MessageSquareText size={14} /></span><div><div className="timeline-heading"><strong>{note.type}</strong><StatusBadge tone="neutral">{note.visibility}</StatusBadge></div><p>{note.body}</p><small>{note.author} · {note.createdAt}</small><div className="table-actions"><button onClick={() => setEditing(note)}>Edit</button><button disabled={pending} onClick={() => archive(note)}>Archive</button></div></div></div>)}</div>}
+  </article>;
+}
+
+function FlagsTab({ course, onCourseChange }: { course: Course; onCourseChange: Dispatch<SetStateAction<Course>> }) {
+  const [editing, setEditing] = useState<CourseFlag | "new" | null>(null); const [pending, setPending] = useState(false); const [error, setError] = useState("");
+  const save = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = new FormData(event.currentTarget); const current = editing === "new" ? null : editing; setPending(true); setError(""); try { const response = await fetch(current ? `/api/flags/${current.id}` : `/api/courses/${course.id}/flags`, { method: current ? "PATCH" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: String(form.get("type")), title: String(form.get("title")), priority: String(form.get("priority")), status: String(form.get("status")), dueDate: String(form.get("dueDate")) || null, expectedUpdatedAt: current?.updatedAt }) }); const result = (await response.json()) as { flag?: CourseFlag; message?: string }; if (!response.ok || !result.flag) throw new Error(result.message); onCourseChange((value) => ({ ...value, flags: current ? value.flags.map((flag) => flag.id === current.id ? result.flag! : flag) : [result.flag!, ...value.flags] })); setEditing(null); } catch (submitError) { setError(submitError instanceof Error ? submitError.message : "Flag could not be saved."); } finally { setPending(false); } };
+  const archive = async (flag: CourseFlag) => { if (!window.confirm("Archive this flag?")) return; setPending(true); setError(""); try { const response = await fetch(`/api/flags/${flag.id}`, { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ expectedUpdatedAt: flag.updatedAt }) }); const result = (await response.json()) as { message?: string }; if (!response.ok) throw new Error(result.message); onCourseChange((value) => ({ ...value, flags: value.flags.filter((item) => item.id !== flag.id) })); } catch (submitError) { setError(submitError instanceof Error ? submitError.message : "Flag could not be archived."); } finally { setPending(false); } };
+  return <article className="panel"><div className="panel-heading"><div><h2>Flags and follow-up</h2><p>Operational issues requiring internal attention</p></div><button className="button button-primary" onClick={() => setEditing("new")}><Flag size={16} /> Create flag</button></div>
+    {editing && <form className="workflow-form" onSubmit={save}><div className="form-grid"><label>Type<input name="type" required defaultValue={editing === "new" ? "Content" : editing.type} /></label><label>Title<input name="title" minLength={3} required defaultValue={editing === "new" ? "" : editing.title} /></label><label>Priority<select name="priority" defaultValue={editing === "new" ? "Medium" : editing.priority}>{["Low", "Medium", "High", "Critical"].map((value) => <option key={value}>{value}</option>)}</select></label><label>Status<select name="status" defaultValue={editing === "new" ? "Open" : editing.status}>{["Open", "Under Review", "In Progress", "Blocked", "Resolved"].map((value) => <option key={value}>{value}</option>)}</select></label><label>Due date<input name="dueDate" type="date" defaultValue={editing === "new" ? "" : editing.dueDate ?? ""} /></label></div><div className="button-row"><button type="button" className="button button-secondary" onClick={() => setEditing(null)}>Cancel</button><button className="button button-primary" disabled={pending}>{pending ? "Saving…" : "Save flag"}</button></div></form>}
+    {error && <p className="taxonomy-editor-error" role="alert">{error}</p>}
+    {course.flags.length === 0 ? <div className="empty-state compact-empty"><Flag size={22} /><h3>No unresolved flags</h3><p>This course has no current follow-up items.</p></div> : <div className="issue-list">{course.flags.map((flag) => <div key={flag.id}><span className={`priority-dot priority-${flag.priority.toLowerCase()}`} /><div><strong>{flag.title}</strong><small>{flag.type} · Due {flag.dueDate ?? "not set"}</small></div><span>{flag.owner ?? "Unassigned"}</span><StatusBadge tone={flag.priority === "Critical" ? "danger" : flag.priority === "High" ? "warning" : "neutral"}>{flag.priority}</StatusBadge><StatusBadge>{flag.status}</StatusBadge><div className="table-actions"><button onClick={() => setEditing(flag)}>Edit</button><button disabled={pending} onClick={() => archive(flag)}>Archive</button></div></div>)}</div>}
+  </article>;
+}
+
 function RevampTab({ course }: { course: Course }) {
   const proposal = course.revampProposal;
   if (!proposal) {
@@ -1413,13 +1531,7 @@ function RevampTab({ course }: { course: Course }) {
   );
 }
 
-function LmsTab({
-  course,
-  onSimulateOutage,
-}: {
-  course: Course;
-  onSimulateOutage: () => void;
-}) {
+function LmsTab({ course }: { course: Course }) {
   const snapshot = course.lmsSnapshot;
   if (!snapshot) {
     return (
@@ -1468,29 +1580,18 @@ function LmsTab({
           ))}
         </div>
       </article>
-      <article className="panel outage-demo">
-        <div>
-          <AlertTriangle size={20} />
-          <span>
-            <strong>Retrieval safety demonstration</strong>
-            Simulate a provider outage to verify that the prior successful snapshot remains available.
-          </span>
-        </div>
-        <button className="button button-secondary" onClick={onSimulateOutage}>
-          Simulate outage
-        </button>
-      </article>
     </div>
   );
 }
 
 function ActivityTab({ course }: { course: Course }) {
-  const items = [
-    ["LMS snapshot retrieved", course.lastRetrievedAt ?? "2026-07-30", "Mock LMS"],
-    ["Internal metadata reviewed", "2026-07-22", "Sample metadata reviewer"],
-    ["Current version confirmed", course.versions.at(-1)?.publicationDate ?? "2026-07-01", "Jamie Patel"],
-    ["Course record created", course.originalPublishDate ?? "2025-01-15", "Sample generator"],
-  ];
+  const items = course.auditHistory.map((audit) => ({
+    id: audit.id,
+    title: audit.action,
+    date: audit.occurredAt,
+    actor: audit.actor,
+    detail: audit.reason,
+  }));
   return (
     <article className="panel">
       <div className="panel-heading">
@@ -1500,18 +1601,26 @@ function ActivityTab({ course }: { course: Course }) {
         </div>
         <History size={20} className="panel-icon" />
       </div>
-      <div className="timeline-list">
-        {items.map(([title, date, actor]) => (
-          <div key={title}>
+      {items.length === 0 ? (
+        <div className="empty-state compact-empty">
+          <History size={24} />
+          <h3>No recorded activity</h3>
+          <p>Audit entries will appear here after authorized changes.</p>
+        </div>
+      ) : (
+        <div className="timeline-list">
+        {items.map((item) => (
+          <div key={item.id}>
             <span className="timeline-marker"><History size={14} /></span>
             <div>
-              <strong>{title}</strong>
-              <p>{actor}</p>
-              <small>{date}</small>
+              <strong>{item.title}</strong>
+              <p>{item.detail ?? item.actor}</p>
+              <small>{item.actor} · {item.date}</small>
             </div>
           </div>
         ))}
-      </div>
+        </div>
+      )}
     </article>
   );
 }

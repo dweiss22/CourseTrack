@@ -24,7 +24,7 @@ in staging are disposable.
   long Auth ban. Supabase `createUser()` does not send an invitation email.
 - Production password hashes are never read or copied.
 - Audit history and Wrike operational caches are cleared. The staging-specific
-  `wrike_connection` row is preserved, but staging deployments must use mock or
+  `wrike_connection` row is preserved, but staging deployments must use disconnected or
   non-mutating integration settings.
 - Notes, proposal justifications, raw payloads, profile details, and actor
   emails are redacted or masked.
@@ -77,7 +77,7 @@ deliberate remasking is required.
 2. Confirm the staging superadmin Auth UUID matches production and add the
    email to `STAGING_TESTER_EMAILS`.
 3. Ensure staging Auth SMTP cannot deliver to production users and set Vercel
-   Preview integrations to mock/read-only credentials.
+   Keep integrations disconnected or use dedicated read-only staging credentials.
 4. Run **Refresh staging data** manually in GitHub Actions.
 5. Confirm the banner contains the refresh date, User Management shows the
    expected masked roster, and representative course counts match production.
@@ -96,7 +96,7 @@ SUPABASE_URL=<staging project URL>
 SUPABASE_SECRET_KEY=<staging secret key>
 NEXT_PUBLIC_SUPABASE_URL=<same staging project URL>
 NEXT_PUBLIC_SUPABASE_ANON_KEY=<staging publishable key>
-WRIKE_PROVIDER=mock
+WRIKE_PROVIDER=unconfigured
 ```
 
 Assign the `staging` branch a persistent `staging.<production-domain>` domain
