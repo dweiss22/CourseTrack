@@ -17,6 +17,7 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import type { AuthContext } from "@/lib/auth";
 import { APPLICATION_ROLES, type ApplicationRole } from "@/lib/roles";
@@ -1123,6 +1124,7 @@ export function UserManagementWorkspace({
   currentUserId: string;
   currentUserRole: ApplicationRole;
 }) {
+  const router = useRouter();
   const [users, setUsers] = useState(initialUsers);
   const [roleFilter, setRoleFilter] = useState<ApplicationRole | "">("");
   const [statusFilter, setStatusFilter] = useState<"active" | "disabled" | "">("");
@@ -1132,9 +1134,11 @@ export function UserManagementWorkspace({
   const [newRole, setNewRole] = useState<ApplicationRole>("content");
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState("");
+  const [transferTarget, setTransferTarget] = useState<ApplicationUserSummary | null>(null);
+  const [transferConfirmation, setTransferConfirmation] = useState("");
 
   const assignableRoles: ApplicationRole[] =
-    currentUserRole === "super_admin" ? [...APPLICATION_ROLES] : ["accreditation", "content"];
+    currentUserRole === "super_admin" ? ["admin", "accreditation", "content"] : ["accreditation", "content"];
 
   const canActOn = (target: ApplicationUserSummary): boolean => {
     if (target.id === currentUserId) return false;
@@ -1210,6 +1214,44 @@ export function UserManagementWorkspace({
     }
   };
 
+  const handleTransferSuperAdmin = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!transferTarget) return;
+    setPending(true);
+    setMessage("");
+    try {
+      const response = await fetch("/api/admin/users/transfer-superadmin", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          targetUserId: transferTarget.id,
+          confirmationEmail: transferConfirmation,
+        }),
+      });
+      const result = (await response.json()) as {
+        previousSuperAdmin?: ApplicationUserSummary;
+        newSuperAdmin?: ApplicationUserSummary;
+        message?: string;
+      };
+      if (!response.ok || !result.previousSuperAdmin || !result.newSuperAdmin) {
+        throw new Error(result.message ?? "Could not transfer superadmin authority.");
+      }
+      setUsers((previous) => previous.map((user) => {
+        if (user.id === result.previousSuperAdmin?.id) return result.previousSuperAdmin;
+        if (user.id === result.newSuperAdmin?.id) return result.newSuperAdmin;
+        return user;
+      }));
+      setMessage(result.message ?? "Superadmin authority transferred.");
+      setTransferTarget(null);
+      setTransferConfirmation("");
+      router.refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not transfer superadmin authority.");
+    } finally {
+      setPending(false);
+    }
+  };
+
   return (
     <WorkspaceFrame
       eyebrow="Administration"
@@ -1246,6 +1288,52 @@ export function UserManagementWorkspace({
             <button type="submit" className="button button-primary" disabled={pending || !email.trim() || !displayName.trim()}>
               Create user
             </button>
+          </form>
+        </section>
+      )}
+
+      {transferTarget && currentUserRole === "super_admin" && (
+        <section className="panel">
+          <div className="panel-heading">
+            <div>
+              <h2>Transfer superadmin authority</h2>
+              <p>
+                {transferTarget.displayName} will become the only superadmin. Your account will become an admin.
+              </p>
+            </div>
+          </div>
+          <form className="auth-form" onSubmit={handleTransferSuperAdmin}>
+            <label>
+              <span>Enter {transferTarget.email} to confirm</span>
+              <input
+                type="email"
+                value={transferConfirmation}
+                onChange={(event) => setTransferConfirmation(event.target.value)}
+                required
+                disabled={pending}
+                autoComplete="off"
+              />
+            </label>
+            <div className="button-row">
+              <button
+                type="submit"
+                className="button button-danger-ghost"
+                disabled={pending || transferConfirmation.trim().toLowerCase() !== transferTarget.email.toLowerCase()}
+              >
+                {pending ? "Transferring…" : "Transfer superadmin"}
+              </button>
+              <button
+                type="button"
+                className="button button-secondary"
+                disabled={pending}
+                onClick={() => {
+                  setTransferTarget(null);
+                  setTransferConfirmation("");
+                }}
+              >
+                Cancel
+              </button>
+            </div>
           </form>
         </section>
       )}
@@ -1302,9 +1390,14 @@ export function UserManagementWorkspace({
                       )}
                     </td>
                     <td>
-                      <StatusBadge tone={user.accountStatus === "active" ? "success" : "neutral"}>
-                        {user.accountStatus === "active" ? "Active" : "Disabled"}
-                      </StatusBadge>
+                      <div className="button-row">
+                        <StatusBadge tone={user.accountStatus === "active" ? "success" : "neutral"}>
+                          {user.accountStatus === "active" ? "Active" : "Disabled"}
+                        </StatusBadge>
+                        {user.invitationStatus === "pending" && (
+                          <StatusBadge tone="neutral">Invitation pending</StatusBadge>
+                        )}
+                      </div>
                     </td>
                     <td>
                       {editable ? (
@@ -1325,6 +1418,22 @@ export function UserManagementWorkspace({
                           >
                             Resend email
                           </button>
+                          {currentUserRole === "super_admin"
+                            && user.accountStatus === "active"
+                            && user.invitationStatus === "ready" && (
+                            <button
+                              type="button"
+                              className="button button-danger-ghost"
+                              disabled={pending}
+                              onClick={() => {
+                                setTransferTarget(user);
+                                setTransferConfirmation("");
+                                setMessage("");
+                              }}
+                            >
+                              Transfer superadmin
+                            </button>
+                          )}
                         </div>
                       ) : (
                         <span className="empty-hint">{user.id === currentUserId ? "This is you" : "Not permitted"}</span>

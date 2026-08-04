@@ -83,6 +83,7 @@ test("every Wrike and course API route checks the real authenticated role, not a
     "app/api/admin/users/route.ts",
     "app/api/admin/users/[id]/route.ts",
     "app/api/admin/users/[id]/resend/route.ts",
+    "app/api/admin/users/transfer-superadmin/route.ts",
     "app/api/profile/route.ts",
     "app/api/wrike/tasks/route.ts",
     "app/api/wrike/synced-tasks/route.ts",
@@ -92,4 +93,16 @@ test("every Wrike and course API route checks the real authenticated role, not a
     assert.match(source, /require(Api\w+)/, `${routeFiles[index]} should call a lib/auth.ts guard`);
     assert.doesNotMatch(source, /getChatGPTUser|demoUser/i, `${routeFiles[index]} must not reference the retired fake-auth path`);
   }
+});
+
+test("login verifies application membership after Supabase accepts the password", async () => {
+  const login = await readFile(new URL("components/auth/login-form.tsx", root), "utf8");
+  const access = await readFile(new URL("app/api/auth/access/route.ts", root), "utf8");
+  assert.match(login, /signInWithPassword/);
+  assert.match(login, /fetch\("\/api\/auth\/access"/);
+  assert.match(login, /supabase\.auth\.signOut\(\)/);
+  assert.match(access, /membership_missing/);
+  assert.match(access, /account_disabled/);
+  assert.match(access, /auth_schema_not_ready/);
+  assert.match(access, /landingPathForRole/);
 });

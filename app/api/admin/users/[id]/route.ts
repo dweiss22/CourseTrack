@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { APPLICATION_ROLES, requireApiAdmin } from "@/lib/auth";
+import { requireApiAdmin } from "@/lib/auth";
 import { changeUserRole } from "@/db";
 
 const updateSchema = z
   .object({
-    role: z.enum(APPLICATION_ROLES).optional(),
+    role: z.enum(["admin", "accreditation", "content"]).optional(),
     status: z.enum(["active", "disabled"]).optional(),
   })
   .refine((value) => Boolean(value.role) || Boolean(value.status), {

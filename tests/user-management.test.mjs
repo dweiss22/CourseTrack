@@ -10,12 +10,13 @@ const root = new URL("../", import.meta.url);
 // tests/auth-guards.test.mjs) -- verified via static contract checks
 // instead, same as the rest of this repo's server-side test suite.
 
-test("admins may only assign the accreditation or content role, never super_admin or admin", async () => {
+test("ordinary user creation never assigns super_admin, while admins remain limited to basic roles", async () => {
   const source = await readFile(new URL("db/user-repository.ts", root), "utf8");
   const start = source.indexOf("function assertActorCanAssignRole");
   const end = source.indexOf("\n}", start);
   const body = source.slice(start, end);
-  assert.match(body, /actorRole === "super_admin"/);
+  assert.match(body, /targetRole === "super_admin"/);
+  assert.match(body, /protected transfer workflow/i);
   assert.match(body, /targetRole === "accreditation" \|\| targetRole === "content"/);
   assert.match(body, /throw new Error/);
 });
@@ -35,19 +36,17 @@ test("admins cannot modify a super_admin or another admin", async () => {
   const end = source.indexOf("\nexport async function resendUserRecoveryEmail", start);
   const body = source.slice(start, end);
   assert.match(body, /actorRole === "admin"/);
-  assert.match(body, /currentRole === "super_admin" \|\| currentRole === "admin"/);
+  assert.match(body, /currentRole === "super_admin" \|\| input\.newRole === "super_admin"/);
+  assert.match(body, /currentRole === "admin"/);
 });
 
-test("the last active super_admin cannot be demoted, disabled, or removed (app-layer check)", async () => {
+test("the super_admin holder can only change through the protected transfer workflow", async () => {
   const source = await readFile(new URL("db/user-repository.ts", root), "utf8");
   const start = source.indexOf("export async function changeUserRoleOrStatus");
   const end = source.indexOf("\nexport async function resendUserRecoveryEmail", start);
   const body = source.slice(start, end);
-  assert.match(body, /wouldRemoveSuperAdmin/);
-  assert.match(body, /eq\("role", "super_admin"\)/);
-  assert.match(body, /eq\("account_status", "active"\)/);
-  assert.match(body, /neq\("id", input\.targetId\)/);
-  assert.match(body, /last active super_admin/i);
+  assert.match(body, /currentRole === "super_admin" \|\| input\.newRole === "super_admin"/);
+  assert.match(body, /protected transfer workflow/i);
 });
 
 test("createApplicationUserMembership normalizes email and validates role assignability before creating the Auth identity", async () => {
@@ -68,15 +67,19 @@ test("resending a setup/reset email never creates a new user, only re-triggers S
   assert.doesNotMatch(body, /inviteUserByEmail|createUser\(/);
 });
 
-test("the migration protects the last active super_admin at the database boundary regardless of caller", async () => {
+test("the database permits one super_admin and exposes only an atomic service-role transfer", async () => {
   const migration = await readFile(
-    new URL("supabase/migrations/202608040002_role_based_auth.sql", root),
+    new URL("supabase/migrations/202608040003_single_super_admin_transfer.sql", root),
     "utf8",
   );
   assert.match(migration, /protect_profile_role_changes/);
-  assert.match(migration, /auth\.uid\(\) is not null and auth\.uid\(\) = old\.id/);
-  assert.match(migration, /Cannot remove, disable, or demote the last active super_admin/i);
-  assert.match(migration, /before update on public\.profiles/);
+  assert.match(migration, /profiles_single_super_admin_idx/);
+  assert.match(migration, /create or replace function public\.transfer_super_admin/);
+  assert.match(migration, /pg_advisory_xact_lock/);
+  assert.match(migration, /email_confirmed_at, last_sign_in_at/);
+  assert.match(migration, /before update or delete on public\.profiles/);
+  assert.match(migration, /grant execute on function public\.transfer_super_admin\(uuid, uuid\) to service_role/);
+  assert.match(migration, /super_admin\.transferred/);
 });
 
 test("the migration replaces the additive 6-role scaffold with the exclusive 4-role model", async () => {
@@ -94,6 +97,28 @@ test("the migration replaces the additive 6-role scaffold with the exclusive 4-r
   // every existing RLS policy elsewhere in the schema keeps working.
   assert.match(migration, /create or replace function public\.has_permission\(required_permission text\)/);
   assert.match(migration, /create or replace function public\.has_permission_for_email\(p_email text, p_permission text\)/);
+  assert.match(migration, /when email = 'coursetrack-import@system\.local' then 'disabled'/);
+  assert.doesNotMatch(migration, /role = coalesce\(role, 'super_admin'\)/);
+});
+
+test("the seed identity stays disabled and cannot become an administrator", async () => {
+  const source = await readFile(new URL("scripts/seed-supabase.mjs", root), "utf8");
+  const start = source.indexOf("async function ensureSystemProfile");
+  const end = source.indexOf("\nasync function loadVerticalIds", start);
+  const body = source.slice(start, end);
+  assert.match(body, /role: "content"/);
+  assert.match(body, /account_status: "disabled"/);
+});
+
+test("superadmin transfer is a dedicated, superadmin-only API", async () => {
+  const source = await readFile(
+    new URL("app/api/admin/users/transfer-superadmin/route.ts", root),
+    "utf8",
+  );
+  assert.match(source, /requireApiSuperAdmin/);
+  assert.match(source, /targetUserId/);
+  assert.match(source, /confirmationEmail/);
+  assert.match(source, /transferSuperAdminRole/);
 });
 
 test("public signup is not part of the user-provisioning path -- only admin/super_admin-initiated creation", async () => {

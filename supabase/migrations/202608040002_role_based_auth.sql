@@ -15,13 +15,20 @@ alter table public.profiles
   add column if not exists account_status text,
   add column if not exists created_by uuid references public.profiles(id);
 
--- Defensive backfill: this table is expected to be empty (no real login has
--- ever run), but if a row somehow exists, preserve maximum access rather
--- than silently locking someone out.
+-- Conservative backfill. Legacy rows are memberships, but none was ever an
+-- intentionally assigned application administrator. In particular, the seed
+-- identity must never become a human login or an administrator.
 update public.profiles
 set
-  role = coalesce(role, 'super_admin'),
-  account_status = coalesce(account_status, case when active then 'active' else 'disabled' end)
+  role = coalesce(role, 'content'),
+  account_status = coalesce(
+    account_status,
+    case
+      when email = 'coursetrack-import@system.local' then 'disabled'
+      when active then 'active'
+      else 'disabled'
+    end
+  )
 where role is null or account_status is null;
 
 alter table public.profiles
