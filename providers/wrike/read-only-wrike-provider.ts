@@ -6,7 +6,7 @@ import type {
 } from "./wrike-types";
 
 /**
- * Wrike is a read-only work-reference source for CourseTrack versions.
+ * Wrike is a read-only Task Link source for CourseTrack versions.
  * Linking a task changes CourseTrack only; no Wrike mutation methods belong here.
  */
 export interface ReadOnlyWrikeProvider {

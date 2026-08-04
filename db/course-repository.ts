@@ -22,6 +22,7 @@ import type {
 } from "@/types/course";
 import { verticals } from "@/types/course";
 import { assessAccreditationHistory } from "@/lib/accreditation-grouping";
+import { calculateCourseHealth, calculateMetadataCompleteness } from "@/lib/health";
 
 const PAGE_SIZE = 1000;
 const SLUG_TO_VERTICAL: Record<string, Vertical> = Object.fromEntries(
@@ -105,6 +106,7 @@ async function fetchGraph(client: SupabaseClient, courseAppId?: string): Promise
     courseTagRows,
     relationshipRows,
     auditLogRows,
+    profileRows,
   ] = await Promise.all([
     fetchAllRows(client, "verticals", "id,slug"),
     fetchAllRows(client, "lms_retrieval_runs", "id,external_run_id"),
@@ -124,7 +126,7 @@ async function fetchGraph(client: SupabaseClient, courseAppId?: string): Promise
     fetchAllRows(
       client,
       "version_wrike_task_references",
-      "id,course_version_id,external_task_id,task_title,external_project_id,project_title,task_status,assignee_names,due_date,permalink,provider_name,retrieved_at,linked_by_email,linked_at,link_method,last_verified_at",
+      "id,course_version_id,external_task_id,task_title,external_project_id,project_title,task_status,assignee_names,due_date,permalink,provider_name,retrieved_at,linked_by_email,linked_at,link_method,last_verified_at,updated_at",
       (query) => query.is("unlinked_at", null),
     ),
     fetchAllRows(
@@ -136,8 +138,8 @@ async function fetchGraph(client: SupabaseClient, courseAppId?: string): Promise
     fetchAllRows(
       client,
       "course_flags",
-      "id,course_id,type,title,priority,status,owner_id,due_date,provenance,updated_at,archived_at",
-      (query) => byCourse(query).is("archived_at", null),
+      "id,course_id,record_kind,type,title,description,priority,status,owner_id,due_date,completion_notes,completed_by,completed_at,resolved_by,resolved_at,created_by,created_at,updated_by,updated_at,provenance,archived_at",
+      byCourse,
     ),
     fetchAllRows(client, "notes", "id,course_id,note_type,author_id,visibility,body,created_at,updated_at,provenance,archived_at", (query) => byCourse(query).is("archived_at", null)),
     fetchAllRows(
@@ -156,7 +158,7 @@ async function fetchGraph(client: SupabaseClient, courseAppId?: string): Promise
     fetchAllRows(
       client,
       "field_comparisons",
-      "course_id,field_key,field_label,lms_raw_value,lms_normalized_value,content_metadata_raw_value,content_metadata_normalized_value,resolved_value,selected_source,comparison_status,resolution_reason,resolved_by_email,resolved_at,last_compared_at",
+      "course_id,field_key,field_label,lms_raw_value,lms_normalized_value,content_metadata_raw_value,content_metadata_normalized_value,resolved_value,selected_source,comparison_status,resolution_reason,resolved_by_email,resolved_at,last_compared_at,updated_at",
       byCourse,
     ),
     fetchAllRows(
@@ -180,6 +182,7 @@ async function fetchGraph(client: SupabaseClient, courseAppId?: string): Promise
     fetchAllRows(client, "audit_logs", "id,record_id,record_type,action,actor_email,reason,created_at", (query) =>
       query.in("record_type", ["course", "field_comparison"]),
     ),
+    fetchAllRows(client, "profiles", "id,display_name,email"),
   ]);
 
   const verticalById = new Map(verticalRows.map((row) => [row.id as string, row.slug as string]));
@@ -188,6 +191,7 @@ async function fetchGraph(client: SupabaseClient, courseAppId?: string): Promise
   );
   const courseTitleByDbId = new Map(courseRows.map((row) => [row.id as string, row.title as string]));
   const courseAppIdByDbId = new Map(courseRows.map((row) => [row.id as string, row.app_id as string]));
+  const profileById = new Map(profileRows.map((row) => [row.id as string, row]));
 
   const secondaryVerticalsByCourse = groupBy(courseVerticalRows, "course_id");
   const versionsByCourse = groupBy(versionRows, "course_id");
@@ -230,6 +234,7 @@ async function fetchGraph(client: SupabaseClient, courseAppId?: string): Promise
     tagAssignmentsByCourse,
     relationshipsByCourse,
     auditLogsByAppId,
+    profileById,
   }));
 }
 
@@ -264,6 +269,44 @@ interface GraphMaps {
   tagAssignmentsByCourse: Map<string, Row[]>;
   relationshipsByCourse: Map<string, Row[]>;
   auditLogsByAppId: Map<string, Row[]>;
+  profileById: Map<string, Row>;
+}
+
+function taskCalloutActor(profileById: Map<string, Row>, id: unknown): CourseFlag["assignee"] {
+  if (!id) return null;
+  const profile = profileById.get(String(id));
+  if (!profile) return null;
+  return {
+    id: String(profile.id),
+    displayName: String(profile.display_name ?? profile.email ?? "Unknown user"),
+    email: String(profile.email ?? ""),
+  };
+}
+
+function buildTaskCallout(row: Row, profileById: Map<string, Row>): CourseFlag {
+  return {
+    id: String(row.id),
+    recordKind: row.record_kind === "Task" ? "Task" : "Callout",
+    category: String(row.type ?? "General"),
+    title: String(row.title ?? ""),
+    description: String(row.description ?? ""),
+    priority: row.priority as CourseFlag["priority"],
+    status: row.status as CourseFlag["status"],
+    assignee: taskCalloutActor(profileById, row.owner_id),
+    assigneeId: row.owner_id ? String(row.owner_id) : null,
+    dueDate: row.due_date ? String(row.due_date) : null,
+    completionNotes: row.completion_notes ? String(row.completion_notes) : null,
+    completedBy: taskCalloutActor(profileById, row.completed_by),
+    completedAt: row.completed_at ? String(row.completed_at) : null,
+    resolvedBy: taskCalloutActor(profileById, row.resolved_by),
+    resolvedAt: row.resolved_at ? String(row.resolved_at) : null,
+    createdBy: taskCalloutActor(profileById, row.created_by),
+    createdAt: String(row.created_at ?? row.updated_at ?? ""),
+    updatedBy: taskCalloutActor(profileById, row.updated_by),
+    updatedAt: String(row.updated_at ?? row.created_at ?? ""),
+    archivedAt: row.archived_at ? String(row.archived_at) : null,
+    provenance: toProvenance(row.provenance),
+  };
 }
 
 function buildCourseFromRows(row: Row, maps: GraphMaps): Course {
@@ -298,18 +341,9 @@ function buildCourseFromRows(row: Row, maps: GraphMaps): Course {
     }),
   );
 
-  const flags: CourseFlag[] = (maps.flagsByCourse.get(courseDbId) ?? []).map((flag) => ({
-    id: flag.id as string,
-    type: flag.type as string,
-    title: flag.title as string,
-    priority: flag.priority as CourseFlag["priority"],
-    status: flag.status as CourseFlag["status"],
-    owner: (flag.owner_id as string) ?? null,
-    dueDate: (flag.due_date as string) ?? null,
-    updatedAt: (flag.updated_at as string) ?? undefined,
-    archivedAt: (flag.archived_at as string) ?? null,
-    provenance: toProvenance(flag.provenance),
-  }));
+  const flags: CourseFlag[] = (maps.flagsByCourse.get(courseDbId) ?? []).map((flag) =>
+    buildTaskCallout(flag, maps.profileById),
+  );
 
   const notes: CourseNote[] = (maps.notesByCourse.get(courseDbId) ?? []).map((note) => ({
     id: note.id as string,
@@ -416,6 +450,7 @@ function buildCourseFromRows(row: Row, maps: GraphMaps): Course {
       resolvedBy: (comparison.resolved_by_email as string) ?? null,
       resolvedAt: (comparison.resolved_at as string) ?? null,
       lastComparedAt: comparison.last_compared_at as string,
+      updatedAt: comparison.updated_at as string,
     }),
   );
 
@@ -480,6 +515,12 @@ function buildCourseFromRows(row: Row, maps: GraphMaps): Course {
       .filter((value): value is string => Boolean(value))
       .sort()[0] ?? null;
   const currentVersion = versions.find((version) => version.isCurrent)?.versionNumber ?? (row.current_version as string) ?? "1.0";
+  const health = calculateCourseHealth({
+    metadataCompletenessScore: calculateMetadataCompleteness(contentMetadata),
+    unresolvedConflictCount: conflictCount,
+    importValidationErrorCount: ((row.import_validation_errors as string[]) ?? []).length,
+    hasCurrentLmsSnapshot: Boolean(lmsSnapshot),
+  });
 
   const importHistory: SourceHistoryRecord[] = [
     {
@@ -554,9 +595,9 @@ function buildCourseFromRows(row: Row, maps: GraphMaps): Course {
     nextReviewDate: (row.next_review_date as string) ?? null,
     accreditationStatus,
     nearestAccreditationExpiration,
-    healthStatus: row.health_status as Course["healthStatus"],
-    healthScore: Number(row.health_score),
-    metadataCompletenessScore: Number(row.metadata_completeness_score),
+    healthStatus: health.status,
+    healthScore: health.score,
+    metadataCompletenessScore: calculateMetadataCompleteness(contentMetadata),
     dataSource: toProvenance(row.provenance ?? row.data_source),
     fieldProvenance: (row.field_provenance as Record<string, Provenance>) ?? {},
     sourceSystem: row.source_system as string,
@@ -616,9 +657,9 @@ function buildVersion(row: Row, wrikeRefsByVersion: Map<string, Row[]>): CourseV
       retrievedAt: ref.retrieved_at as string,
       linkedAt: ref.linked_at as string,
       linkedBy: (ref.linked_by_email as string) ?? "",
-      isSample: ref.provider_name !== "Live Wrike",
       linkMethod: (ref.link_method as VersionWrikeTaskReference["linkMethod"]) ?? null,
       lastVerifiedAt: (ref.last_verified_at as string) ?? null,
+      updatedAt: String(ref.updated_at ?? ref.linked_at ?? ""),
     }),
   );
   return {
@@ -730,9 +771,9 @@ export async function fetchPortfolioSummaries(client: SupabaseClient): Promise<P
       "courses",
       "id,app_id,title,short_title,course_code,lms_course_id,description,primary_vertical_id,management_classification,reconciliation_status,retrieval_status,last_retrieved_at,health_status,lifecycle_status,primary_topic,owner_name,duration_minutes,data_source,next_review_date,metadata_completeness_score,import_validation_errors",
     ),
-    fetchAllRows(client, "course_flags", "course_id"),
+    fetchAllRows(client, "course_flags", "course_id", (query) => query.is("archived_at", null)),
     fetchAllRows(client, "lms_snapshots", "course_id", (query) => query.eq("is_current", true)),
-    fetchAllRows(client, "content_metadata_records", "course_id"),
+    fetchAllRows(client, "content_metadata_records", "course_id,normalized_payload"),
     fetchAllRows(
       client,
       "field_comparisons",
@@ -756,6 +797,7 @@ export async function fetchPortfolioSummaries(client: SupabaseClient): Promise<P
   const conflictCounts = countByCourse(conflictRows);
   const snapshotCourseIds = new Set(snapshotRows.map((row) => row.course_id as string));
   const metadataCourseIds = new Set(metadataRows.map((row) => row.course_id as string));
+  const metadataByCourse = new Map(metadataRows.map((row) => [row.course_id as string, row.normalized_payload as ContentMetadataRecord]));
   const topicsByCourse = new Map<string, { topic: string }[]>();
   for (const row of topicRows) {
     const courseId = row.course_id as string;
@@ -790,7 +832,12 @@ export async function fetchPortfolioSummaries(client: SupabaseClient): Promise<P
       reconciliationStatus: row.reconciliation_status as Course["reconciliationStatus"],
       retrievalStatus: row.retrieval_status as Course["retrievalStatus"],
       lastRetrievedAt: (row.last_retrieved_at as string) ?? null,
-      healthStatus: row.health_status as Course["healthStatus"],
+      healthStatus: calculateCourseHealth({
+        metadataCompletenessScore: calculateMetadataCompleteness(metadataByCourse.get(courseDbId)),
+        unresolvedConflictCount: conflictCounts.get(courseDbId) ?? 0,
+        importValidationErrorCount: ((row.import_validation_errors as string[]) ?? []).length,
+        hasCurrentLmsSnapshot: snapshotCourseIds.has(courseDbId),
+      }).status,
       lifecycleStatus: row.lifecycle_status as Course["lifecycleStatus"],
       primaryTopic: row.primary_topic as string,
       tags: tagsByCourse.get(courseDbId) ?? [],
@@ -798,7 +845,7 @@ export async function fetchPortfolioSummaries(client: SupabaseClient): Promise<P
       durationMinutes: Number(row.duration_minutes ?? 0),
       dataSource: row.data_source as Course["dataSource"],
       nextReviewDate: (row.next_review_date as string) ?? null,
-      metadataCompletenessScore: Number(row.metadata_completeness_score),
+      metadataCompletenessScore: calculateMetadataCompleteness(metadataByCourse.get(courseDbId)),
       conflictCount: conflictCounts.get(courseDbId) ?? 0,
       flagCount: flagCounts.get(courseDbId) ?? 0,
       hasLmsSnapshot: snapshotCourseIds.has(courseDbId),
@@ -865,7 +912,7 @@ export async function fetchVersionBoard(client: SupabaseClient): Promise<Version
     fetchAllRows(
       client,
       "version_wrike_task_references",
-      "id,course_version_id,external_task_id,task_title,external_project_id,project_title,task_status,assignee_names,due_date,permalink,provider_name,retrieved_at,linked_by_email,linked_at,link_method,last_verified_at",
+      "id,course_version_id,external_task_id,task_title,external_project_id,project_title,task_status,assignee_names,due_date,permalink,provider_name,retrieved_at,linked_by_email,linked_at,link_method,last_verified_at,updated_at",
       (query) => query.is("unlinked_at", null),
     ),
   ]);
@@ -937,30 +984,22 @@ export interface FlagBoardEntry {
 }
 
 export async function fetchFlagBoard(client: SupabaseClient): Promise<FlagBoardEntry[]> {
-  const rows = await fetchAllRows(
-    client,
-    "course_flags",
-    "id,type,title,priority,status,owner_id,due_date,provenance,updated_at,archived_at,courses(app_id,title,course_code)",
-    (query) => query.is("archived_at", null),
-  );
+  const [rows, profileRows] = await Promise.all([
+    fetchAllRows(
+      client,
+      "course_flags",
+      "id,record_kind,type,title,description,priority,status,owner_id,due_date,completion_notes,completed_by,completed_at,resolved_by,resolved_at,created_by,created_at,updated_by,updated_at,provenance,archived_at,courses(app_id,title,course_code)",
+    ),
+    fetchAllRows(client, "profiles", "id,display_name,email"),
+  ]);
+  const profileById = new Map(profileRows.map((row) => [String(row.id), row]));
   return rows
     .filter((row) => row.courses)
     .map((row) => {
       const course = row.courses as { app_id: string; title: string; course_code: string };
       return {
         course: { courseId: course.app_id, courseTitle: course.title, courseCode: course.course_code },
-        flag: {
-          id: row.id as string,
-          type: row.type as string,
-          title: row.title as string,
-          priority: row.priority as CourseFlag["priority"],
-          status: row.status as CourseFlag["status"],
-          owner: (row.owner_id as string) ?? null,
-          dueDate: (row.due_date as string) ?? null,
-          updatedAt: (row.updated_at as string) ?? undefined,
-          archivedAt: (row.archived_at as string) ?? null,
-          provenance: toProvenance(row.provenance),
-        },
+        flag: buildTaskCallout(row, profileById),
       };
     });
 }
@@ -1004,7 +1043,9 @@ export async function fetchReportMetrics(
     countDistinctCourseIds("accreditation_records", (query) => query.not("expiration_date", "is", null).is("archived_at", null)),
     count((query) => query.lte("next_review_date", reviewDueBy)),
     countDistinctCourseIds("revamp_proposals", (query) => query.is("archived_at", null)),
-    fetchAllRows(client, "course_flags", "id", (query) => query.is("archived_at", null).neq("status", "Resolved")).then((rows) => rows.length),
+    fetchAllRows(client, "course_flags", "id", (query) =>
+      query.is("archived_at", null).not("status", "in", '("Completed","Resolved")'),
+    ).then((rows) => rows.length),
     count((query) => query.lt("metadata_completeness_score", 80)),
     count((query) => query.neq("retrieval_status", "Retrieved")),
   ]);

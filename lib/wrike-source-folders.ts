@@ -1,7 +1,7 @@
 /**
  * Approved top-level Wrike folders CourseTrack is allowed to read tasks
  * from. This list is intentionally code-defined (not runtime-editable) —
- * adding a folder requires a code change and a migration seed update.
+ * adding a folder requires a code change and an approved-folder migration update.
  * Do not query any folder outside this list (no "DO NOT USE" folders, no
  * JIRA Tickets, no Blueprints).
  */

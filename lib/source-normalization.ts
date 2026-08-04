@@ -1,3 +1,6 @@
+import { calculateMetadataCompleteness as calculateCanonicalMetadataCompleteness, REQUIRED_HEALTH_METADATA_KEYS } from "@/lib/health";
+import { UPLOADED_MAPPING_REGISTRY } from "@/lib/integration-mappings";
+
 export const LMS_SOURCE_HEADERS = [
   "Course ID",
   "Course Type",
@@ -68,16 +71,8 @@ export const DEFAULT_LMS_SITE_ALIASES: Record<string, string> = {
   firerescue1_academy: "FR1A",
 };
 
-export const DEFAULT_REQUIRED_METADATA_FIELDS = [
-  "lmsCourseId",
-  "courseName",
-  "contentType",
-  "durationMinutes",
-  "published",
-  "description",
-  "verticals",
-  "frontendLink",
-] as const;
+export const DEFAULT_REQUIRED_METADATA_FIELDS = REQUIRED_HEALTH_METADATA_KEYS;
+export const REQUIRED_CONTENT_METADATA_MAPPINGS = UPLOADED_MAPPING_REGISTRY.filter((mapping) => mapping.required);
 
 const LMS_ALIASES = {
   courseId: ["Course ID", "Course Id", "LMS Course ID", "LMS ID"],
@@ -161,6 +156,7 @@ export interface ParsedFieldComparison {
   resolvedBy: string | null;
   resolvedAt: string | null;
   lastComparedAt: string;
+  updatedAt: string;
 }
 
 function cleanHeader(value: string): string {
@@ -529,6 +525,9 @@ export function parseContentMetadataRow(
   const warnings: string[] = [];
   const courseId = normalizeCourseId(sourceValue(row, CONTENT_ALIASES.courseId));
   if (courseId.error) errors.push(courseId.error);
+  for (const mapping of REQUIRED_CONTENT_METADATA_MAPPINGS) {
+    if (mapping.target === "courseName" && isBlank(sourceValue(row, CONTENT_ALIASES.courseName))) errors.push(`${mapping.source} is required.`);
+  }
   const duration = normalizeMinuteDuration(sourceValue(row, CONTENT_ALIASES.durationMinutes));
   if (duration.error) errors.push(duration.error);
   const published = normalizeBoolean(sourceValue(row, CONTENT_ALIASES.published));
@@ -774,16 +773,16 @@ export function reconcileCourseSources(
     const metadataMissing = isBlank(metadataValue) || (typeof metadataValue === "object" && comparable(metadataValue) === comparable({ rawDisplay: null, amount: null, unit: null }));
     const previous = previousComparisons.find((comparison) => comparison.fieldKey === field.key);
     if (lmsMissing && metadataMissing) {
-      return { fieldKey: field.key, fieldLabel: field.label, lmsRawValue: lmsRaw, lmsNormalizedValue: lmsValue, contentMetadataRawValue: metadataRaw, contentMetadataNormalizedValue: metadataValue, resolvedValue: null, selectedSource: null, comparisonStatus: "Missing from both", resolutionReason: null, resolvedBy: null, resolvedAt: null, lastComparedAt: comparedAt };
+      return { fieldKey: field.key, fieldLabel: field.label, lmsRawValue: lmsRaw, lmsNormalizedValue: lmsValue, contentMetadataRawValue: metadataRaw, contentMetadataNormalizedValue: metadataValue, resolvedValue: null, selectedSource: null, comparisonStatus: "Missing from both", resolutionReason: null, resolvedBy: null, resolvedAt: null, lastComparedAt: comparedAt, updatedAt: comparedAt };
     }
     if (metadataMissing) {
-      return { fieldKey: field.key, fieldLabel: field.label, lmsRawValue: lmsRaw, lmsNormalizedValue: lmsValue, contentMetadataRawValue: metadataRaw, contentMetadataNormalizedValue: metadataValue, resolvedValue: lmsValue, selectedSource: "lms", comparisonStatus: "LMS only", resolutionReason: "Only LMS supplied a value.", resolvedBy: null, resolvedAt: null, lastComparedAt: comparedAt };
+      return { fieldKey: field.key, fieldLabel: field.label, lmsRawValue: lmsRaw, lmsNormalizedValue: lmsValue, contentMetadataRawValue: metadataRaw, contentMetadataNormalizedValue: metadataValue, resolvedValue: lmsValue, selectedSource: "lms", comparisonStatus: "LMS only", resolutionReason: "Only LMS supplied a value.", resolvedBy: null, resolvedAt: null, lastComparedAt: comparedAt, updatedAt: comparedAt };
     }
     if (lmsMissing) {
-      return { fieldKey: field.key, fieldLabel: field.label, lmsRawValue: lmsRaw, lmsNormalizedValue: lmsValue, contentMetadataRawValue: metadataRaw, contentMetadataNormalizedValue: metadataValue, resolvedValue: metadataValue, selectedSource: "content_metadata", comparisonStatus: "Content Metadata only", resolutionReason: "Only Content Metadata supplied a value.", resolvedBy: null, resolvedAt: null, lastComparedAt: comparedAt };
+      return { fieldKey: field.key, fieldLabel: field.label, lmsRawValue: lmsRaw, lmsNormalizedValue: lmsValue, contentMetadataRawValue: metadataRaw, contentMetadataNormalizedValue: metadataValue, resolvedValue: metadataValue, selectedSource: "content_metadata", comparisonStatus: "Content Metadata only", resolutionReason: "Only Content Metadata supplied a value.", resolvedBy: null, resolvedAt: null, lastComparedAt: comparedAt, updatedAt: comparedAt };
     }
     if (comparable(lmsValue) === comparable(metadataValue)) {
-      return { fieldKey: field.key, fieldLabel: field.label, lmsRawValue: lmsRaw, lmsNormalizedValue: lmsValue, contentMetadataRawValue: metadataRaw, contentMetadataNormalizedValue: metadataValue, resolvedValue: lmsValue, selectedSource: "lms", comparisonStatus: "Match", resolutionReason: "Normalized source values agree.", resolvedBy: null, resolvedAt: null, lastComparedAt: comparedAt };
+      return { fieldKey: field.key, fieldLabel: field.label, lmsRawValue: lmsRaw, lmsNormalizedValue: lmsValue, contentMetadataRawValue: metadataRaw, contentMetadataNormalizedValue: metadataValue, resolvedValue: lmsValue, selectedSource: "lms", comparisonStatus: "Match", resolutionReason: "Normalized source values agree.", resolvedBy: null, resolvedAt: null, lastComparedAt: comparedAt, updatedAt: comparedAt };
     }
     const preserve = previous?.comparisonStatus === "Conflict" && previous.selectedSource;
     return {
@@ -800,6 +799,7 @@ export function reconcileCourseSources(
       resolvedBy: preserve ? previous.resolvedBy : null,
       resolvedAt: preserve ? previous.resolvedAt : null,
       lastComparedAt: comparedAt,
+      updatedAt: previous?.updatedAt ?? comparedAt,
     };
   });
 }
@@ -844,6 +844,9 @@ export function calculateMetadataCompleteness(
   requiredFields: readonly string[] = DEFAULT_REQUIRED_METADATA_FIELDS,
 ): number {
   if (!record || requiredFields.length === 0) return 0;
+  if (requiredFields.length === DEFAULT_REQUIRED_METADATA_FIELDS.length && requiredFields.every((field, index) => field === DEFAULT_REQUIRED_METADATA_FIELDS[index])) {
+    return calculateCanonicalMetadataCompleteness(record);
+  }
   const present = requiredFields.filter((field) => {
     const value = record[field as keyof typeof record];
     return Array.isArray(value) ? value.length > 0 : !isBlank(value);

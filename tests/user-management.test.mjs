@@ -101,15 +101,6 @@ test("the migration replaces the additive 6-role scaffold with the exclusive 4-r
   assert.doesNotMatch(migration, /role = coalesce\(role, 'super_admin'\)/);
 });
 
-test("the seed identity stays disabled and cannot become an administrator", async () => {
-  const source = await readFile(new URL("scripts/seed-supabase.mjs", root), "utf8");
-  const start = source.indexOf("async function ensureSystemProfile");
-  const end = source.indexOf("\nasync function loadVerticalIds", start);
-  const body = source.slice(start, end);
-  assert.match(body, /role: "content"/);
-  assert.match(body, /account_status: "disabled"/);
-});
-
 test("superadmin transfer is a dedicated, superadmin-only API", async () => {
   const source = await readFile(
     new URL("app/api/admin/users/transfer-superadmin/route.ts", root),

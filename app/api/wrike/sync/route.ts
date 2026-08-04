@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { triggerWrikeSync } from "@/db";
 import { getWrikeSyncCronSecret } from "@/lib/wrike-env";
 import { requireApiAdmin } from "@/lib/auth";
+import { apiError } from "@/lib/api-response";
 
 function isAuthorizedCronCaller(request: Request): boolean {
   const secret = getWrikeSyncCronSecret();
@@ -13,20 +14,20 @@ function isAuthorizedCronCaller(request: Request): boolean {
 export async function POST(request: Request) {
   const isCron = isAuthorizedCronCaller(request);
   let triggeredBy = "scheduled";
+  let actorId: string | null = null;
 
   if (!isCron) {
     const actor = await requireApiAdmin();
     if ("error" in actor) return actor.error;
     triggeredBy = `manual:${actor.context.email}`;
+    actorId = actor.context.userId;
   }
 
   try {
-    const run = await triggerWrikeSync(triggeredBy);
-    return NextResponse.json({ run });
+    const run = await triggerWrikeSync(triggeredBy, actorId);
+    return NextResponse.json({ run, message: "Wrike synchronization completed." });
   } catch (error) {
-    return NextResponse.json(
-      { message: error instanceof Error ? error.message : "The Wrike sync could not run." },
-      { status: 502 },
-    );
+    const response = apiError(error);
+    return response.status === 500 ? NextResponse.json({ code: "service_unavailable", message: "The Wrike synchronization could not run." }, { status: 503 }) : response;
   }
 }

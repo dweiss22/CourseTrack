@@ -13,7 +13,7 @@ alter table public.version_wrike_task_references
   check (link_method is null or link_method in ('manual_permalink', 'selected_candidate'));
 
 -- Scoped to Live Wrike only: sample/mock fixtures deliberately reuse a small
--- fixed set of task ids across many courses (see lib/sample-wrike-data.ts)
+-- fixed set of task ids across many courses
 -- and are not subject to the "one real Wrike task, one version" invariant.
 create unique index if not exists version_wrike_task_one_active_per_version_idx
   on public.version_wrike_task_references(course_version_id)

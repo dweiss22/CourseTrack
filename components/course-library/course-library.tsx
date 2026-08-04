@@ -24,8 +24,14 @@ import {
   type SortingState,
   useReactTable,
 } from "@tanstack/react-table";
-import { type FormEvent, useMemo, useState } from "react";
+import { type FormEvent, type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { Course, ManagementClassification } from "@/types/course";
+import {
+  courseLibraryOptionalColumns,
+  DEFAULT_COURSE_LIBRARY_PREFERENCES,
+  type CourseLibraryOptionalColumn,
+  type CourseLibraryPreferences,
+} from "@/types/preferences";
 import { provenanceLabels } from "@/types/course";
 import {
   getVerticalLabel,
@@ -33,6 +39,7 @@ import {
   verticals,
 } from "@/types/course";
 import { StatusBadge } from "../status-badge";
+import { HealthAboutDialog } from "../health-about-dialog";
 
 export type CourseLibraryRecord = Pick<
   Course,
@@ -67,6 +74,7 @@ const columnHelper = createColumnHelper<CourseLibraryRecord>();
 const columns = [
   columnHelper.accessor("title", {
     header: "Course",
+    enableHiding: false,
     cell: ({ row }) => (
       <div className="course-title-cell">
         <Link href={`/courses/${row.original.id}`}>{row.original.title}</Link>
@@ -94,7 +102,7 @@ const columns = [
                 : "info"
         }
       >
-        {info.getValue()}
+        {info.getValue() === "Non-Lexipol excluded" ? "Excluded from portfolio" : info.getValue()}
       </StatusBadge>
     ),
   }),
@@ -133,6 +141,16 @@ const columns = [
   }),
 ];
 
+const optionalColumnLabels: Record<CourseLibraryOptionalColumn, string> = {
+  primaryVertical: "Primary vertical",
+  managementClassification: "Management",
+  reconciliationStatus: "Reconciliation",
+  retrievalStatus: "Source / freshness",
+  conflictCount: "Conflicts",
+  topicAssignments: "Topics",
+  healthStatus: "Health",
+};
+
 type WorkQueue =
   | "All queues"
   | "Missing Content Metadata"
@@ -150,15 +168,28 @@ function csvSafe(value: unknown): string {
   return `"${protectedValue.replaceAll('"', '""')}"`;
 }
 
-export function CourseLibrary({ courses, initialFavoriteIds, canEdit }: { courses: CourseLibraryRecord[]; initialFavoriteIds: string[]; canEdit: boolean }) {
+function formatHiddenColumn(course: CourseLibraryRecord, column: CourseLibraryOptionalColumn): string {
+  if (column === "managementClassification") {
+    return course.managementClassification === "Non-Lexipol excluded" ? "Excluded from portfolio" : course.managementClassification;
+  }
+  if (column === "retrievalStatus") {
+    return `${course.retrievalStatus}${course.lastRetrievedAt ? ` · ${course.lastRetrievedAt.slice(0, 10)}` : " · No LMS snapshot"}`;
+  }
+  if (column === "topicAssignments") {
+    return course.topicAssignments.map((assignment) => assignment.topic).join(", ") || "No topics";
+  }
+  return String(course[column] ?? "Not available");
+}
+
+export function CourseLibrary({ courses, initialFavoriteIds, initialPreferences, canEdit }: { courses: CourseLibraryRecord[]; initialFavoriteIds: string[]; initialPreferences: CourseLibraryPreferences; canEdit: boolean }) {
   const router = useRouter();
   const [search, setSearch] = useState("");
   const [vertical, setVertical] = useState("All verticals");
   const [lifecycle, setLifecycle] = useState("All statuses");
   const [health, setHealth] = useState("All health levels");
   const [classification, setClassification] = useState<
-    "Normal portfolio" | "All classifications" | ManagementClassification
-  >("Normal portfolio");
+    "Included portfolio" | "All classifications" | ManagementClassification
+  >("Included portfolio");
   const [workQueue, setWorkQueue] = useState<WorkQueue>("All queues");
   const [view, setView] = useState<"table" | "cards">("table");
   const [sorting, setSorting] = useState<SortingState>([]);
@@ -168,11 +199,70 @@ export function CourseLibrary({ courses, initialFavoriteIds, canEdit }: { course
   const [creating, setCreating] = useState(false);
   const [createPending, setCreatePending] = useState(false);
   const [createError, setCreateError] = useState("");
+  const [visibleColumns, setVisibleColumns] = useState<CourseLibraryOptionalColumn[]>(initialPreferences.visibleColumns);
+  const [columnMenuOpen, setColumnMenuOpen] = useState(false);
+  const [preferenceError, setPreferenceError] = useState("");
+  const [preferenceSaving, setPreferenceSaving] = useState(false);
+  const columnButtonRef = useRef<HTMLButtonElement>(null);
+  const columnMenuRef = useRef<HTMLDivElement>(null);
   const verticalOptions = Array.from(new Set(courses.map((course) => course.primaryVertical))).sort();
 
   const createCourse = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); const form = new FormData(event.currentTarget); setCreatePending(true); setCreateError("");
     try { const response = await fetch("/api/courses", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ courseCode: String(form.get("courseCode")), title: String(form.get("title")), shortTitle: String(form.get("shortTitle")) || null, description: String(form.get("description")), primaryVertical: String(form.get("primaryVertical")), lifecycleStatus: String(form.get("lifecycleStatus")), publicationStatus: String(form.get("publicationStatus")) }) }); const result = (await response.json()) as { course?: { id: string }; message?: string }; if (!response.ok) throw new Error(result.message); setCreating(false); router.refresh(); } catch (error) { setCreateError(error instanceof Error ? error.message : "Course could not be created."); } finally { setCreatePending(false); }
+  };
+
+  useEffect(() => {
+    if (!columnMenuOpen) return;
+    const closeForOutsideClick = (event: MouseEvent) => {
+      if (!columnMenuRef.current?.contains(event.target as Node) && !columnButtonRef.current?.contains(event.target as Node)) {
+        setColumnMenuOpen(false);
+        columnButtonRef.current?.focus();
+      }
+    };
+    const closeForEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setColumnMenuOpen(false);
+        columnButtonRef.current?.focus();
+      }
+    };
+    document.addEventListener("mousedown", closeForOutsideClick);
+    document.addEventListener("keydown", closeForEscape);
+    requestAnimationFrame(() => columnMenuRef.current?.querySelector<HTMLInputElement>('input[type="checkbox"]')?.focus());
+    return () => {
+      document.removeEventListener("mousedown", closeForOutsideClick);
+      document.removeEventListener("keydown", closeForEscape);
+    };
+  }, [columnMenuOpen]);
+
+  const persistVisibleColumns = async (next: CourseLibraryOptionalColumn[]) => {
+    setVisibleColumns(next);
+    setPreferenceSaving(true);
+    setPreferenceError("");
+    try {
+      const response = await fetch("/api/preferences/course-library", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ visibleColumns: next }),
+      });
+      const result = (await response.json()) as { message?: string };
+      if (!response.ok) throw new Error(result.message || "Column preferences could not be saved.");
+    } catch (error) {
+      setPreferenceError(error instanceof Error ? error.message : "Column preferences could not be saved.");
+    } finally {
+      setPreferenceSaving(false);
+    }
+  };
+
+  const navigateColumnMenu = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+    const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('input, button:not([disabled])'));
+    if (controls.length === 0) return;
+    event.preventDefault();
+    const current = controls.indexOf(document.activeElement as HTMLElement);
+    const next = event.key === "Home" ? 0 : event.key === "End" ? controls.length - 1 : event.key === "ArrowDown" ? (current + 1) % controls.length : (current - 1 + controls.length) % controls.length;
+    controls[next]?.focus();
   };
 
   const filtered = useMemo(() => {
@@ -202,7 +292,7 @@ export function CourseLibrary({ courses, initialFavoriteIds, canEdit }: { course
         (health === "All health levels" || course.healthStatus === health)
         &&
         (classification === "All classifications" ||
-          (classification === "Normal portfolio"
+          (classification === "Included portfolio"
             ? course.managementClassification !== "Non-Lexipol excluded"
             : course.managementClassification === classification))
         &&
@@ -232,7 +322,10 @@ export function CourseLibrary({ courses, initialFavoriteIds, canEdit }: { course
   const table = useReactTable({
     data: filtered,
     columns,
-    state: { sorting },
+    state: {
+      sorting,
+      columnVisibility: Object.fromEntries(courseLibraryOptionalColumns.map((id) => [id, visibleColumns.includes(id)])),
+    },
     onSortingChange: setSorting,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
@@ -245,7 +338,7 @@ export function CourseLibrary({ courses, initialFavoriteIds, canEdit }: { course
     vertical !== "All verticals" ? vertical : "",
     lifecycle !== "All statuses" ? lifecycle : "",
     health !== "All health levels" ? health : "",
-    classification !== "Normal portfolio" ? classification : "",
+    classification !== "Included portfolio" ? classification : "",
     workQueue !== "All queues" ? workQueue : "",
   ].filter(Boolean).length;
 
@@ -254,7 +347,7 @@ export function CourseLibrary({ courses, initialFavoriteIds, canEdit }: { course
     setVertical("All verticals");
     setLifecycle("All statuses");
     setHealth("All health levels");
-    setClassification("Normal portfolio");
+    setClassification("Included portfolio");
     setWorkQueue("All queues");
     table.setPageIndex(0);
   };
@@ -381,7 +474,7 @@ export function CourseLibrary({ courses, initialFavoriteIds, canEdit }: { course
             onChange={(event) => {
               setClassification(
                 event.target.value as
-                  | "Normal portfolio"
+                  | "Included portfolio"
                   | "All classifications"
                   | ManagementClassification,
               );
@@ -389,10 +482,10 @@ export function CourseLibrary({ courses, initialFavoriteIds, canEdit }: { course
             }}
             aria-label="Filter by management classification"
           >
-            <option>Normal portfolio</option>
+            <option>Included portfolio</option>
             <option>All classifications</option>
             {managementClassifications.map((item) => (
-              <option key={item}>{item}</option>
+              <option key={item} value={item}>{item === "Non-Lexipol excluded" ? "Excluded from portfolio" : item}</option>
             ))}
           </select>
           <select
@@ -446,6 +539,7 @@ export function CourseLibrary({ courses, initialFavoriteIds, canEdit }: { course
               ),
             )}
           </select>
+          <HealthAboutDialog compact />
         </div>
         <div className="view-toggle" aria-label="Choose library view">
           <button
@@ -492,17 +586,48 @@ export function CourseLibrary({ courses, initialFavoriteIds, canEdit }: { course
         )}
       </section>
 
+      <p className="filter-helper-text">Included portfolio shows Lexipol managed, Non-Lexipol tracked, and Unclassified courses. Only courses marked Excluded from portfolio are omitted.</p>
+
       <section className="panel library-panel">
         <div className="result-summary">
           <div>
             <strong>{filtered.length} courses</strong>
             <span>of {courses.length} total</span>
           </div>
-          <button className="button button-ghost">
-            <Columns3 size={16} />
-            Columns
-          </button>
+          <div className="column-picker">
+            <button
+              ref={columnButtonRef}
+              className="button button-ghost"
+              aria-haspopup="dialog"
+              aria-expanded={columnMenuOpen}
+              onClick={() => setColumnMenuOpen((open) => !open)}
+            >
+              <Columns3 size={16} /> Columns
+            </button>
+            {columnMenuOpen && (
+              <div ref={columnMenuRef} className="column-popover" role="dialog" aria-label="Choose Course Library columns" onKeyDown={navigateColumnMenu}>
+                <strong>Optional columns</strong>
+                <p>Course and favorite actions always remain visible.</p>
+                {courseLibraryOptionalColumns.map((id) => (
+                  <label key={id}>
+                    <input
+                      type="checkbox"
+                      checked={visibleColumns.includes(id)}
+                      onChange={() => void persistVisibleColumns(visibleColumns.includes(id) ? visibleColumns.filter((item) => item !== id) : [...visibleColumns, id])}
+                    />
+                    {optionalColumnLabels[id]}
+                  </label>
+                ))}
+                <div className="column-popover-actions">
+                  <button type="button" onClick={() => void persistVisibleColumns([...courseLibraryOptionalColumns])}>Show all</button>
+                  <button type="button" onClick={() => void persistVisibleColumns([...DEFAULT_COURSE_LIBRARY_PREFERENCES.visibleColumns])}>Reset to default</button>
+                </div>
+                {preferenceSaving && <small role="status">Saving columns…</small>}
+              </div>
+            )}
+          </div>
         </div>
+        {preferenceError && <div className="inline-alert alert-danger" role="alert">{preferenceError}</div>}
 
         {view === "table" ? (
           <div className="table-scroll">
@@ -531,6 +656,7 @@ export function CourseLibrary({ courses, initialFavoriteIds, canEdit }: { course
                         </button>
                       </th>
                     ))}
+                    <th className="mobile-row-details" aria-label="Hidden course details" />
                   </tr>
                 ))}
               </thead>
@@ -564,6 +690,16 @@ export function CourseLibrary({ courses, initialFavoriteIds, canEdit }: { course
                         )}
                       </td>
                     ))}
+                    <td className="mobile-row-details">
+                      <details>
+                        <summary>Course details</summary>
+                        <dl>
+                          {courseLibraryOptionalColumns.filter((id) => !visibleColumns.includes(id)).map((id) => (
+                            <div key={id}><dt>{optionalColumnLabels[id]}</dt><dd>{formatHiddenColumn(row.original, id)}</dd></div>
+                          ))}
+                        </dl>
+                      </details>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -584,7 +720,7 @@ export function CourseLibrary({ courses, initialFavoriteIds, canEdit }: { course
                           : "warning"
                     }
                   >
-                    {course.managementClassification}
+                    {course.managementClassification === "Non-Lexipol excluded" ? "Excluded from portfolio" : course.managementClassification}
                   </StatusBadge>
                   <button
                     className={`favorite-button ${

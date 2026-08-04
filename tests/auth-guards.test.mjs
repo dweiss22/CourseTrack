@@ -85,7 +85,6 @@ test("every Wrike and course API route checks the real authenticated role, not a
     "app/api/admin/users/[id]/resend/route.ts",
     "app/api/admin/users/transfer-superadmin/route.ts",
     "app/api/profile/route.ts",
-    "app/api/wrike/tasks/route.ts",
     "app/api/wrike/synced-tasks/route.ts",
   ];
   const sources = await Promise.all(routeFiles.map((file) => readFile(new URL(file, root), "utf8")));

@@ -14,6 +14,7 @@ export interface RawWrikeTask {
   completedDate?: string;
   permalink?: string;
   customFields?: Array<{ id: string; value: string }>;
+  dates?: { type?: string; start?: string; due?: string; duration?: number };
 }
 
 export interface NormalizedWrikeTask {
@@ -29,6 +30,7 @@ export interface NormalizedWrikeTask {
   wrikeCreatedDate: string | null;
   wrikeUpdatedDate: string | null;
   wrikeCompletedDate: string | null;
+  dueDate: string | null;
   rawPayload: RawWrikeTask;
   folderIds: string[];
 }
@@ -62,6 +64,7 @@ export function normalizeWrikeTask(raw: RawWrikeTask): Omit<NormalizedWrikeTask,
     wrikeCreatedDate: raw.createdDate ?? null,
     wrikeUpdatedDate: raw.updatedDate ?? null,
     wrikeCompletedDate: raw.completedDate ?? null,
+    dueDate: raw.dates?.due ?? null,
     rawPayload: raw,
   };
 }

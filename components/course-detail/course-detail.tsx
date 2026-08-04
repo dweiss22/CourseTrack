@@ -14,6 +14,7 @@ import {
   GitCompareArrows,
   History,
   Link2,
+  ListTodo,
   LockKeyhole,
   MessageSquareText,
   Pencil,
@@ -41,11 +42,15 @@ import type {
   FieldComparison,
   VersionWrikeTaskReference,
   AccreditationHistoryGroup,
+  TaskCalloutActor,
 } from "@/types/course";
 import { provenanceLabels } from "@/types/course";
 import type { CourseIndexEntry, WrikeTaskCandidate } from "@/db";
 import { StatusBadge } from "../status-badge";
+import { HealthAboutDialog } from "../health-about-dialog";
+import { WrikeTaskLinkControl } from "../wrike-task-link-control";
 import { accreditationDisplayLabel, accreditationRiskLabels, groupAccreditationRecords } from "@/lib/accreditation-grouping";
+import { statusesForKind, TASK_CALLOUT_KINDS, TASK_CALLOUT_PRIORITIES, taskCalloutDueState, taskCalloutStatusAction } from "@/lib/task-callouts";
 
 const tabs = [
   "Overview",
@@ -54,7 +59,7 @@ const tabs = [
   "Accreditation",
   "Topics & Tags",
   "Notes",
-  "Flags",
+  "Tasks & Callouts",
   "Revamp Planning",
   "LMS Data",
   "Activity",
@@ -74,6 +79,7 @@ export function CourseDetail({
   canEditCourse,
   lmsConnected,
   courseOptions,
+  assignees,
 }: {
   course: Course;
   topicSuggestions: string[];
@@ -82,6 +88,7 @@ export function CourseDetail({
   canEditCourse: boolean;
   lmsConnected: boolean;
   courseOptions: CourseIndexEntry[];
+  assignees: TaskCalloutActor[];
 }) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<Tab>("Overview");
@@ -213,7 +220,7 @@ export function CourseDetail({
         {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ fieldKey, action }),
+          body: JSON.stringify({ fieldKey, action, expectedUpdatedAt: currentCourse.fieldComparisons.find((comparison) => comparison.fieldKey === fieldKey)?.updatedAt }),
         },
       );
       const result = (await response.json()) as {
@@ -372,8 +379,8 @@ export function CourseDetail({
             onClick={() => setActiveTab(tab)}
           >
             {tab}
-            {tab === "Flags" && currentCourse.flags.length > 0 && (
-              <span>{currentCourse.flags.length}</span>
+            {tab === "Tasks & Callouts" && currentCourse.flags.filter((flag) => !flag.archivedAt).length > 0 && (
+              <span>{currentCourse.flags.filter((flag) => !flag.archivedAt).length}</span>
             )}
           </button>
         ))}
@@ -471,7 +478,7 @@ export function CourseDetail({
             />
           )}
           {activeTab === "Versions" && (
-            <VersionsTab course={currentCourse} onCourseChange={setCurrentCourse} />
+            <VersionsTab course={currentCourse} onCourseChange={setCurrentCourse} canManageWrike={canEditCourse} />
           )}
           {activeTab === "Accreditation" && (
             <AccreditationTab course={currentCourse} />
@@ -485,7 +492,7 @@ export function CourseDetail({
             />
           )}
           {activeTab === "Notes" && <NotesTab course={currentCourse} onCourseChange={setCurrentCourse} />}
-          {activeTab === "Flags" && <FlagsTab course={currentCourse} onCourseChange={setCurrentCourse} />}
+          {activeTab === "Tasks & Callouts" && <FlagsTab course={currentCourse} onCourseChange={setCurrentCourse} assignees={assignees} />}
           {activeTab === "Revamp Planning" && (
             <RevampTab course={currentCourse} />
           )}
@@ -497,14 +504,14 @@ export function CourseDetail({
 
         <aside className="detail-sidebar">
           <article className="panel compact-panel">
-            <h3>Portfolio health</h3>
+            <div className="panel-heading"><h3>CourseTrack health</h3><HealthAboutDialog compact /></div>
             <div className="health-score-row">
               <div className={`health-score health-${currentCourse.healthStatus.toLowerCase().replaceAll(" ", "-")}`}>
                 {currentCourse.healthScore}
               </div>
               <div>
                 <StatusBadge>{currentCourse.healthStatus}</StatusBadge>
-                <span>Calculated from review age, flags, metadata, and LMS freshness.</span>
+                <span>Calculated from metadata completeness, unresolved discrepancies, import validation errors, and current LMS snapshot availability.</span>
               </div>
             </div>
             <div className="progress-label">
@@ -589,6 +596,22 @@ function formatSourceValue(value: unknown): string {
   return String(value);
 }
 
+function ComparisonState({ comparison }: { comparison: FieldComparison }) {
+  const state = comparison.selectedSource && comparison.comparisonStatus === "Conflict"
+    ? { label: "Resolved discrepancy", icon: Check, tone: "success" as const }
+    : comparison.comparisonStatus === "Match"
+      ? { label: "Match", icon: Check, tone: "success" as const }
+      : comparison.comparisonStatus === "LMS only"
+        ? { label: "Missing from CourseTrack", icon: Database, tone: "warning" as const }
+        : comparison.comparisonStatus === "Content Metadata only"
+          ? { label: "Missing from LMS", icon: LockKeyhole, tone: "warning" as const }
+          : comparison.comparisonStatus === "Invalid" || comparison.comparisonStatus === "Missing from both"
+            ? { label: "Invalid", icon: X, tone: "danger" as const }
+            : { label: "Discrepancy", icon: AlertTriangle, tone: "danger" as const };
+  const Icon = state.icon;
+  return <StatusBadge tone={state.tone}><Icon size={12} aria-hidden="true" /> {state.label}</StatusBadge>;
+}
+
 function SourceComparisonTab({
   course,
   resolving,
@@ -606,6 +629,7 @@ function SourceComparisonTab({
 }) {
   const sourceHistory = [...course.retrievalHistory, ...course.importHistory]
     .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
+  const hasDiscrepancies = course.fieldComparisons.some((comparison) => comparison.comparisonStatus !== "Match");
 
   return (
     <div className="detail-section-stack">
@@ -628,16 +652,17 @@ function SourceComparisonTab({
             Choosing an active CourseTrack value never changes an LMS snapshot or writes back to the LMS.
           </span>
         </div>
-        <div className="table-scroll">
+        {!hasDiscrepancies ? (
+          <div className="empty-state compact-empty"><Check size={24} /><h3>No source discrepancies</h3><p>All comparable LMS and CourseTrack values match.</p></div>
+        ) : <div className="table-scroll">
           <table className="data-table comparison-table">
             <thead>
               <tr>
                 <th>Field</th>
                 <th>LMS value</th>
-                <th>Content Team value</th>
-                <th>Active CourseTrack value</th>
-                <th>Status</th>
-                <th>Resolution</th>
+                <th>CourseTrack value</th>
+                <th>Comparison status</th>
+                <th>Resolution / action</th>
               </tr>
             </thead>
             <tbody>
@@ -652,20 +677,17 @@ function SourceComparisonTab({
                     <small><LockKeyhole size={11} /> Read-only LMS</small>
                   </td>
                   <td>
-                    <span>{formatSourceValue(comparison.contentMetadataNormalizedValue)}</span>
-                    <small>Content Metadata import</small>
-                  </td>
-                  <td>
-                    <strong>{formatSourceValue(comparison.resolvedValue)}</strong>
+                    <strong>{formatSourceValue(comparison.selectedSource ? comparison.resolvedValue : comparison.contentMetadataNormalizedValue)}</strong>
                     <small>
                       {comparison.selectedSource
-                        ? `Selected: ${comparison.selectedSource === "lms" ? "LMS" : "Content Team"}`
-                        : "Awaiting decision"}
+                        ? `Active resolution selected from ${comparison.selectedSource === "lms" ? "LMS" : "uploaded CourseTrack value"}`
+                        : "Uploaded application-managed value"}
                     </small>
+                    <details className="comparison-raw-details"><summary>Raw values and audit details</summary><dl><div><dt>Immutable LMS raw value</dt><dd>{formatSourceValue(comparison.lmsRawValue)}</dd></div><div><dt>Immutable uploaded raw value</dt><dd>{formatSourceValue(comparison.contentMetadataRawValue)}</dd></div><div><dt>Last compared</dt><dd>{comparison.lastComparedAt}</dd></div>{comparison.resolvedBy && <div><dt>Resolved by</dt><dd>{comparison.resolvedBy} · {comparison.resolvedAt}</dd></div>}</dl></details>
                   </td>
-                  <td><StatusBadge>{comparison.comparisonStatus}</StatusBadge></td>
+                  <td><ComparisonState comparison={comparison} /></td>
                   <td>
-                    <div className="comparison-actions">
+                    {canEdit && (comparison.comparisonStatus !== "Match" || comparison.selectedSource) ? <div className="comparison-actions">
                       <button
                         disabled={resolving}
                         onClick={() => onResolve(comparison.fieldKey, "Use LMS value")}
@@ -676,7 +698,7 @@ function SourceComparisonTab({
                         disabled={resolving}
                         onClick={() => onResolve(comparison.fieldKey, "Keep Content Team value")}
                       >
-                        Keep Content Team
+                        Keep CourseTrack
                       </button>
                       <button
                         disabled={resolving || !comparison.selectedSource}
@@ -684,7 +706,7 @@ function SourceComparisonTab({
                       >
                         Clear
                       </button>
-                    </div>
+                    </div> : <small>{canEdit ? "No action required" : "View only"}</small>}
                     {comparison.resolvedBy && (
                       <small>{comparison.resolvedBy} · {comparison.resolvedAt?.slice(0, 10)}</small>
                     )}
@@ -693,7 +715,7 @@ function SourceComparisonTab({
               ))}
             </tbody>
           </table>
-        </div>
+        </div>}
       </article>
 
       <article className="panel">
@@ -706,7 +728,7 @@ function SourceComparisonTab({
         </div>
         <div className="field-grid source-record-grid">
           <ProvenanceField label="Management classification" value={course.managementClassification} source="CourseTrack" />
-          <ProvenanceField label="Monitoring" value={course.monitoringEnabled ? "Enabled" : "Excluded from normal metrics"} source="CourseTrack" />
+          <ProvenanceField label="Monitoring" value={course.monitoringEnabled ? "Enabled" : "Excluded from portfolio metrics"} source="CourseTrack" />
           <ProvenanceField label="LMS snapshot" value={course.lmsSnapshot ? course.lmsSnapshot.retrievedAt : "Missing from LMS"} source="LMS" locked />
           <ProvenanceField label="Content Metadata" value={course.contentMetadata ? course.contentMetadata.importedAt : "Missing metadata"} source="Import" />
           <ProvenanceField label="Backend link" value={course.contentMetadata?.backendLink ? "Restricted internal administrative link" : "Not supplied"} source="Content Metadata" />
@@ -805,9 +827,11 @@ function RelationshipEditor({ course, courseOptions, onCourseChange }: { course:
 function VersionsTab({
   course,
   onCourseChange,
+  canManageWrike,
 }: {
   course: Course;
   onCourseChange: Dispatch<SetStateAction<Course>>;
+  canManageWrike: boolean;
 }) {
   return (
     <div className="detail-section-stack">
@@ -837,7 +861,7 @@ function VersionsTab({
                 <th>Version</th>
                 <th>Type</th>
                 <th>Published</th>
-                <th>Wrike work reference</th>
+                <th>Wrike Task Link</th>
                 <th>Release notes</th>
                 <th>Maintained by</th>
                 <th>Status</th>
@@ -850,7 +874,7 @@ function VersionsTab({
                   <td>{version.versionType}</td>
                   <td>{version.publicationDate}</td>
                   <td className="version-wrike-cell">
-                    <VersionWrikeCell version={version} onCourseChange={onCourseChange} />
+                    <VersionWrikeCell version={version} onCourseChange={onCourseChange} canManage={canManageWrike} />
                   </td>
                   <td>{version.releaseNotes}</td>
                   <td><StatusBadge tone="success">{version.managedBy}</StatusBadge></td>
@@ -882,7 +906,11 @@ function replaceVersionWrikeReferences(
   }));
 }
 
-function VersionWrikeCell({
+function VersionWrikeCell({ version, onCourseChange, canManage }: { version: CourseVersion; onCourseChange: Dispatch<SetStateAction<Course>>; canManage: boolean }) {
+  return <WrikeTaskLinkControl version={version} canManage={canManage} onReferencesChange={(references) => replaceVersionWrikeReferences(onCourseChange, version.id, references)} />;
+}
+
+function VersionWrikeCellLegacy({
   version,
   onCourseChange,
 }: {
@@ -918,9 +946,9 @@ function VersionWrikeCell({
         retrievedAt: now,
         linkedAt: now,
         linkedBy: "You",
-        isSample: false,
         linkMethod,
         lastVerifiedAt: null,
+        updatedAt: now,
       },
     ]);
     setLinking(false);
@@ -1103,6 +1131,8 @@ function VersionWrikeCell({
 }
 
 type VersionWrikeCellLink = { id: string; wrikeTaskId: string; taskTitle: string; permalink: string | null };
+
+void VersionWrikeCellLegacy;
 
 function AccreditationTab({ course }: { course: Course }) {
   if (course.accreditations.length === 0) {
@@ -1450,9 +1480,9 @@ function FlagsTabLegacy({ course }: { course: Course }) {
             <span className={`priority-dot priority-${flag.priority.toLowerCase()}`} />
             <div>
               <strong>{flag.title}</strong>
-              <small>{flag.type} · Due {flag.dueDate ?? "not set"}</small>
+              <small>{flag.category} · Due {flag.dueDate ?? "not set"}</small>
             </div>
-            <span>{flag.owner ?? "Unassigned"}</span>
+            <span>{flag.assignee?.displayName ?? "Unassigned"}</span>
             <StatusBadge tone={flag.priority === "Critical" ? "danger" : flag.priority === "High" ? "warning" : "neutral"}>
               {flag.priority}
             </StatusBadge>
@@ -1488,14 +1518,19 @@ function NotesTab({ course, onCourseChange }: { course: Course; onCourseChange: 
   </article>;
 }
 
-function FlagsTab({ course, onCourseChange }: { course: Course; onCourseChange: Dispatch<SetStateAction<Course>> }) {
-  const [editing, setEditing] = useState<CourseFlag | "new" | null>(null); const [pending, setPending] = useState(false); const [error, setError] = useState("");
-  const save = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = new FormData(event.currentTarget); const current = editing === "new" ? null : editing; setPending(true); setError(""); try { const response = await fetch(current ? `/api/flags/${current.id}` : `/api/courses/${course.id}/flags`, { method: current ? "PATCH" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: String(form.get("type")), title: String(form.get("title")), priority: String(form.get("priority")), status: String(form.get("status")), dueDate: String(form.get("dueDate")) || null, expectedUpdatedAt: current?.updatedAt }) }); const result = (await response.json()) as { flag?: CourseFlag; message?: string }; if (!response.ok || !result.flag) throw new Error(result.message); onCourseChange((value) => ({ ...value, flags: current ? value.flags.map((flag) => flag.id === current.id ? result.flag! : flag) : [result.flag!, ...value.flags] })); setEditing(null); } catch (submitError) { setError(submitError instanceof Error ? submitError.message : "Flag could not be saved."); } finally { setPending(false); } };
-  const archive = async (flag: CourseFlag) => { if (!window.confirm("Archive this flag?")) return; setPending(true); setError(""); try { const response = await fetch(`/api/flags/${flag.id}`, { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ expectedUpdatedAt: flag.updatedAt }) }); const result = (await response.json()) as { message?: string }; if (!response.ok) throw new Error(result.message); onCourseChange((value) => ({ ...value, flags: value.flags.filter((item) => item.id !== flag.id) })); } catch (submitError) { setError(submitError instanceof Error ? submitError.message : "Flag could not be archived."); } finally { setPending(false); } };
-  return <article className="panel"><div className="panel-heading"><div><h2>Flags and follow-up</h2><p>Operational issues requiring internal attention</p></div><button className="button button-primary" onClick={() => setEditing("new")}><Flag size={16} /> Create flag</button></div>
-    {editing && <form className="workflow-form" onSubmit={save}><div className="form-grid"><label>Type<input name="type" required defaultValue={editing === "new" ? "Content" : editing.type} /></label><label>Title<input name="title" minLength={3} required defaultValue={editing === "new" ? "" : editing.title} /></label><label>Priority<select name="priority" defaultValue={editing === "new" ? "Medium" : editing.priority}>{["Low", "Medium", "High", "Critical"].map((value) => <option key={value}>{value}</option>)}</select></label><label>Status<select name="status" defaultValue={editing === "new" ? "Open" : editing.status}>{["Open", "Under Review", "In Progress", "Blocked", "Resolved"].map((value) => <option key={value}>{value}</option>)}</select></label><label>Due date<input name="dueDate" type="date" defaultValue={editing === "new" ? "" : editing.dueDate ?? ""} /></label></div><div className="button-row"><button type="button" className="button button-secondary" onClick={() => setEditing(null)}>Cancel</button><button className="button button-primary" disabled={pending}>{pending ? "Saving…" : "Save flag"}</button></div></form>}
+function FlagsTab({ course, onCourseChange, assignees }: { course: Course; onCourseChange: Dispatch<SetStateAction<Course>>; assignees: TaskCalloutActor[] }) {
+  const [editing, setEditing] = useState<CourseFlag | "new" | null>(null); const [editorKind, setEditorKind] = useState<CourseFlag["recordKind"]>("Task"); const [pending, setPending] = useState(false); const [error, setError] = useState("");
+  const [showArchived, setShowArchived] = useState(false);
+  const payload = (flag: CourseFlag, status = flag.status) => ({ recordKind: flag.recordKind, category: flag.category, title: flag.title, description: flag.description, priority: flag.priority, status, assigneeId: flag.assigneeId, dueDate: flag.dueDate, completionNotes: flag.completionNotes, expectedUpdatedAt: flag.updatedAt });
+  const save = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = new FormData(event.currentTarget); const current = editing === "new" ? null : editing; setPending(true); setError(""); try { const response = await fetch(current ? `/api/flags/${current.id}` : `/api/courses/${course.id}/flags`, { method: current ? "PATCH" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ recordKind: String(form.get("recordKind")), category: String(form.get("category")), title: String(form.get("title")), description: String(form.get("description")), priority: String(form.get("priority")), status: String(form.get("status")), assigneeId: String(form.get("assigneeId")) || null, dueDate: String(form.get("dueDate")) || null, completionNotes: String(form.get("completionNotes")) || null, expectedUpdatedAt: current?.updatedAt }) }); const result = (await response.json()) as { flag?: CourseFlag; message?: string }; if (!response.ok || !result.flag) throw new Error(result.message); onCourseChange((value) => ({ ...value, flags: current ? value.flags.map((flag) => flag.id === current.id ? result.flag! : flag) : [result.flag!, ...value.flags] })); setEditing(null); } catch (submitError) { setError(submitError instanceof Error ? submitError.message : "Task or callout could not be saved."); } finally { setPending(false); } };
+  const archive = async (flag: CourseFlag) => { setPending(true); setError(""); try { const response = await fetch(`/api/flags/${flag.id}`, { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ expectedUpdatedAt: flag.updatedAt }) }); const result = (await response.json()) as { message?: string }; if (!response.ok) throw new Error(result.message); onCourseChange((value) => ({ ...value, flags: value.flags.map((item) => item.id === flag.id ? { ...item, archivedAt: new Date().toISOString() } : item) })); } catch (submitError) { setError(submitError instanceof Error ? submitError.message : "Task or callout could not be archived."); } finally { setPending(false); } };
+  const changeStatus = async (flag: CourseFlag) => { const action = taskCalloutStatusAction(flag); setPending(true); setError(""); try { const response = await fetch(`/api/flags/${flag.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(payload(flag, action.status)) }); const result = (await response.json()) as { flag?: CourseFlag; message?: string }; if (!response.ok || !result.flag) throw new Error(result.message); onCourseChange((value) => ({ ...value, flags: value.flags.map((item) => item.id === flag.id ? result.flag! : item) })); } catch (submitError) { setError(submitError instanceof Error ? submitError.message : "Status could not be changed."); } finally { setPending(false); } };
+  const restore = async (flag: CourseFlag) => { setPending(true); setError(""); try { const response = await fetch(`/api/flags/${flag.id}/restore`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ expectedUpdatedAt: flag.updatedAt }) }); const result = (await response.json()) as { message?: string }; if (!response.ok) throw new Error(result.message); window.location.reload(); } catch (submitError) { setError(submitError instanceof Error ? submitError.message : "Task or callout could not be restored."); } finally { setPending(false); } };
+  const visible = course.flags.filter((flag) => Boolean(flag.archivedAt) === showArchived);
+  return <article className="panel"><div className="panel-heading"><div><h2>Tasks & Callouts</h2><p>Assigned work and contextual follow-up records</p></div><div className="button-row"><button className="button button-secondary" onClick={() => setShowArchived((value) => !value)}>{showArchived ? "View active" : "View archived"}</button><button className="button button-primary" onClick={() => { setEditorKind("Task"); setEditing("new"); }}><ListTodo size={16} /> Create</button></div></div>
+    {editing && <form className="workflow-form" onSubmit={save}><div className="form-grid"><label>Kind<select name="recordKind" value={editorKind} onChange={(event) => setEditorKind(event.target.value as CourseFlag["recordKind"])}>{TASK_CALLOUT_KINDS.map((value) => <option key={value}>{value}</option>)}</select></label><label>Category<input name="category" required defaultValue={editing === "new" ? "Content" : editing.category} /></label><label>Title<input name="title" minLength={3} required defaultValue={editing === "new" ? "" : editing.title} /></label><label>Priority<select name="priority" defaultValue={editing === "new" ? "Medium" : editing.priority}>{TASK_CALLOUT_PRIORITIES.map((value) => <option key={value}>{value}</option>)}</select></label><label>Status<select key={editorKind} name="status" defaultValue={editing !== "new" && statusesForKind(editorKind).includes(editing.status) ? editing.status : "Open"}>{statusesForKind(editorKind).map((value) => <option key={value}>{value}</option>)}</select></label><label>Assignee<select name="assigneeId" defaultValue={editing === "new" ? "" : editing.assigneeId ?? ""}><option value="">Unassigned</option>{assignees.map((person) => <option key={person.id} value={person.id}>{person.displayName}</option>)}</select></label><label>Due date<input name="dueDate" type="date" defaultValue={editing === "new" ? "" : editing.dueDate ?? ""} /></label><label className="form-span">Description<textarea name="description" maxLength={5000} defaultValue={editing === "new" ? "" : editing.description} /></label><label className="form-span">Completion or resolution notes<textarea name="completionNotes" maxLength={5000} defaultValue={editing === "new" ? "" : editing.completionNotes ?? ""} /></label></div><div className="button-row"><button type="button" className="button button-secondary" onClick={() => setEditing(null)}>Cancel</button><button className="button button-primary" disabled={pending}>{pending ? "Saving…" : "Save"}</button></div></form>}
     {error && <p className="taxonomy-editor-error" role="alert">{error}</p>}
-    {course.flags.length === 0 ? <div className="empty-state compact-empty"><Flag size={22} /><h3>No unresolved flags</h3><p>This course has no current follow-up items.</p></div> : <div className="issue-list">{course.flags.map((flag) => <div key={flag.id}><span className={`priority-dot priority-${flag.priority.toLowerCase()}`} /><div><strong>{flag.title}</strong><small>{flag.type} · Due {flag.dueDate ?? "not set"}</small></div><span>{flag.owner ?? "Unassigned"}</span><StatusBadge tone={flag.priority === "Critical" ? "danger" : flag.priority === "High" ? "warning" : "neutral"}>{flag.priority}</StatusBadge><StatusBadge>{flag.status}</StatusBadge><div className="table-actions"><button onClick={() => setEditing(flag)}>Edit</button><button disabled={pending} onClick={() => archive(flag)}>Archive</button></div></div>)}</div>}
+    {visible.length === 0 ? <div className="empty-state compact-empty"><ListTodo size={22} /><h3>No {showArchived ? "archived" : "active"} tasks or callouts</h3><p>Create a record or switch views.</p></div> : <div className="issue-list">{visible.map((flag) => { const action = taskCalloutStatusAction(flag); const due = taskCalloutDueState(flag); return <div key={flag.id}><span className={`priority-dot priority-${flag.priority.toLowerCase()}`} /><div><strong>{flag.title}</strong><small>{flag.recordKind} · {flag.category} · Due {flag.dueDate ?? "not set"}{due === "Overdue" ? " · Overdue" : ""}</small><small>Created by {flag.createdBy?.displayName ?? "Unknown"} · Updated by {flag.updatedBy?.displayName ?? "Unknown"} on {flag.updatedAt.slice(0, 10)}{flag.completedBy ? ` · Completed by ${flag.completedBy.displayName}` : ""}{flag.resolvedBy ? ` · Resolved by ${flag.resolvedBy.displayName}` : ""}</small></div><span>{flag.assignee?.displayName ?? "Unassigned"}</span><StatusBadge tone={flag.priority === "Critical" ? "danger" : flag.priority === "High" ? "warning" : "neutral"}>{flag.priority}</StatusBadge><StatusBadge>{flag.status}</StatusBadge><div className="table-actions">{showArchived ? <button disabled={pending} onClick={() => restore(flag)}>Restore</button> : <><button onClick={() => { setEditorKind(flag.recordKind); setEditing(flag); }}>Edit</button><button disabled={pending} onClick={() => changeStatus(flag)}>{action.label}</button><button disabled={pending} onClick={() => archive(flag)}>Archive</button></>}</div></div>; })}</div>}
   </article>;
 }
 

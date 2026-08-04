@@ -5,6 +5,7 @@ import {
 } from "@/components/course-library/course-library";
 import { getFavoriteCourseIds, getPortfolioSummaries } from "@/db";
 import { requireUser } from "@/lib/auth";
+import { getCourseLibraryPreferences } from "@/db/preference-repository";
 
 export const metadata: Metadata = {
   title: "Course Library",
@@ -15,7 +16,11 @@ export const dynamic = "force-dynamic";
 
 export default async function CourseLibraryPage() {
   const auth = await requireUser();
-  const [courses, favoriteCourseIds] = await Promise.all([getPortfolioSummaries(), getFavoriteCourseIds(auth.userId)]);
+  const [courses, favoriteCourseIds, preferences] = await Promise.all([
+    getPortfolioSummaries(),
+    getFavoriteCourseIds(auth.userId),
+    getCourseLibraryPreferences(auth.userId),
+  ]);
   const records: CourseLibraryRecord[] = courses.map((course) => ({
     id: course.id,
     title: course.title,
@@ -41,5 +46,5 @@ export default async function CourseLibraryPage() {
     hasContentMetadata: course.hasContentMetadata,
     importValidationErrorCount: course.importValidationErrorCount,
   }));
-  return <CourseLibrary courses={records} initialFavoriteIds={favoriteCourseIds} canEdit={["super_admin", "admin", "content"].includes(auth.role)} />;
+  return <CourseLibrary courses={records} initialFavoriteIds={favoriteCourseIds} initialPreferences={preferences} canEdit={["super_admin", "admin", "content"].includes(auth.role)} />;
 }

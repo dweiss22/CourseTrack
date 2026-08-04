@@ -946,12 +946,6 @@ kbd {
   color: var(--primary);
 }
 
-.status-sample {
-  border-color: color-mix(in srgb, var(--purple) 22%, transparent);
-  background: var(--purple-soft);
-  color: var(--purple);
-}
-
 .status-neutral {
   border-color: var(--border);
   background: var(--surface-muted);
@@ -1515,6 +1509,342 @@ kbd {
   margin-left: 6px;
   color: var(--text-muted);
   font-size: 9px;
+}
+
+.filter-helper-text {
+  margin: -8px 2px 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.column-picker {
+  position: relative;
+}
+
+.column-popover {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 8px);
+  right: 0;
+  display: grid;
+  width: min(320px, calc(100vw - 36px));
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+}
+
+.column-popover > p,
+.column-popover > small {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.column-popover > label {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 10px;
+}
+
+.column-popover > label input {
+  width: 18px;
+  height: 18px;
+}
+
+.column-popover-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.column-popover-actions button {
+  min-height: 36px;
+  border: 0;
+  background: transparent;
+  color: var(--primary);
+  font-weight: 700;
+}
+
+.mobile-row-details {
+  display: none;
+}
+
+.health-dialog {
+  width: min(720px, calc(100vw - 32px));
+  max-height: calc(100vh - 40px);
+  overflow: auto;
+  padding: 22px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  background: var(--surface);
+  color: var(--foreground);
+}
+
+.health-dialog::backdrop {
+  background: rgb(15 23 42 / 58%);
+}
+
+.dialog-heading,
+.dialog-actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.health-range-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.health-range-list > div {
+  padding: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+}
+
+.health-range-list strong,
+.health-range-list span {
+  display: block;
+}
+
+.health-range-list p {
+  margin-bottom: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.health-dialog details {
+  margin: 18px 0;
+  padding: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+}
+
+.task-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(130px, 1fr));
+  gap: 10px;
+  padding: 14px;
+  border-top: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.task-filter-grid select {
+  min-height: 40px;
+}
+
+.task-callout-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 14px;
+  padding: 14px;
+}
+
+.task-callout-card {
+  padding: 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.task-callout-card.is-overdue {
+  border-left: 4px solid var(--danger);
+}
+
+.task-callout-heading,
+.task-callout-heading > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 7px;
+}
+
+.task-callout-card > p {
+  color: var(--text-muted);
+}
+
+.task-callout-card dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.task-callout-card dt {
+  color: var(--text-muted);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.task-callout-card dd {
+  margin: 2px 0 0;
+}
+
+.report-definition-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.report-definition-card {
+  display: flex;
+  min-height: 230px;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px;
+}
+
+.report-definition-card > div:first-child {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.report-definition-card .button-row {
+  margin-top: auto;
+}
+
+.report-editor {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+}
+
+.report-editor fieldset {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+}
+
+.report-editor fieldset label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.report-control-grid,
+.report-filter-builder {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.report-filter-builder {
+  grid-template-columns: 1fr 1fr 1.5fr auto;
+}
+
+.filter-chip-row,
+.report-group-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.filter-chip-row button,
+.report-group-summary span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 9px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: var(--surface-muted);
+  font-size: 12px;
+}
+
+.report-results .table-scroll,
+.report-group-summary {
+  padding: 0 14px;
+}
+
+.wrike-combobox {
+  position: relative;
+  display: grid;
+  min-width: 320px;
+  gap: 8px;
+}
+
+.wrike-combobox > input {
+  min-height: 42px;
+}
+
+.combobox-hint {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.wrike-combobox .wrike-candidate-list {
+  max-height: 280px;
+  overflow: auto;
+  margin: 0;
+  padding: 4px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  list-style: none;
+}
+
+.wrike-combobox .wrike-candidate-list button {
+  display: grid;
+  width: 100%;
+  gap: 3px;
+  padding: 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  text-align: left;
+}
+
+.wrike-combobox .wrike-candidate-list button:hover,
+.wrike-combobox .wrike-candidate-list [aria-selected="true"] button {
+  background: var(--primary-soft);
+}
+
+.wrike-combobox .wrike-candidate-list span {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.integration-mapping-stack {
+  display: grid;
+  gap: 28px;
+}
+
+.integration-mapping-stack > section {
+  display: grid;
+  gap: 14px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.integration-mapping-stack > section:last-child {
+  border-bottom: 0;
+}
+
+.mapping-field-lists {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.mapping-field-lists > div {
+  padding: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+}
+
+.mapping-field-lists p {
+  margin-bottom: 0;
+  color: var(--text-muted);
 }
 
 .course-table {
@@ -2087,8 +2417,7 @@ kbd {
   padding-top: 4px;
 }
 
-.risk-reasons,
-.outage-demo {
+.risk-reasons {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2101,8 +2430,7 @@ kbd {
   color: var(--warning);
 }
 
-.risk-reasons span,
-.outage-demo > div {
+.risk-reasons span {
   display: flex;
   flex: 1;
   align-items: center;
@@ -2111,8 +2439,7 @@ kbd {
   font-size: 9px;
 }
 
-.risk-reasons strong,
-.outage-demo strong {
+.risk-reasons strong {
   display: block;
   color: var(--foreground);
 }
@@ -2903,39 +3230,6 @@ kbd {
   font-size: 10px;
 }
 
-.sample-data-summary {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  margin: 17px;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 9px;
-}
-
-.sample-data-summary > div {
-  padding: 14px;
-  border-right: 1px solid var(--border-subtle);
-  text-align: center;
-}
-
-.sample-data-summary > div:last-child {
-  border-right: 0;
-}
-
-.sample-data-summary strong,
-.sample-data-summary span {
-  display: block;
-}
-
-.sample-data-summary strong {
-  font-size: 20px;
-}
-
-.sample-data-summary span {
-  color: var(--text-muted);
-  font-size: 8px;
-}
-
 .mapping-table {
   margin: 17px;
   border: 1px solid var(--border);
@@ -3218,7 +3512,6 @@ body {
 .detail-row small,
 .form-field small,
 .risk-reasons span,
-.outage-demo > div,
 .taxonomy-block span,
 .taxonomy-block small,
 .tag-list > span,
@@ -3238,7 +3531,6 @@ body {
 .provider-card span,
 .profile-role-card small,
 .configuration-grid span,
-.sample-data-summary span,
 .mapping-table span,
 .mapping-table strong,
 .mapping-table small,
@@ -4285,6 +4577,98 @@ body {
     width: 100%;
   }
 
+  .task-filter-grid,
+  .task-callout-card dl,
+  .report-control-grid,
+  .report-filter-builder {
+    grid-template-columns: 1fr;
+  }
+
+  .report-results table,
+  .report-results thead,
+  .report-results tbody,
+  .report-results tr,
+  .report-results td {
+    display: block;
+    width: 100%;
+  }
+
+  .report-results thead {
+    position: absolute;
+    overflow: hidden;
+    width: 1px;
+    height: 1px;
+  }
+
+  .report-results tr {
+    margin-bottom: 12px;
+    padding: 10px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 10px;
+  }
+
+  .report-results td::before {
+    display: block;
+    content: attr(data-label);
+    color: var(--text-muted);
+    font-size: 10px;
+    text-transform: uppercase;
+  }
+
+  .wrike-combobox {
+    min-width: min(280px, calc(100vw - 70px));
+  }
+
+  .mapping-field-lists {
+    grid-template-columns: 1fr;
+  }
+
+  .integration-mapping-table,
+  .integration-mapping-table thead,
+  .integration-mapping-table tbody,
+  .integration-mapping-table tr,
+  .integration-mapping-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .course-table {
+    min-width: 640px;
+  }
+
+  .course-table .mobile-row-details {
+    display: table-cell;
+    min-width: 170px;
+  }
+
+  .mobile-row-details summary {
+    cursor: pointer;
+    color: var(--primary);
+    font-weight: 700;
+  }
+
+  .mobile-row-details dl {
+    display: grid;
+    gap: 8px;
+    margin: 10px 0 0;
+  }
+
+  .mobile-row-details dl div {
+    display: grid;
+    gap: 2px;
+  }
+
+  .mobile-row-details dt {
+    color: var(--text-muted);
+    font-size: 10px;
+    text-transform: uppercase;
+  }
+
+  .mobile-row-details dd {
+    margin: 0;
+    white-space: normal;
+  }
+
   .source-assignment-grid,
   .preview-metric-grid {
     grid-template-columns: 1fr;
@@ -4341,8 +4725,7 @@ body {
   .field-grid,
   .readonly-grid,
   .edit-form,
-  .configuration-grid,
-  .sample-data-summary {
+  .configuration-grid {
     grid-template-columns: 1fr;
   }
 
@@ -4351,8 +4734,7 @@ body {
   .field-card:nth-child(4n),
   .readonly-grid > div,
   .readonly-grid > div:nth-child(3n),
-  .configuration-grid > div,
-  .sample-data-summary > div {
+  .configuration-grid > div {
     border-right: 0;
   }
 

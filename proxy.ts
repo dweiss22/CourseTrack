@@ -15,7 +15,7 @@ export async function proxy(request: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!url || !anonKey) {
-    // Supabase Auth isn't configured (sample-data mode) -- nothing to
+    // Supabase Auth isn't configured -- nothing to
     // refresh or gate; lib/auth.ts falls back to a synthetic identity.
     return response;
   }

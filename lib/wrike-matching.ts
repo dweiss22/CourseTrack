@@ -11,10 +11,14 @@ export function normalizeForMatch(text: string): string {
 
 /**
  * Derives a search string for the local Wrike task index from existing
- * course data only — prefers the exact course code (most reliable
- * contains-match anchor), falling back to the course title.
+ * course data only, using meaningful title tokens. Course codes remain in
+ * the context contract but are not assumed to appear in Wrike task names.
  */
 export function buildWrikeTaskSearchQuery(context: { courseCode: string; title: string }): string {
-  const courseCode = context.courseCode.trim();
-  return courseCode || context.title.trim();
+  const stopWords = new Set(["and", "the", "for", "with", "from", "into", "course", "training"]);
+  return normalizeForMatch(context.title)
+    .split(" ")
+    .filter((token) => token.length >= 3 && !stopWords.has(token))
+    .slice(0, 4)
+    .join(" ");
 }

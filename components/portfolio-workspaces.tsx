@@ -27,7 +27,6 @@ import type {
   ApplicationUserSummary,
   CourseIndexEntry,
   FlagBoardEntry,
-  ImportPreviewSummary,
   PortfolioReportMetrics,
   RevampBoardEntry,
   TaxonomyCourseEntry,
@@ -37,7 +36,7 @@ import type {
   WrikeSyncStatus,
 } from "@/db";
 import { StatusBadge } from "./status-badge";
-import { ImportPreview } from "./import-preview/import-preview";
+import type { IntegrationMappingSummary } from "@/types/integrations";
 import type { CourseVersion, RetrievalRun } from "@/types/course";
 import type { WrikeTask } from "@/providers/wrike";
 
@@ -134,7 +133,7 @@ function VersionsWorkspaceLegacy({
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/wrike/tasks?pageSize=12")
+    fetch("/api/wrike/synced-tasks?pageSize=12")
       .then(async (response) => {
         if (!response.ok) return null;
         return (await response.json()) as { items?: WrikeTask[] };
@@ -143,7 +142,7 @@ function VersionsWorkspaceLegacy({
         if (!cancelled && result?.items?.length) setAvailableTasks(result.items);
       })
       .catch(() => {
-        // The deterministic fixtures remain visible when no live data link exists.
+        // Existing synchronized rows remain visible when a refresh fails.
       });
     return () => {
       cancelled = true;
@@ -209,11 +208,11 @@ function VersionsWorkspaceLegacy({
       <section className="panel">
         <div className="panel-heading">
           <div><h2>Recent version activity</h2><p>Newest CourseTrack-managed publication records</p></div>
-          <StatusBadge tone="neutral">Wrike references unavailable</StatusBadge>
+          <StatusBadge tone="neutral">Wrike Task Links unavailable</StatusBadge>
         </div>
         <div className="table-scroll">
           <table className="data-table">
-            <thead><tr><th>Course</th><th>Version</th><th>Type</th><th>Published</th><th>Wrike work</th><th>Maintained by</th><th>Status</th><th>Action</th></tr></thead>
+            <thead><tr><th>Course</th><th>Version</th><th>Type</th><th>Published</th><th>Wrike Task Link</th><th>Maintained by</th><th>Status</th><th>Action</th></tr></thead>
             <tbody>
               {versions.slice(0, 14).map(({ course, version }) => (
                 <tr key={version.id}>
@@ -250,7 +249,7 @@ function VersionsWorkspaceLegacy({
       <section className="panel wrike-task-panel">
         <div className="panel-heading">
           <div>
-            <h2>Available Wrike work</h2>
+            <h2>Available Wrike tasks</h2>
             <p>Read-only task discovery through the Wrike API boundary</p>
           </div>
           <StatusBadge tone="neutral">Connector not configured</StatusBadge>
@@ -268,7 +267,7 @@ function VersionsWorkspaceLegacy({
             type="search"
             value={taskSearch}
             onChange={(event) => setTaskSearch(event.target.value)}
-            placeholder="Search available Wrike work"
+            placeholder="Search available Wrike tasks"
             aria-label="Search available Wrike tasks"
           />
         </div>
@@ -597,7 +596,7 @@ export function FlagsWorkspace({ entries, courseOptions }: { entries: FlagBoardE
           ["Unresolved flags", String(flags.length), "Across current courses"],
           ["Critical", String(flags.filter(({ flag }) => flag.priority === "Critical").length), "Owner required"],
           ["High priority", String(flags.filter(({ flag }) => flag.priority === "High").length), "Review this cycle"],
-          ["Unassigned", String(flags.filter(({ flag }) => !flag.owner).length), "Ownership needed"],
+          ["Unassigned", String(flags.filter(({ flag }) => !flag.assigneeId).length), "Ownership needed"],
         ]}
       />
       {message && <div className="inline-alert" role="status">{message}</div>}
@@ -615,7 +614,7 @@ export function FlagsWorkspace({ entries, courseOptions }: { entries: FlagBoardE
             <Link href={`/courses/${course.courseId}`} key={flag.id}>
               <span className={`priority-dot priority-${flag.priority.toLowerCase()}`} />
               <div><strong>{flag.title}</strong><small>{course.courseTitle} · Due {flag.dueDate}</small></div>
-              <span>{flag.owner ?? "Unassigned"}</span>
+              <span>{flag.assignee?.displayName ?? "Unassigned"}</span>
               <StatusBadge tone={flag.priority === "Critical" ? "danger" : flag.priority === "High" ? "warning" : "neutral"}>{flag.priority}</StatusBadge>
               <StatusBadge>{flag.status}</StatusBadge>
             </Link>
@@ -677,13 +676,17 @@ export function ReportsWorkspace({ metrics }: { metrics: PortfolioReportMetrics 
 
 export function AdminWorkspace({
   retrievalRuns,
-  importPreview,
+  mappingSummary,
+  wrikeConnection,
+  wrikeSync,
 }: {
   retrievalRuns: RetrievalRun[];
-  importPreview: ImportPreviewSummary;
+  mappingSummary: IntegrationMappingSummary;
+  wrikeConnection: WrikeConnectionSummary;
+  wrikeSync: WrikeSyncStatus;
 }) {
   const [activeTab, setActiveTab] = useState("LMS provider");
-  const tabs = ["LMS provider", "Wrike provider", "Import mapping", "Users & roles", "Retrieval history"];
+  const tabs = ["LMS provider", "Wrike provider", "Integration Mapping", "Users & roles", "Retrieval history"];
 
   return (
     <WorkspaceFrame
@@ -714,24 +717,10 @@ export function AdminWorkspace({
             </>
           )}
           {activeTab === "Wrike provider" && (
-            <>
-              <div className="panel-heading"><div><h2>Read-only Wrike connector</h2><p>Task discovery for CourseTrack-owned version records</p></div><StatusBadge tone="neutral">Not configured</StatusBadge></div>
-              <div className="provider-card">
-                <div className="provider-mark">W</div>
-                <div><strong>Wrike connector</strong><span>Reference-only contract</span></div>
-                <StatusBadge tone="neutral">Unavailable</StatusBadge>
-              </div>
-              <div className="readonly-callout"><ShieldCheck size={18} /><span><strong>Reference-only integration</strong>CourseTrack can discover task details and store an internal reference on a version. It cannot create, edit, complete, assign, or delete Wrike work.</span></div>
-              <div className="configuration-grid">
-                <ConfigRow label="Live base URL" value="Not configured" />
-                <ConfigRow label="Authentication" value="Awaiting Wrike setup" />
-                <ConfigRow label="Task and project fields" value="Awaiting documented payloads" />
-                <ConfigRow label="Pagination and rate limits" value="Not assumed" />
-              </div>
-            </>
+            <WrikeConnectionPanel initialConnection={wrikeConnection} initialSync={wrikeSync} />
           )}
-          {activeTab === "Import mapping" && (
-            <ImportPreview importPreview={importPreview} />
+          {activeTab === "Integration Mapping" && (
+            <IntegrationMappingPanel summary={mappingSummary} onRetry={() => setActiveTab("Wrike provider")} />
           )}
           {activeTab === "Users & roles" && (
             <>
@@ -749,6 +738,18 @@ export function AdminWorkspace({
       </div>
     </WorkspaceFrame>
   );
+}
+
+function MappingTable({ mappings }: { mappings: IntegrationMappingSummary["uploaded"]["mappings"] }) {
+  return <div className="table-scroll"><table className="data-table integration-mapping-table"><thead><tr><th>Source field</th><th>CourseTrack field</th><th>Requirement</th><th>Transformation</th><th>Access</th></tr></thead><tbody>{mappings.map((mapping) => <tr key={`${mapping.source}-${mapping.target}`}><td>{mapping.source}</td><td className="mono-cell">{mapping.target}</td><td>{mapping.required ? "Required" : "Optional"}</td><td>{mapping.transformation ?? "Direct"}</td><td>{mapping.readOnly ? "Read-only" : "Application-managed"}</td></tr>)}</tbody></table></div>;
+}
+
+function IntegrationMappingPanel({ summary, onRetry }: { summary: IntegrationMappingSummary; onRetry: () => void }) {
+  return <div className="integration-mapping-stack">
+    <section><div className="panel-heading"><div><h2>Uploaded data mapping</h2><p>Latest real import mapping and immutable source provenance</p></div><StatusBadge tone="info">{summary.uploaded.provenance}</StatusBadge></div><div className="configuration-grid"><ConfigRow label="Source workbook" value={summary.uploaded.sourceFilename ?? "No completed import"} /><ConfigRow label="Imported" value={summary.uploaded.importedAt ?? "Not available"} /><ConfigRow label="Status" value={summary.uploaded.status ?? "Not available"} /><ConfigRow label="Warnings / validation errors" value={`${summary.uploaded.warnings} / ${summary.uploaded.validationErrors}`} /></div><MappingTable mappings={summary.uploaded.mappings} /><div className="mapping-field-lists"><div><strong>Ignored fields</strong><p>{summary.uploaded.ignoredFields.join(", ") || "None"}</p></div><div><strong>Unmapped raw fields</strong><p>{summary.uploaded.unmappedRawFields.join(", ") || "None"}</p></div></div></section>
+    <section><div className="panel-heading"><div><h2>Wrike task mapping</h2><p>GET-only normalized task, contact, date, and folder/project index</p></div><StatusBadge tone="success">{summary.wrike.provenance}</StatusBadge></div><div className="configuration-grid"><ConfigRow label="Indexed active tasks" value={summary.wrike.taskCount.toLocaleString()} /><ConfigRow label="Indexed contacts" value={summary.wrike.contactCount.toLocaleString()} /><ConfigRow label="Indexed folders/projects" value={summary.wrike.folderCount.toLocaleString()} /><ConfigRow label="Last run" value={summary.wrike.lastRunAt ? `${summary.wrike.lastRunStatus} · ${summary.wrike.lastRunAt}` : "Never synchronized"} /></div><MappingTable mappings={summary.wrike.mappings} /><div className="mapping-field-lists"><div><strong>Approved folders</strong><p>{summary.wrike.approvedFolders.join(", ") || "None configured"}</p></div><div><strong>Ignored raw fields</strong><p>{summary.wrike.ignoredFields.join(", ")}</p></div></div>{summary.wrike.warnings.map((warning) => <div className="inline-alert alert-danger" key={warning}>{warning}</div>)}<button className="button button-secondary" onClick={onRetry}>{summary.wrike.currentRun ? "View current run" : "Review connection or retry sync"}</button></section>
+    <section><div className="panel-heading"><div><h2>Future LMS API mapping</h2><p>No provider mapping is shown until real documentation and endpoint contracts are configured.</p></div><StatusBadge tone="neutral">{summary.lms.status}</StatusBadge></div><div className="configuration-grid"><ConfigRow label="Connection" value={summary.lms.status} /><ConfigRow label="Last retrieval" value={summary.lms.lastRetrievedAt ?? "Never"} /><ConfigRow label="Provenance" value={summary.lms.provenance ?? "Not available until connected"} /><ConfigRow label="Mapped fields" value={String(summary.lms.mappings.length)} /></div>{summary.lms.warnings.map((warning) => <div className="readonly-callout" key={warning}><ShieldCheck size={18} /><span><strong>Configuration required</strong>{warning}</span></div>)}</section>
+  </div>;
 }
 
 function WrikeConnectionPanel({
@@ -971,8 +972,6 @@ function WrikeConnectionPanel({
     </div>
   );
 }
-
-void WrikeConnectionPanel;
 
 const PROFILE_ROLE_LABELS: Record<AuthContext["role"], string> = {
   super_admin: "Super Admin",

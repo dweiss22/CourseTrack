@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireApiUser } from "@/lib/auth";
+import { requireApiRole } from "@/lib/auth";
 import { searchWrikeTasks } from "@/db";
 
 const querySchema = z.object({
@@ -16,8 +16,8 @@ const querySchema = z.object({
 // Searches the locally synchronized Wrike task index only. Never triggers a
 // sync — see POST /api/wrike/sync for that.
 export async function GET(request: Request) {
-  const actor = await requireApiUser();
-  if ("error" in actor) return actor.error;
+  const actor = await requireApiRole("super_admin", "admin", "content");
+  if ("error" in actor) return NextResponse.json({ state: { status: "permission_denied", message: "You may view existing Wrike Task Links but cannot search the synchronized index." }, items: [], total: 0, hasMore: false }, { status: actor.error.status });
 
   const url = new URL(request.url);
   const parsed = querySchema.safeParse({

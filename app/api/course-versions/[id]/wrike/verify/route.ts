@@ -2,9 +2,11 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { verifyWrikeTaskLink } from "@/db";
 import { requireApiRole } from "@/lib/auth";
+import { apiError, validationError } from "@/lib/api-response";
 
 const verifySchema = z.object({
   referenceId: z.string().trim().min(1),
+  expectedUpdatedAt: z.string().datetime(),
 });
 
 export async function POST(request: Request) {
@@ -13,16 +15,13 @@ export async function POST(request: Request) {
 
   const parsed = verifySchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) {
-    return NextResponse.json({ message: "A reference id is required to verify." }, { status: 400 });
+    return validationError("A reference id and concurrency token are required to verify.", parsed.error.issues);
   }
 
   try {
-    const link = await verifyWrikeTaskLink(parsed.data.referenceId);
+    const link = await verifyWrikeTaskLink({ ...parsed.data, actorId: actor.context.userId, actorEmail: actor.context.email });
     return NextResponse.json({ link, message: "Wrike link verified." });
   } catch (error) {
-    return NextResponse.json(
-      { message: error instanceof Error ? error.message : "Could not verify this Wrike link." },
-      { status: 409 },
-    );
+    return apiError(error);
   }
 }
