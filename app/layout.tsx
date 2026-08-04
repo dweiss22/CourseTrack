@@ -1,8 +1,12 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { AppShell } from "@/components/app-shell";
-import { getCourseIndex } from "@/db";
+import { getCourseIndex, getEnvironmentSnapshotStatus } from "@/db";
 import { getAuthContext } from "@/lib/auth";
+import {
+  environmentTitlePrefix,
+  resolveDeploymentEnvironment,
+} from "@/lib/deployment-environment";
 import "./globals.css";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -15,12 +19,13 @@ export async function generateMetadata(): Promise<Metadata> {
     requestHeaders.get("x-forwarded-proto") ??
     (host.startsWith("localhost") ? "http" : "https");
   const metadataBase = new URL(`${protocol}://${host}`);
+  const titlePrefix = environmentTitlePrefix(resolveDeploymentEnvironment());
 
   return {
     metadataBase,
     title: {
-      default: "CourseTrack",
-      template: "%s | CourseTrack",
+      default: `${titlePrefix}CourseTrack`,
+      template: `${titlePrefix}%s | CourseTrack`,
     },
     description:
       "Search, explore, and manage an internal portfolio of public-safety courses with clear LMS provenance.",
@@ -56,11 +61,21 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const [courseIndex, authContext] = await Promise.all([getCourseIndex(), getAuthContext()]);
+  const deploymentEnvironment = resolveDeploymentEnvironment();
+  const [courseIndex, authContext, snapshotStatus] = await Promise.all([
+    getCourseIndex(),
+    getAuthContext(),
+    deploymentEnvironment === "staging" ? getEnvironmentSnapshotStatus() : Promise.resolve(null),
+  ]);
   return (
     <html lang="en">
       <body>
-        <AppShell courseIndex={courseIndex} authContext={authContext}>
+        <AppShell
+          courseIndex={courseIndex}
+          authContext={authContext}
+          deploymentEnvironment={deploymentEnvironment}
+          snapshotRefreshedAt={snapshotStatus?.refreshedAt ?? null}
+        >
           {children}
         </AppShell>
       </body>

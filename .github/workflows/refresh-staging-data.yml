@@ -1,0 +1,46 @@
+name: Refresh staging data
+
+on:
+  schedule:
+    - cron: "0 8 * * 0"
+  workflow_dispatch:
+
+concurrency:
+  group: refresh-staging-data
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    name: Sanitized production snapshot
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: staging
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          ref: staging
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Refresh staging from production
+        env:
+          COURSETRACK_ENVIRONMENT: staging
+          PRODUCTION_SUPABASE_URL: ${{ secrets.PRODUCTION_SUPABASE_URL }}
+          PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          STAGING_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+          STAGING_SUPABASE_SECRET_KEY: ${{ secrets.STAGING_SUPABASE_SECRET_KEY }}
+          STAGING_DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          STAGING_MASKING_KEY: ${{ secrets.STAGING_MASKING_KEY }}
+          STAGING_TESTER_EMAILS: ${{ vars.STAGING_TESTER_EMAILS }}
+        run: node scripts/refresh-staging-from-production.mjs

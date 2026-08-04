@@ -31,6 +31,7 @@ import {
 } from "react";
 import type { CourseIndexEntry } from "@/db";
 import type { ApplicationRole, AuthContext } from "@/lib/auth";
+import type { DeploymentEnvironment } from "@/lib/deployment-environment";
 import { isPublicAuthPath } from "@/lib/public-auth-paths";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 import { RuntimeInitializer } from "./runtime-initializer";
@@ -81,10 +82,14 @@ export function AppShell({
   children,
   courseIndex,
   authContext,
+  deploymentEnvironment,
+  snapshotRefreshedAt,
 }: {
   children: ReactNode;
   courseIndex: CourseIndexEntry[];
   authContext: AuthContext | null;
+  deploymentEnvironment: DeploymentEnvironment;
+  snapshotRefreshedAt: string | null;
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -181,8 +186,20 @@ export function AppShell({
   // authContext is non-null, since sample-data mode always resolves a
   // synthetic identity -- there's no real logged-out state to distinguish
   // there, so /login etc. must be special-cased by path instead.
+  const environmentBanner = (
+    <EnvironmentBanner
+      environment={deploymentEnvironment}
+      snapshotRefreshedAt={snapshotRefreshedAt}
+    />
+  );
+
   if (!authContext || isPublicAuthPath(pathname)) {
-    return <main className="page-content page-content-bare">{children}</main>;
+    return (
+      <div className="bare-page-frame">
+        {environmentBanner}
+        <main className="page-content page-content-bare">{children}</main>
+      </div>
+    );
   }
 
   return (
@@ -267,6 +284,7 @@ export function AppShell({
       )}
 
       <div className="main-column">
+        {environmentBanner}
         <header className="topbar">
           <button
             className="icon-button mobile-menu"
@@ -396,6 +414,37 @@ export function AppShell({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function EnvironmentBanner({
+  environment,
+  snapshotRefreshedAt,
+}: {
+  environment: DeploymentEnvironment;
+  snapshotRefreshedAt: string | null;
+}) {
+  if (environment === "production") return null;
+
+  const label = environment === "staging"
+    ? "STAGING"
+    : environment === "preview"
+      ? "PREVIEW"
+      : "DEVELOPMENT";
+  const detail = environment === "staging"
+    ? snapshotRefreshedAt
+      ? `Sanitized production snapshot — refreshed ${new Intl.DateTimeFormat("en-US", {
+          dateStyle: "medium",
+          timeZone: "America/Chicago",
+        }).format(new Date(snapshotRefreshedAt))}`
+      : "Sanitized production snapshot — refresh not recorded"
+    : "Non-production environment";
+
+  return (
+    <div className={`environment-banner environment-${environment}`} role="status">
+      <strong>{label}</strong>
+      <span>{detail}</span>
     </div>
   );
 }

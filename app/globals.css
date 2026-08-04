@@ -140,6 +140,42 @@ a {
   min-height: 100vh;
 }
 
+.bare-page-frame {
+  min-height: 100vh;
+}
+
+.environment-banner {
+  align-items: center;
+  background: #fff3cd;
+  border-bottom: 1px solid #e2b84b;
+  color: #5f4300;
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 0.8rem;
+  gap: 0.55rem;
+  justify-content: center;
+  min-height: 34px;
+  padding: 0.4rem 1rem;
+  position: relative;
+  z-index: 30;
+}
+
+.environment-banner strong {
+  letter-spacing: 0.09em;
+}
+
+.environment-preview {
+  background: #e7f0ff;
+  border-bottom-color: #8cb4ec;
+  color: #173f73;
+}
+
+.environment-development {
+  background: #eceff3;
+  border-bottom-color: #b8c0ca;
+  color: #34404c;
+}
+
 .sidebar {
   position: fixed;
   inset: 0 auto 0 0;

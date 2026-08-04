@@ -130,3 +130,5 @@ The recommended Git/Vercel release flow uses `staging` for integrated Preview
 validation and `main` for Production. See
 [`docs/deployment-workflow.md`](docs/deployment-workflow.md) for branch rules,
 environment isolation, releases, and hotfixes.
+Staging receives a sanitized weekly production snapshot using the guarded
+workflow in [`docs/staging-data-refresh.md`](docs/staging-data-refresh.md).
