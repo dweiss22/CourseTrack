@@ -842,6 +842,26 @@ export async function listUsers(filters: {
   }
 }
 
+export interface EnvironmentSnapshotStatus {
+  refreshedAt: string;
+  sourceSnapshotAt: string;
+}
+
+export async function getEnvironmentSnapshotStatus(): Promise<EnvironmentSnapshotStatus | null> {
+  const client = getSupabaseAdminClient();
+  if (!client) return null;
+  const { data, error } = await client
+    .from("environment_snapshot_status")
+    .select("refreshed_at,source_snapshot_at")
+    .eq("singleton", true)
+    .maybeSingle();
+  if (error || !data) return null;
+  return {
+    refreshedAt: data.refreshed_at as string,
+    sourceSnapshotAt: data.source_snapshot_at as string,
+  };
+}
+
 export async function createUser(input: {
   email: string;
   displayName: string;

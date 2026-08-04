@@ -23,12 +23,18 @@ values indiscriminately:
 - Use a separate Supabase project for Preview. This prevents staging tests,
   user administration, Wrike links, and synchronization runs from changing
   production records.
+- Refresh the stable staging project with the sanitized weekly snapshot
+  described in [`staging-data-refresh.md`](staging-data-refresh.md). Never point
+  a Preview deployment at the production Supabase project.
 - Apply the same migrations to both Supabase projects.
 - Generate a distinct `TOKEN_ENCRYPTION_KEY` for each environment. Keep each
   key stable after a Wrike connection is saved in that environment.
 - `WRIKE_PERMANENT_TOKEN` may use the same read-only Wrike credential in both
   environments when appropriate, but it must remain a protected server-only
   variable.
+- Set branch-specific `COURSETRACK_ENVIRONMENT=staging` for `staging` and
+  `COURSETRACK_ENVIRONMENT=preview` for feature deployments. The app uses this
+  value for its persistent non-production banner and browser-title prefix.
 
 ## Normal change workflow
 
