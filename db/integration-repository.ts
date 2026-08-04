@@ -7,7 +7,7 @@ export async function getIntegrationMappingSummary(): Promise<IntegrationMapping
   const [run, record, taskCount, contactCount, folderCount, sourceFolders, syncRun, running] = await Promise.all([
     client.from("content_metadata_import_runs").select("id,source_filename,status,column_mapping,created_at").order("created_at", { ascending: false }).limit(1).maybeSingle(),
     client.from("content_metadata_records").select("raw_payload,mapping_warnings,validation_errors").order("created_at", { ascending: false }).limit(1).maybeSingle(),
-    client.from("wrike_tasks").select("id", { count: "exact", head: true }).eq("is_active", true),
+    client.from("wrike_tasks").select("wrike_task_id", { count: "exact", head: true }).eq("is_active", true),
     client.from("wrike_contacts").select("contact_id", { count: "exact", head: true }),
     client.from("wrike_folder_index").select("folder_id", { count: "exact", head: true }),
     client.from("wrike_source_folders").select("name").eq("enabled", true).order("name"),
