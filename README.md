@@ -125,3 +125,8 @@ mapping. It is not modified by the application. See
 The repository supports both OpenAI Sites and Vercel. Sites uses `npm run build`;
 Vercel uses the checked-in `vercel.json` override and `npm run build:vercel`.
 Production credentials belong in each host's protected environment settings.
+
+The recommended Git/Vercel release flow uses `staging` for integrated Preview
+validation and `main` for Production. See
+[`docs/deployment-workflow.md`](docs/deployment-workflow.md) for branch rules,
+environment isolation, releases, and hotfixes.
