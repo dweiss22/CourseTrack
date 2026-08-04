@@ -73,12 +73,18 @@ test("Wrike discovery stays local and provider access remains GET-only", async (
 });
 
 test("Administration shows real three-source Integration Mapping and bootstrap is a health check", async () => {
-  const [admin, bootstrap] = await Promise.all([source("components/portfolio-workspaces.tsx"), source("app/api/bootstrap/route.ts")]);
+  const [admin, bootstrap, repository] = await Promise.all([
+    source("components/portfolio-workspaces.tsx"),
+    source("app/api/bootstrap/route.ts"),
+    source("db/integration-repository.ts"),
+  ]);
   for (const label of ["Integration Mapping", "Uploaded data mapping", "Wrike task mapping", "Future LMS API mapping"]) assert.match(admin, new RegExp(label));
   assert.match(admin, /WrikeConnectionPanel/);
   assert.match(bootstrap, /requireApiUser/);
   assert.match(bootstrap, /dataPresent/);
   assert.doesNotMatch(bootstrap, /seeded|seed script/i);
+  assert.match(repository, /from\("wrike_tasks"\)\.select\("wrike_task_id", \{ count: "exact", head: true \}\)/);
+  assert.doesNotMatch(repository, /from\("wrike_tasks"\)\.select\("id"/);
 });
 
 test("retired generated/mock runtime modules and placeholder task route are absent", async () => {
