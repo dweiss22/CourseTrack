@@ -166,10 +166,7 @@ export function Dashboard({
 }) {
   const [verticalFilter, setVerticalFilter] = useState("All verticals");
   const [includeExcluded, setIncludeExcluded] = useState(false);
-  const [retrievalState, setRetrievalState] = useState<
-    "idle" | "running" | "success" | "error"
-  >("idle");
-  const [retrievalMessage, setRetrievalMessage] = useState("");
+  const today = new Date().toISOString().slice(0, 10);
   const metricCards = useMemo(
     () => buildMetricCards(courses, includeExcluded),
     [courses, includeExcluded],
@@ -222,31 +219,6 @@ export function Dashboard({
     )
     .slice(0, 5);
 
-  const runRetrieval = async () => {
-    setRetrievalState("running");
-    setRetrievalMessage("");
-    try {
-      const response = await fetch("/api/lms/retrieve", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ mode: "healthy" }),
-      });
-      const result = (await response.json()) as { message?: string };
-      if (!response.ok) throw new Error(result.message);
-      setRetrievalState("success");
-      setRetrievalMessage(
-        result.message ?? "Mock LMS data retrieved successfully.",
-      );
-    } catch (error) {
-      setRetrievalState("error");
-      setRetrievalMessage(
-        error instanceof Error
-          ? error.message
-          : "The mock retrieval could not be completed.",
-      );
-    }
-  };
-
   return (
     <div className="page-stack">
       <section className="page-heading">
@@ -282,42 +254,15 @@ export function Dashboard({
           </label>
           <button
             className="button button-secondary"
-            onClick={runRetrieval}
-            disabled={retrievalState === "running"}
+            disabled
+            title="LMS refresh is unavailable until the read-only connector is configured"
+            aria-label="LMS refresh unavailable until the read-only connector is configured"
           >
-            <RefreshCw
-              size={16}
-              className={retrievalState === "running" ? "spin" : ""}
-            />
-            {retrievalState === "running"
-              ? "Retrieving…"
-              : "Retrieve LMS data"}
+            <RefreshCw size={16} />
+            Retrieve LMS data
           </button>
         </div>
       </section>
-
-      {retrievalMessage && (
-        <div
-          className={`inline-alert ${
-            retrievalState === "error" ? "alert-danger" : "alert-success"
-          }`}
-          role="status"
-        >
-          {retrievalState === "error" ? (
-            <AlertTriangle size={17} />
-          ) : (
-            <RefreshCw size={17} />
-          )}
-          <span>
-            <strong>
-              {retrievalState === "error"
-                ? "Retrieval failed"
-                : "Read-only retrieval complete"}
-            </strong>
-            {retrievalMessage}
-          </span>
-        </div>
-      )}
 
       <section className="metric-grid" aria-label="Portfolio summary">
         {metricCards.map((metric) => {
@@ -342,7 +287,7 @@ export function Dashboard({
           <div className="panel-heading">
             <div>
               <h2>Courses by vertical</h2>
-              <p>Current sample portfolio distribution</p>
+              <p>Current portfolio distribution</p>
             </div>
             <Link href="/courses">
               View library <ArrowRight size={15} />
@@ -433,7 +378,7 @@ export function Dashboard({
                   </small>
                 </div>
                 <span>
-                  {course.nextReviewDate && course.nextReviewDate < "2026-07-30" ? (
+                  {course.nextReviewDate && course.nextReviewDate < today ? (
                     <StatusBadge tone="danger">Overdue</StatusBadge>
                   ) : (
                     <time>{course.nextReviewDate}</time>
@@ -476,7 +421,7 @@ export function Dashboard({
         <div className="panel-heading">
           <div>
             <h2>Recent LMS retrievals</h2>
-            <p>One-way retrieval history from the active Mock LMS provider</p>
+            <p>Immutable history from the configured read-only LMS connector</p>
           </div>
           <Link href="/admin">
             View retrieval history <ArrowRight size={15} />
@@ -495,6 +440,7 @@ export function Dashboard({
               </tr>
             </thead>
             <tbody>
+              {retrievalRuns.length === 0 && <tr><td colSpan={6}>No LMS retrievals have been recorded.</td></tr>}
               {retrievalRuns.map((run) => (
                 <tr key={run.id}>
                   <td className="mono-cell">{run.id}</td>

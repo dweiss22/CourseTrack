@@ -2,7 +2,6 @@
 
 import {
   AlertTriangle,
-  Check,
   FileSpreadsheet,
   ListChecks,
   Network,
@@ -33,16 +32,12 @@ function PreviewMetric({
 
 export function ImportPreview({ importPreview }: { importPreview: ImportPreviewSummary }) {
   const [source, setSource] = useState<ImportSource>("Content Metadata");
-  const [reviewed, setReviewed] = useState(false);
-  const [confirmed, setConfirmed] = useState(false);
   const content = importPreview.contentMetadata;
   const topics = importPreview.topics;
   const monitoring = importPreview.monitoring;
 
   const changeSource = (nextSource: ImportSource) => {
     setSource(nextSource);
-    setReviewed(false);
-    setConfirmed(false);
   };
 
   return (
@@ -52,7 +47,7 @@ export function ImportPreview({ importPreview }: { importPreview: ImportPreviewS
           <h2>Import preview</h2>
           <p>Validate source files before any confirmed import changes CourseTrack.</p>
         </div>
-        <StatusBadge tone="sample">Deterministic fixture</StatusBadge>
+        <StatusBadge tone="info">Uploaded preview</StatusBadge>
       </div>
 
       <div className="import-source-tabs" role="tablist" aria-label="Import source previews">
@@ -138,38 +133,10 @@ export function ImportPreview({ importPreview }: { importPreview: ImportPreviewS
       <div className="readonly-callout">
         <ShieldCheck size={18} />
         <span>
-          <strong>Preview first, confirm second</strong>
+          <strong>Read-only validation preview</strong>
           Duplicate identifiers, missing identifiers, and blocked rows are never imported automatically. LMS snapshots remain read-only.
         </span>
       </div>
-
-      {confirmed ? (
-        <div className="inline-alert alert-success">
-          <Check size={17} />
-          <span>
-            <strong>Sample preview confirmed</strong>
-            The confirmation workflow completed without modifying the example workbooks or a live database.
-          </span>
-        </div>
-      ) : (
-        <div className="preview-confirmation-row">
-          <label>
-            <input
-              type="checkbox"
-              checked={reviewed}
-              onChange={(event) => setReviewed(event.target.checked)}
-            />
-            I reviewed the validation errors and source changes in this preview.
-          </label>
-          <button
-            className="button button-primary"
-            disabled={!reviewed}
-            onClick={() => setConfirmed(true)}
-          >
-            <Check size={16} /> Confirm sample preview
-          </button>
-        </div>
-      )}
 
       <div className="preview-blocked-note">
         <AlertTriangle size={15} />

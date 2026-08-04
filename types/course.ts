@@ -239,7 +239,16 @@ export interface ResolvedCourseFields {
   publishedDate: string | null;
 }
 
-export type DataSource = "sample" | "lms" | "manual" | "import" | "calculated";
+export const provenanceLabels = {
+  uploaded: "Uploaded",
+  lms_api: "Connected via LMS API",
+  coursetrack: "CourseTrack",
+} as const;
+
+export type Provenance = keyof typeof provenanceLabels;
+
+/** @deprecated Use Provenance. Kept as a source-compatible alias for callers. */
+export type DataSource = Provenance;
 
 export type LifecycleStatus =
   | "Proposed"
@@ -271,7 +280,7 @@ export type HealthStatus =
   | "Critical";
 
 export type RetrievalStatus =
-  | "Sample Data"
+  | "Uploaded"
   | "Retrieved"
   | "Retrieved with Warnings"
   | "Retrieval Failed"
@@ -327,7 +336,28 @@ export interface CourseVersion {
   authoringTool: string;
   packageStandard: string;
   wrikeTaskReferences: VersionWrikeTaskReference[];
+  provenance?: Provenance;
+  originProvenance?: Provenance;
+  updatedAt?: string;
+  archivedAt?: string | null;
 }
+
+export type AccreditationRiskState =
+  | "active"
+  | "expiring_soon"
+  | "renewal_due"
+  | "renewal_submitted"
+  | "conditional"
+  | "expired"
+  | "undated"
+  | "future"
+  | "not_required";
+
+export type AccreditationHistoryRole =
+  | "current"
+  | "superseded"
+  | "future"
+  | "duplicate";
 
 export interface AccreditationRecord {
   id: string;
@@ -347,6 +377,29 @@ export interface AccreditationRecord {
   expirationDate: string | null;
   source: DataSource;
   riskReasons: string[];
+  createdAt?: string;
+  updatedAt?: string;
+  archivedAt?: string | null;
+  originProvenance?: Provenance;
+}
+
+export interface AssessedAccreditationRecord {
+  record: AccreditationRecord;
+  historyRole: AccreditationHistoryRole;
+  riskState: AccreditationRiskState;
+  isAtRisk: boolean;
+}
+
+export interface AccreditationHistoryGroup {
+  key: string;
+  courseKey: string;
+  organization: string;
+  jurisdiction: string;
+  summary: AssessedAccreditationRecord;
+  current: AssessedAccreditationRecord | null;
+  history: AssessedAccreditationRecord[];
+  riskState: AccreditationRiskState;
+  isAtRisk: boolean;
 }
 
 export interface CourseFlag {
@@ -357,6 +410,9 @@ export interface CourseFlag {
   status: "Open" | "Under Review" | "In Progress" | "Blocked" | "Resolved";
   owner: string | null;
   dueDate: string | null;
+  updatedAt?: string;
+  archivedAt?: string | null;
+  provenance?: Provenance;
 }
 
 export interface CourseNote {
@@ -366,7 +422,20 @@ export interface CourseNote {
   createdAt: string;
   visibility: "Private" | "Team" | "Role restricted" | "Organization";
   body: string;
+  authorId?: string | null;
+  updatedAt?: string;
+  archivedAt?: string | null;
+  provenance?: Provenance;
 }
+
+export const revampBuckets = [
+  "Submitted",
+  "Under Review",
+  "Approved",
+  "In Progress",
+] as const;
+
+export type RevampBucket = (typeof revampBuckets)[number];
 
 export interface RevampProposal {
   id: string;
@@ -378,15 +447,23 @@ export interface RevampProposal {
     | "Approved"
     | "Approved for Future Cycle"
     | "Deferred"
+    | "Completed"
     | "In Progress";
   priority: "Critical" | "High" | "Medium" | "Low" | "Monitor Only";
   score: number;
   targetPublicationDate: string | null;
   businessJustification: string;
+  bucket?: RevampBucket | null;
+  sortOrder?: number;
+  updatedAt?: string;
+  archivedAt?: string | null;
+  provenance?: Provenance;
 }
 
 export interface Course {
   id: string;
+  updatedAt?: string;
+  archivedAt?: string | null;
   courseCode: string;
   lmsCourseId: string | null;
   managementClassification: ManagementClassification;
@@ -418,16 +495,19 @@ export interface Course {
   healthScore: number;
   metadataCompletenessScore: number;
   dataSource: DataSource;
+  fieldProvenance?: Record<string, Provenance>;
   sourceSystem: string;
   retrievalStatus: RetrievalStatus;
   lastRetrievedAt: string | null;
   isSample: boolean;
+  isFavorite?: boolean;
   internalSummary: string;
   versions: CourseVersion[];
   accreditations: AccreditationRecord[];
   flags: CourseFlag[];
   notes: CourseNote[];
   revampProposal: RevampProposal | null;
+  revampTasks?: RevampProposal[];
   lmsSnapshot: LmsCourseSnapshot | null;
   contentMetadata: ContentMetadataRecord | null;
   resolvedFields: ResolvedCourseFields;

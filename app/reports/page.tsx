@@ -9,6 +9,6 @@ export const dynamic = "force-dynamic";
 
 export default async function ReportsPage() {
   await requireUser();
-  const metrics = await getReportMetrics("2026-10-31");
+  const metrics = await getReportMetrics();
   return <ReportsWorkspace metrics={metrics} />;
 }

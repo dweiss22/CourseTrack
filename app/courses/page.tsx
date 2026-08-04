@@ -3,7 +3,7 @@ import {
   CourseLibrary,
   type CourseLibraryRecord,
 } from "@/components/course-library/course-library";
-import { getPortfolioSummaries } from "@/db";
+import { getFavoriteCourseIds, getPortfolioSummaries } from "@/db";
 import { requireUser } from "@/lib/auth";
 
 export const metadata: Metadata = {
@@ -14,8 +14,8 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 export default async function CourseLibraryPage() {
-  await requireUser();
-  const courses = await getPortfolioSummaries();
+  const auth = await requireUser();
+  const [courses, favoriteCourseIds] = await Promise.all([getPortfolioSummaries(), getFavoriteCourseIds(auth.userId)]);
   const records: CourseLibraryRecord[] = courses.map((course) => ({
     id: course.id,
     title: course.title,
@@ -41,5 +41,5 @@ export default async function CourseLibraryPage() {
     hasContentMetadata: course.hasContentMetadata,
     importValidationErrorCount: course.importValidationErrorCount,
   }));
-  return <CourseLibrary courses={records} />;
+  return <CourseLibrary courses={records} initialFavoriteIds={favoriteCourseIds} canEdit={["super_admin", "admin", "content"].includes(auth.role)} />;
 }

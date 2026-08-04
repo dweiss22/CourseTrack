@@ -12,7 +12,6 @@ import {
   fetchPortfolioSummaries,
   fetchReportMetrics,
   fetchRevampBoard,
-  fetchSampleDataCounts,
   fetchVersionBoard,
   type AccreditationBoardEntry,
   type CourseSummary,
@@ -20,7 +19,6 @@ import {
   type PortfolioReportMetrics,
   type PortfolioSummary,
   type RevampBoardEntry,
-  type SampleDataCounts,
   type TaxonomyCourseEntry,
   type TaxonomySummary,
   type VersionBoardEntry,
@@ -32,7 +30,6 @@ export type {
   PortfolioReportMetrics,
   PortfolioSummary,
   RevampBoardEntry,
-  SampleDataCounts,
   TaxonomyCourseEntry,
   TaxonomySummary,
   VersionBoardEntry,
@@ -75,22 +72,31 @@ import {
 } from "@/db/user-repository";
 export type { ApplicationUserSummary, SuperAdminTransferResult };
 import type { ApplicationRole } from "@/lib/auth";
-import {
-  sampleCourses,
-  sampleRetrievalRuns,
-  sampleImportPreviews,
-} from "@/lib/sample-data";
-import { sampleCourseIndex } from "@/lib/sample-course-index";
+export {
+  archiveWorkflowRecord,
+  assignCourseRelationship,
+  createRevampTask,
+  createCourseProjection,
+  getFavorite,
+  getFavoriteCourseIds,
+  moveRevampTask,
+  removeCourseRelationship,
+  saveAccreditation,
+  saveFlag,
+  saveNote,
+  saveVersion,
+  setCourseArchived,
+  setFavorite,
+  updateRevampTask,
+} from "@/db/workflow-repository";
 import type { Course, RetrievalRun } from "@/types/course";
-
-export const SAMPLE_COURSE_COUNT = sampleCourses.length;
 
 type DatabaseStatus = {
   available: boolean;
   configured: boolean;
   seeded: boolean;
   courseCount: number;
-  databaseProvider: "Supabase/Postgres" | "Sample fallback";
+  databaseProvider: "Supabase/Postgres";
 };
 
 type PersistedRetrievalRun = {
@@ -106,7 +112,34 @@ type PersistedRetrievalRun = {
   message: string;
 };
 
-export type ImportPreviewSummary = typeof sampleImportPreviews;
+export type ImportPreviewSummary = {
+  contentMetadata: {
+    totalRows: number;
+    matchedLmsCourses: number;
+    contentMetadataOnlyRecords: number;
+    lmsCoursesMissingMetadata: number;
+    duplicateCourseIds: number;
+    missingCourseIds: number;
+    invalidVerticals: number;
+    invalidUrls: number;
+    missingRelationshipTargets: number;
+    circularRelationships: number;
+    overlappingFieldConflicts: number;
+    fieldsWouldBeAdded: number;
+    fieldsUnchanged: number;
+    rowsBlocked: number;
+  };
+  topics: {
+    topicCount: number;
+    assignmentCount: number;
+    uniqueCourseIdCount: number;
+    duplicateAssignments: number;
+    unknownCourseIds: number;
+    emptyTopics: number;
+    normalizedTopicNames: number;
+  };
+  monitoring: { fixtureLabel: string; rows: number; enabled: number; excluded: number };
+};
 export type CourseIndexEntry = {
   id: string;
   title: string;
@@ -127,13 +160,7 @@ function databaseError(context: string, error: { message: string; code?: string 
 export async function ensureDatabase(): Promise<DatabaseStatus> {
   const client = getSupabaseAdminClient();
   if (!client) {
-    return {
-      available: false,
-      configured: false,
-      seeded: false,
-      courseCount: sampleCourses.length,
-      databaseProvider: "Sample fallback",
-    };
+    throw new Error("CourseTrack persistence is not configured.");
   }
 
   const { count, error } = await client.from("courses").select("id", { count: "exact", head: true });
@@ -152,78 +179,23 @@ export async function ensureDatabase(): Promise<DatabaseStatus> {
 }
 
 export async function getPortfolioCourses(): Promise<Course[]> {
-  const client = getSupabaseAdminClient();
-  if (!client) return sampleCourses;
-
-  try {
-    return await fetchFullCourseGraph(client);
-  } catch {
-    return sampleCourses;
-  }
-}
-
-function sampleSummaries(): PortfolioSummary[] {
-  return sampleCourses.map((course) => ({
-    id: course.id,
-    title: course.title,
-    shortTitle: course.shortTitle,
-    courseCode: course.courseCode,
-    lmsCourseId: course.lmsCourseId,
-    description: course.description,
-    primaryVertical: course.primaryVertical,
-    managementClassification: course.managementClassification,
-    reconciliationStatus: course.reconciliationStatus,
-    retrievalStatus: course.retrievalStatus,
-    lastRetrievedAt: course.lastRetrievedAt,
-    healthStatus: course.healthStatus,
-    lifecycleStatus: course.lifecycleStatus,
-    primaryTopic: course.primaryTopic,
-    tags: course.tags,
-    owner: course.owner,
-    durationMinutes: course.durationMinutes,
-    dataSource: course.dataSource,
-    nextReviewDate: course.nextReviewDate,
-    metadataCompletenessScore: course.metadataCompletenessScore,
-    conflictCount: course.conflictCount,
-    flagCount: course.flags.length,
-    hasLmsSnapshot: Boolean(course.lmsSnapshot),
-    hasContentMetadata: Boolean(course.contentMetadata),
-    importValidationErrorCount: course.importValidationErrors.length,
-    topicAssignments: course.topicAssignments.map(({ topic }) => ({ topic })),
-  }));
+  return fetchFullCourseGraph(requireDatabaseClient());
 }
 
 // Dashboard and Course Library only need flat/derived fields, never the full
 // nested graph — see fetchPortfolioSummaries for why this exists separately
 // from getPortfolioCourses.
 export async function getPortfolioSummaries(): Promise<PortfolioSummary[]> {
-  const client = getSupabaseAdminClient();
-  if (!client) return sampleSummaries();
-
-  try {
-    return await fetchPortfolioSummaries(client);
-  } catch {
-    return sampleSummaries();
-  }
+  return fetchPortfolioSummaries(requireDatabaseClient());
 }
 
 export const getCourseRecord = cache(async (courseId: string): Promise<Course | undefined> => {
-  const client = getSupabaseAdminClient();
-  if (!client) return sampleCourses.find((course) => course.id === courseId);
-
-  try {
-    const course = await fetchCourseGraphByAppId(client, courseId);
-    return course ?? undefined;
-  } catch {
-    return sampleCourses.find((course) => course.id === courseId);
-  }
+  const course = await fetchCourseGraphByAppId(requireDatabaseClient(), courseId);
+  return course ?? undefined;
 });
 
 export async function getRecentRetrievalRuns(): Promise<RetrievalRun[]> {
-  const client = getSupabaseAdminClient();
-  if (!client) return sampleRetrievalRuns;
-
-  try {
+  const client = requireDatabaseClient();
     const { data, error } = await client
       .from("lms_retrieval_runs")
       .select(
@@ -235,7 +207,7 @@ export async function getRecentRetrievalRuns(): Promise<RetrievalRun[]> {
       throw databaseError("Could not read Supabase retrieval history", error);
     }
 
-    return ((data ?? []) as PersistedRetrievalRun[]).map((run) => ({
+  return ((data ?? []) as PersistedRetrievalRun[]).map((run) => ({
       id: run.external_run_id ?? run.id,
       provider: run.provider,
       startedAt: run.started_at,
@@ -245,17 +217,11 @@ export async function getRecentRetrievalRuns(): Promise<RetrievalRun[]> {
       recordsReceived: run.records_received,
       recordsFailed: run.records_failed,
       message: run.message,
-    }));
-  } catch {
-    return sampleRetrievalRuns;
-  }
+  }));
 }
 
 export async function getImportPreviewSummary(): Promise<ImportPreviewSummary> {
-  const client = getSupabaseAdminClient();
-  if (!client) return sampleImportPreviews;
-
-  try {
+  const client = requireDatabaseClient();
     const { data, error } = await client
       .from("content_metadata_import_runs")
       .select("source_filename,preview_summary");
@@ -272,26 +238,32 @@ export async function getImportPreviewSummary(): Promise<ImportPreviewSummary> {
     const contentMetadataRun = data?.find((run) => run.source_filename.includes("master"));
     const topicsRun = data?.find((run) => run.source_filename.includes("Topics"));
     const total = courseCount ?? 0;
+    const emptyContent: ImportPreviewSummary["contentMetadata"] = {
+      totalRows: total, matchedLmsCourses: 0, contentMetadataOnlyRecords: 0,
+      lmsCoursesMissingMetadata: 0, duplicateCourseIds: 0, missingCourseIds: 0,
+      invalidVerticals: 0, invalidUrls: 0, missingRelationshipTargets: 0,
+      circularRelationships: 0, overlappingFieldConflicts: 0, fieldsWouldBeAdded: 0,
+      fieldsUnchanged: 0, rowsBlocked: 0,
+    };
+    const emptyTopics: ImportPreviewSummary["topics"] = {
+      topicCount: 0, assignmentCount: 0, uniqueCourseIdCount: 0,
+      duplicateAssignments: 0, unknownCourseIds: 0, emptyTopics: 0,
+      normalizedTopicNames: 0,
+    };
     return {
-      contentMetadata: (contentMetadataRun?.preview_summary as ImportPreviewSummary["contentMetadata"]) ?? sampleImportPreviews.contentMetadata,
-      topics: (topicsRun?.preview_summary as ImportPreviewSummary["topics"]) ?? sampleImportPreviews.topics,
+      contentMetadata: (contentMetadataRun?.preview_summary as ImportPreviewSummary["contentMetadata"]) ?? emptyContent,
+      topics: (topicsRun?.preview_summary as ImportPreviewSummary["topics"]) ?? emptyTopics,
       monitoring: {
-        fixtureLabel: "Supabase-backed monitoring preview",
+        fixtureLabel: "Uploaded monitoring preview",
         rows: total,
         enabled: total,
         excluded: 0,
       },
     };
-  } catch {
-    return sampleImportPreviews;
-  }
 }
 
 export async function getCourseIndex(): Promise<CourseIndexEntry[]> {
-  const client = getSupabaseAdminClient();
-  if (!client) return sampleCourseIndex;
-
-  try {
+  const client = requireDatabaseClient();
     const { data: verticalRows, error: verticalError } = await client.from("verticals").select("id,slug");
     if (verticalError) {
       throw databaseError("Could not read Supabase verticals", verticalError);
@@ -320,154 +292,51 @@ export async function getCourseIndex(): Promise<CourseIndexEntry[]> {
       }
       if (!data || data.length < pageSize) break;
     }
-    return entries;
-  } catch {
-    return sampleCourseIndex;
-  }
+  return entries;
 }
 
 export async function getAccreditationBoard(): Promise<AccreditationBoardEntry[]> {
-  const client = getSupabaseAdminClient();
-  if (!client) {
-    return sampleCourses.flatMap((course) =>
-      course.accreditations.map((record) => ({
-        course: { courseId: course.id, courseTitle: course.title, courseCode: course.courseCode },
-        record,
-      })),
-    );
-  }
-  try {
-    return await fetchAccreditationBoard(client);
-  } catch {
-    return sampleCourses.flatMap((course) =>
-      course.accreditations.map((record) => ({
-        course: { courseId: course.id, courseTitle: course.title, courseCode: course.courseCode },
-        record,
-      })),
-    );
-  }
+  return fetchAccreditationBoard(requireDatabaseClient());
 }
 
 export async function getVersionBoard(): Promise<VersionBoardEntry[]> {
-  const client = getSupabaseAdminClient();
-  if (!client) {
-    return sampleCourses.flatMap((course) =>
-      course.versions.map((version) => ({
-        course: { courseId: course.id, courseTitle: course.title, courseCode: course.courseCode },
-        version,
-      })),
-    );
-  }
-  try {
-    return await fetchVersionBoard(client);
-  } catch {
-    return sampleCourses.flatMap((course) =>
-      course.versions.map((version) => ({
-        course: { courseId: course.id, courseTitle: course.title, courseCode: course.courseCode },
-        version,
-      })),
-    );
-  }
+  return fetchVersionBoard(requireDatabaseClient());
 }
 
 export async function getRevampBoard(): Promise<RevampBoardEntry[]> {
-  const client = getSupabaseAdminClient();
-  const sampleBoard = () =>
-    sampleCourses
-      .filter((course) => course.revampProposal)
-      .map((course) => ({
-        course: {
-          courseId: course.id,
-          courseTitle: course.title,
-          courseCode: course.courseCode,
-          primaryVertical: course.primaryVertical,
-        },
-        proposal: course.revampProposal!,
-      }));
-  if (!client) return sampleBoard();
-  try {
-    return await fetchRevampBoard(client);
-  } catch {
-    return sampleBoard();
-  }
+  return fetchRevampBoard(requireDatabaseClient());
 }
 
 export async function getFlagBoard(): Promise<FlagBoardEntry[]> {
-  const client = getSupabaseAdminClient();
-  const sampleBoard = () =>
-    sampleCourses.flatMap((course) =>
-      course.flags.map((flag) => ({
-        course: { courseId: course.id, courseTitle: course.title, courseCode: course.courseCode },
-        flag,
-      })),
-    );
-  if (!client) return sampleBoard();
-  try {
-    return await fetchFlagBoard(client);
-  } catch {
-    return sampleBoard();
-  }
+  return fetchFlagBoard(requireDatabaseClient());
 }
 
-export async function getReportMetrics(reviewDueBy: string): Promise<PortfolioReportMetrics> {
-  const client = getSupabaseAdminClient();
-  const sampleMetrics = (): PortfolioReportMetrics => ({
-    totalCourses: sampleCourses.length,
-    coursesWithAccreditationExpiration: sampleCourses.filter((course) => course.nearestAccreditationExpiration)
-      .length,
-    coursesDueForReview: sampleCourses.filter(
-      (course) => course.nextReviewDate && course.nextReviewDate <= reviewDueBy,
-    ).length,
-    coursesWithRevampProposal: sampleCourses.filter((course) => course.revampProposal).length,
-    totalOpenFlags: sampleCourses.reduce((total, course) => total + course.flags.length, 0),
-    coursesBelowCompletenessThreshold: sampleCourses.filter((course) => course.metadataCompletenessScore < 80)
-      .length,
-    coursesWithLmsRetrievalExceptions: sampleCourses.filter(
-      (course) => !course.lmsSnapshot || course.retrievalStatus !== "Retrieved",
-    ).length,
-  });
-  if (!client) return sampleMetrics();
-  try {
-    return await fetchReportMetrics(client, reviewDueBy);
-  } catch {
-    return sampleMetrics();
-  }
-}
-
-export async function getSampleDataCounts(): Promise<SampleDataCounts> {
-  const client = getSupabaseAdminClient();
-  const sampleCounts = (): SampleDataCounts => ({
-    courses: sampleCourses.length,
-    versions: sampleCourses.reduce((total, course) => total + course.versions.length, 0),
-    accreditations: sampleCourses.reduce((total, course) => total + course.accreditations.length, 0),
-    flags: sampleCourses.reduce((total, course) => total + course.flags.length, 0),
-  });
-  if (!client) return sampleCounts();
-  try {
-    return await fetchSampleDataCounts(client);
-  } catch {
-    return sampleCounts();
-  }
+export async function getReportMetrics(): Promise<PortfolioReportMetrics> {
+  const reviewDueBy = new Date(Date.now() + 90 * 86_400_000).toISOString().slice(0, 10);
+  return fetchReportMetrics(requireDatabaseClient(), reviewDueBy);
 }
 
 export async function updateInternalCourseMetadata(input: {
   courseId: string;
+  actorId: string;
   actorEmail: string;
   internalSummary: string;
   owner: string | null;
   nextReviewDate: string | null;
-}): Promise<boolean> {
-  const client = getSupabaseAdminClient();
-  if (!client) return false;
+  expectedUpdatedAt: string;
+}): Promise<string> {
+  const client = requireDatabaseClient();
 
   const { data, error } = await client.rpc(
-    "update_internal_course_metadata",
+    "update_course_projection",
     {
       p_app_id: input.courseId,
+      p_actor_id: input.actorId,
       p_actor_email: input.actorEmail,
       p_internal_summary: input.internalSummary,
       p_owner_name: input.owner,
       p_next_review_date: input.nextReviewDate,
+      p_expected_updated_at: input.expectedUpdatedAt,
     },
   );
   if (error) {
@@ -476,7 +345,7 @@ export async function updateInternalCourseMetadata(input: {
       error,
     );
   }
-  return data === true;
+  return (data as { updated_at?: string } | null)?.updated_at ?? input.expectedUpdatedAt;
 }
 
 export async function persistFieldResolution(input: {
@@ -488,8 +357,7 @@ export async function persistFieldResolution(input: {
   resolutionReason: string | null;
   resolvedAt: string;
 }): Promise<boolean> {
-  const client = getSupabaseAdminClient();
-  if (!client) return false;
+  const client = requireDatabaseClient();
 
   const { data, error } = await client.rpc("resolve_course_field", {
     p_app_id: input.courseId,
@@ -506,75 +374,20 @@ export async function persistFieldResolution(input: {
   return data === true;
 }
 
-function sampleTaxonomySummaries(kind: "topic" | "tag"): TaxonomySummary[] {
-  const counts = new Map<string, number>();
-  for (const course of sampleCourses) {
-    const labels = kind === "topic"
-      ? course.topicAssignments.map((assignment) => assignment.topic)
-      : course.tagAssignments.map((assignment) => assignment.tag);
-    for (const label of new Set(labels)) {
-      counts.set(label, (counts.get(label) ?? 0) + 1);
-    }
-  }
-  return Array.from(counts.entries())
-    .map(([label, courseCount]) => ({ id: `sample-${kind}:${label}`, label, courseCount }))
-    .sort((a, b) => a.label.localeCompare(b.label));
-}
-
 export async function getAllTopics(): Promise<TaxonomySummary[]> {
-  const client = getSupabaseAdminClient();
-  if (!client) return sampleTaxonomySummaries("topic");
-  try {
-    return await fetchAllTopics(client);
-  } catch {
-    return sampleTaxonomySummaries("topic");
-  }
+  return fetchAllTopics(requireDatabaseClient());
 }
 
 export async function getAllTags(): Promise<TaxonomySummary[]> {
-  const client = getSupabaseAdminClient();
-  if (!client) return sampleTaxonomySummaries("tag");
-  try {
-    return await fetchAllTags(client);
-  } catch {
-    return sampleTaxonomySummaries("tag");
-  }
-}
-
-function sampleCoursesForTaxonomy(kind: "topic" | "tag", id: string): TaxonomyCourseEntry[] {
-  const label = id.slice(`sample-${kind}:`.length);
-  return sampleCourses
-    .filter((course) =>
-      kind === "topic"
-        ? course.topicAssignments.some((assignment) => assignment.topic === label)
-        : course.tagAssignments.some((assignment) => assignment.tag === label),
-    )
-    .map((course) => ({
-      assignmentId: `${course.id}-${kind}-${label}`,
-      courseId: course.id,
-      title: course.title,
-      courseCode: course.courseCode,
-    }));
+  return fetchAllTags(requireDatabaseClient());
 }
 
 export async function getCoursesForTopic(topicId: string): Promise<TaxonomyCourseEntry[]> {
-  const client = getSupabaseAdminClient();
-  if (!client) return sampleCoursesForTaxonomy("topic", topicId);
-  try {
-    return await fetchCoursesForTopic(client, topicId);
-  } catch {
-    return sampleCoursesForTaxonomy("topic", topicId);
-  }
+  return fetchCoursesForTopic(requireDatabaseClient(), topicId);
 }
 
 export async function getCoursesForTag(tagId: string): Promise<TaxonomyCourseEntry[]> {
-  const client = getSupabaseAdminClient();
-  if (!client) return sampleCoursesForTaxonomy("tag", tagId);
-  try {
-    return await fetchCoursesForTag(client, tagId);
-  } catch {
-    return sampleCoursesForTaxonomy("tag", tagId);
-  }
+  return fetchCoursesForTag(requireDatabaseClient(), tagId);
 }
 
 export async function assignCourseTopic(input: {
@@ -582,8 +395,7 @@ export async function assignCourseTopic(input: {
   topicLabel: string;
   actorEmail: string;
 }): Promise<boolean> {
-  const client = getSupabaseAdminClient();
-  if (!client) return false;
+  const client = requireDatabaseClient();
   const { data, error } = await client.rpc("assign_course_topic", {
     p_app_id: input.courseId,
     p_topic_label: input.topicLabel,
@@ -597,8 +409,7 @@ export async function removeCourseTopic(input: {
   courseTopicId: string;
   actorEmail: string;
 }): Promise<boolean> {
-  const client = getSupabaseAdminClient();
-  if (!client) return false;
+  const client = requireDatabaseClient();
   const { data, error } = await client.rpc("remove_course_topic", {
     p_course_topic_id: input.courseTopicId,
     p_actor_email: input.actorEmail,
@@ -612,8 +423,7 @@ export async function assignTopicToCourses(input: {
   courseIds: string[];
   actorEmail: string;
 }): Promise<number> {
-  const client = getSupabaseAdminClient();
-  if (!client) return 0;
+  const client = requireDatabaseClient();
   const { data, error } = await client.rpc("assign_topic_to_courses", {
     p_topic_label: input.topicLabel,
     p_app_ids: input.courseIds,
@@ -628,8 +438,7 @@ export async function assignCourseTag(input: {
   tagLabel: string;
   actorEmail: string;
 }): Promise<boolean> {
-  const client = getSupabaseAdminClient();
-  if (!client) return false;
+  const client = requireDatabaseClient();
   const { data, error } = await client.rpc("assign_course_tag", {
     p_app_id: input.courseId,
     p_tag_label: input.tagLabel,
@@ -643,8 +452,7 @@ export async function removeCourseTag(input: {
   courseTagId: string;
   actorEmail: string;
 }): Promise<boolean> {
-  const client = getSupabaseAdminClient();
-  if (!client) return false;
+  const client = requireDatabaseClient();
   const { data, error } = await client.rpc("remove_course_tag", {
     p_course_tag_id: input.courseTagId,
     p_actor_email: input.actorEmail,
@@ -658,8 +466,7 @@ export async function assignTagToCourses(input: {
   courseIds: string[];
   actorEmail: string;
 }): Promise<number> {
-  const client = getSupabaseAdminClient();
-  if (!client) return 0;
+  const client = requireDatabaseClient();
   const { data, error } = await client.rpc("assign_tag_to_courses", {
     p_tag_label: input.tagLabel,
     p_app_ids: input.courseIds,
@@ -677,8 +484,7 @@ export async function recordRetrievalRun(input: {
   received: number;
   failed: number;
 }): Promise<string | null> {
-  const client = getSupabaseAdminClient();
-  if (!client) return null;
+  const client = requireDatabaseClient();
 
   const externalRunId = `RUN-${Date.now()}`;
   const now = new Date().toISOString();
@@ -686,7 +492,7 @@ export async function recordRetrievalRun(input: {
     .from("lms_retrieval_runs")
     .insert({
       external_run_id: externalRunId,
-      provider: "Mock LMS",
+      provider: "Connected via LMS API",
       started_at: now,
       completed_at: now,
       status: input.status,
@@ -704,35 +510,18 @@ export async function recordRetrievalRun(input: {
   return (data?.external_run_id as string | undefined) ?? externalRunId;
 }
 
-const disconnectedWrikeSummary: WrikeConnectionSummary = {
-  connected: false,
-  apiHost: null,
-  accountId: null,
-  accountName: null,
-  status: null,
-  lastError: null,
-  connectedByEmail: null,
-  updatedAt: null,
-};
-
 function requireDatabaseClient() {
   const client = getSupabaseAdminClient();
   if (!client) {
     throw new Error(
-      "The Wrike integration requires Supabase to be configured; it is not available in sample-data mode.",
+      "CourseTrack persistence is not configured.",
     );
   }
   return client;
 }
 
 export async function getWrikeConnection(): Promise<WrikeConnectionSummary> {
-  const client = getSupabaseAdminClient();
-  if (!client) return disconnectedWrikeSummary;
-  try {
-    return await getWrikeConnectionSummary(client);
-  } catch {
-    return disconnectedWrikeSummary;
-  }
+  return getWrikeConnectionSummary(requireDatabaseClient());
 }
 
 export async function connectToWrike(input: {
@@ -744,15 +533,11 @@ export async function connectToWrike(input: {
 }
 
 export async function disconnectFromWrike(): Promise<void> {
-  const client = getSupabaseAdminClient();
-  if (!client) return;
-  await disconnectWrike(client);
+  await disconnectWrike(requireDatabaseClient());
 }
 
 export async function checkWrikeConnectionHealth(): Promise<WrikeConnectionSummary> {
-  const client = getSupabaseAdminClient();
-  if (!client) return disconnectedWrikeSummary;
-  return checkWrikeHealth(client);
+  return checkWrikeHealth(requireDatabaseClient());
 }
 
 export async function triggerWrikeSync(triggeredBy: string) {
@@ -760,41 +545,24 @@ export async function triggerWrikeSync(triggeredBy: string) {
 }
 
 export async function getWrikeSync(): Promise<WrikeSyncStatus> {
-  const client = getSupabaseAdminClient();
-  if (!client) return { lastRun: null, isRunning: false, folders: [] };
-  try {
-    return await getWrikeSyncStatus(client);
-  } catch {
-    return { lastRun: null, isRunning: false, folders: [] };
-  }
+  return getWrikeSyncStatus(requireDatabaseClient());
 }
 
 export async function searchWrikeTasks(filters: WrikeTaskSearchFilters) {
-  const client = getSupabaseAdminClient();
-  if (!client) return { items: [], total: 0, hasMore: false };
-  try {
-    return await searchLocalWrikeTasks(client, filters);
-  } catch {
-    return { items: [], total: 0, hasMore: false };
-  }
+  return searchLocalWrikeTasks(requireDatabaseClient(), filters);
 }
 
 export async function searchWrikeTasksForCourseVersion(
   courseVersionId: string,
   searchText?: string,
 ): Promise<{ items: WrikeTaskCandidate[]; total: number; hasMore: boolean }> {
-  const client = getSupabaseAdminClient();
-  if (!client) return { items: [], total: 0, hasMore: false };
-  try {
-    const query = searchText?.trim() ||
-      (await (async () => {
-        const context = await getCourseVersionSearchContext(client, courseVersionId);
-        return context ? buildWrikeTaskSearchQuery(context) : "";
-      })());
-    return await searchLocalWrikeTasks(client, { query: query || undefined, pageSize: 10 });
-  } catch {
-    return { items: [], total: 0, hasMore: false };
-  }
+  const client = requireDatabaseClient();
+  const query = searchText?.trim() ||
+    (await (async () => {
+      const context = await getCourseVersionSearchContext(client, courseVersionId);
+      return context ? buildWrikeTaskSearchQuery(context) : "";
+    })());
+  return searchLocalWrikeTasks(client, { query: query || undefined, pageSize: 10 });
 }
 
 export async function linkWrikeTaskToCourseVersion(input: {
@@ -830,16 +598,7 @@ export async function listUsers(filters: {
   role?: ApplicationRole;
   status?: "active" | "disabled";
 } = {}): Promise<ApplicationUserSummary[]> {
-  const client = getSupabaseAdminClient();
-  if (!client) return [];
-  try {
-    return await listApplicationUsers(client, filters);
-  } catch {
-    // The role-based-auth migration may not be applied yet -- degrade to an
-    // empty list rather than crashing the page, matching this app's
-    // existing sample-data-fallback philosophy.
-    return [];
-  }
+  return listApplicationUsers(requireDatabaseClient(), filters);
 }
 
 export interface EnvironmentSnapshotStatus {
@@ -848,14 +607,14 @@ export interface EnvironmentSnapshotStatus {
 }
 
 export async function getEnvironmentSnapshotStatus(): Promise<EnvironmentSnapshotStatus | null> {
-  const client = getSupabaseAdminClient();
-  if (!client) return null;
+  const client = requireDatabaseClient();
   const { data, error } = await client
     .from("environment_snapshot_status")
     .select("refreshed_at,source_snapshot_at")
     .eq("singleton", true)
     .maybeSingle();
-  if (error || !data) return null;
+  if (error) throw databaseError("Could not read the environment snapshot status", error);
+  if (!data) return null;
   return {
     refreshedAt: data.refreshed_at as string,
     sourceSnapshotAt: data.source_snapshot_at as string,

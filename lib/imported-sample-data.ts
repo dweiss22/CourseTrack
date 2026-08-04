@@ -217,7 +217,7 @@ function buildAccreditations(
         creditHours,
         effectiveDate: record.startDate,
         expirationDate,
-        source: "lms",
+        source: "uploaded",
         riskReasons: record.mappingWarnings,
       };
     });
@@ -490,11 +490,11 @@ function buildCourse(metadataRow: SourceRow, index: number): Course {
     healthStatus: courseHealth,
     healthScore: score,
     metadataCompletenessScore,
-    dataSource: "import",
-    sourceSystem: "Mock LMS exports + Content Metadata",
+    dataSource: "uploaded",
+    sourceSystem: "Uploaded workbooks",
     retrievalStatus: lmsSnapshot
       ? parsedLms?.warnings.length ? "Retrieved with Warnings" : "Retrieved"
-      : "Sample Data",
+      : "Uploaded",
     lastRetrievedAt: lmsSnapshot?.retrievedAt ?? null,
     isSample: true,
     internalSummary: lmsSnapshot

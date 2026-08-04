@@ -174,18 +174,14 @@ export function AppShell({
       const supabase = createSupabaseBrowserClient();
       await supabase.auth.signOut();
     } catch {
-      // Supabase Auth isn't configured (sample-data mode) -- nothing to sign
-      // out of; still send the user back to /login.
+      // A missing browser client is still followed by a return to sign-in.
     }
     router.push("/login");
     router.refresh();
   };
 
-  // Unauthenticated, no application membership, or a pre-auth page: render
-  // bare, no nav chrome. The pathname check matters even when
-  // authContext is non-null, since sample-data mode always resolves a
-  // synthetic identity -- there's no real logged-out state to distinguish
-  // there, so /login etc. must be special-cased by path instead.
+  // Unauthenticated, no application membership, or a pre-auth page renders
+  // without application navigation.
   const environmentBanner = (
     <EnvironmentBanner
       environment={deploymentEnvironment}
@@ -231,7 +227,7 @@ export function AppShell({
         </div>
 
         <div className="workspace-chip">
-          <StatusBadge tone="sample">Sample workspace</StatusBadge>
+          <StatusBadge tone="success">Database workspace</StatusBadge>
           <span>{courseIndex.length.toLocaleString()} courses</span>
         </div>
 
@@ -316,35 +312,14 @@ export function AppShell({
                 aria-expanded={notificationsOpen}
               >
                 <Bell size={18} />
-                <span className="notification-dot" />
               </button>
               {notificationsOpen && (
                 <div className="notification-popover">
                   <div className="popover-heading">
                     <strong>Notifications</strong>
-                    <span>3 unread</span>
+                    <span>0 unread</span>
                   </div>
-                  <Link href="/accreditation">
-                    <span className="notification-icon warning">30d</span>
-                    <span>
-                      <strong>Accreditation deadline</strong>
-                      <small>3 approvals expire within 30 days</small>
-                    </span>
-                  </Link>
-                  <Link href="/flags">
-                    <span className="notification-icon danger">!</span>
-                    <span>
-                      <strong>Critical flag assigned</strong>
-                      <small>Use of Force Decision-Making</small>
-                    </span>
-                  </Link>
-                  <Link href="/admin">
-                    <span className="notification-icon info">LMS</span>
-                    <span>
-                      <strong>Retrieval warning</strong>
-                      <small>2 sample mappings need review</small>
-                    </span>
-                  </Link>
+                  <div className="notification-empty">No unread notifications.</div>
                 </div>
               )}
             </div>

@@ -7,12 +7,14 @@ import {
   Download,
   Grid2X2,
   List,
+  Plus,
   Search,
   SlidersHorizontal,
   Star,
   X,
 } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   createColumnHelper,
   flexRender,
@@ -22,8 +24,9 @@ import {
   type SortingState,
   useReactTable,
 } from "@tanstack/react-table";
-import { useMemo, useState } from "react";
+import { type FormEvent, useMemo, useState } from "react";
 import type { Course, ManagementClassification } from "@/types/course";
+import { provenanceLabels } from "@/types/course";
 import {
   getVerticalLabel,
   managementClassifications,
@@ -147,7 +150,8 @@ function csvSafe(value: unknown): string {
   return `"${protectedValue.replaceAll('"', '""')}"`;
 }
 
-export function CourseLibrary({ courses }: { courses: CourseLibraryRecord[] }) {
+export function CourseLibrary({ courses, initialFavoriteIds, canEdit }: { courses: CourseLibraryRecord[]; initialFavoriteIds: string[]; canEdit: boolean }) {
+  const router = useRouter();
   const [search, setSearch] = useState("");
   const [vertical, setVertical] = useState("All verticals");
   const [lifecycle, setLifecycle] = useState("All statuses");
@@ -158,7 +162,18 @@ export function CourseLibrary({ courses }: { courses: CourseLibraryRecord[] }) {
   const [workQueue, setWorkQueue] = useState<WorkQueue>("All queues");
   const [view, setView] = useState<"table" | "cards">("table");
   const [sorting, setSorting] = useState<SortingState>([]);
-  const [favorites, setFavorites] = useState<string[]>([]);
+  const [favorites, setFavorites] = useState<string[]>(initialFavoriteIds);
+  const [favoritePending, setFavoritePending] = useState<string | null>(null);
+  const [favoriteError, setFavoriteError] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [createPending, setCreatePending] = useState(false);
+  const [createError, setCreateError] = useState("");
+  const verticalOptions = Array.from(new Set(courses.map((course) => course.primaryVertical))).sort();
+
+  const createCourse = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault(); const form = new FormData(event.currentTarget); setCreatePending(true); setCreateError("");
+    try { const response = await fetch("/api/courses", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ courseCode: String(form.get("courseCode")), title: String(form.get("title")), shortTitle: String(form.get("shortTitle")) || null, description: String(form.get("description")), primaryVertical: String(form.get("primaryVertical")), lifecycleStatus: String(form.get("lifecycleStatus")), publicationStatus: String(form.get("publicationStatus")) }) }); const result = (await response.json()) as { course?: { id: string }; message?: string }; if (!response.ok) throw new Error(result.message); setCreating(false); router.refresh(); } catch (error) { setCreateError(error instanceof Error ? error.message : "Course could not be created."); } finally { setCreatePending(false); }
+  };
 
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -274,7 +289,7 @@ export function CourseLibrary({ courses }: { courses: CourseLibraryRecord[] }) {
       course.conflictCount,
       course.topicAssignments.map((assignment) => assignment.topic).join("; "),
       course.healthStatus,
-      course.dataSource,
+      provenanceLabels[course.dataSource],
     ]);
     const csv = [headers, ...rows]
       .map((row) => row.map(csvSafe).join(","))
@@ -289,12 +304,18 @@ export function CourseLibrary({ courses }: { courses: CourseLibraryRecord[] }) {
     URL.revokeObjectURL(url);
   };
 
-  const toggleFavorite = (courseId: string) => {
-    setFavorites((current) =>
-      current.includes(courseId)
-        ? current.filter((id) => id !== courseId)
-        : [...current, courseId],
-    );
+  const toggleFavorite = async (courseId: string) => {
+    const nextFavorite = !favorites.includes(courseId);
+    setFavoritePending(courseId);
+    setFavoriteError("");
+    try {
+      const response = await fetch(`/api/courses/${courseId}/favorite`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ favorite: nextFavorite }) });
+      const result = (await response.json()) as { message?: string };
+      if (!response.ok) throw new Error(result.message);
+      setFavorites((current) => nextFavorite ? [...new Set([...current, courseId])] : current.filter((id) => id !== courseId));
+    } catch (error) {
+      setFavoriteError(error instanceof Error ? error.message : "Favorite could not be updated.");
+    } finally { setFavoritePending(null); }
   };
 
   return (
@@ -309,6 +330,7 @@ export function CourseLibrary({ courses }: { courses: CourseLibraryRecord[] }) {
           </p>
         </div>
         <div className="heading-actions">
+          {canEdit && <button className="button button-primary" onClick={() => setCreating(true)}><Plus size={16} /> Create course</button>}
           <button className="button button-secondary" onClick={exportResults}>
             <Download size={16} />
             Export results
@@ -320,16 +342,19 @@ export function CourseLibrary({ courses }: { courses: CourseLibraryRecord[] }) {
         </div>
       </section>
 
+      {creating && <form className="panel workflow-form" onSubmit={createCourse}><div className="panel-heading"><div><h2>Create CourseTrack course</h2><p>This creates an application-owned projection with no LMS identity.</p></div><button type="button" className="icon-action" aria-label="Cancel course creation" onClick={() => setCreating(false)}><X size={18} /></button></div><div className="form-grid"><label>Course code<input name="courseCode" required minLength={2} /></label><label>Title<input name="title" required minLength={3} /></label><label>Short title<input name="shortTitle" /></label><label>Primary vertical<select name="primaryVertical" required>{verticalOptions.map((value) => <option key={value}>{value}</option>)}</select></label><label>Lifecycle<select name="lifecycleStatus" defaultValue="In Development">{["Published", "Under Maintenance", "Internal Review", "In Development", "Scheduled for Revamp", "Retired", "Archived"].map((value) => <option key={value}>{value}</option>)}</select></label><label>Publication status<input name="publicationStatus" defaultValue="Draft" required /></label><label className="form-span">Description<textarea name="description" maxLength={5000} /></label></div>{createError && <p className="taxonomy-editor-error" role="alert">{createError}</p>}<div className="button-row"><button type="button" className="button button-secondary" onClick={() => setCreating(false)}>Cancel</button><button className="button button-primary" disabled={createPending}>{createPending ? "Creating…" : "Create course"}</button></div></form>}
+
+      {favoriteError && <div className="inline-alert alert-danger" role="alert">{favoriteError}</div>}
+
       <div className="source-banner">
         <div className="source-banner-icon">S</div>
         <div>
-          <strong>Sample data mode</strong>
+          <strong>Immutable sources, editable projection</strong>
           <span>
-            These records were generated from the supplied LMS, Content Metadata,
-            and Topics workbooks. LMS fields are read-only; internal fields can be maintained separately.
+            Uploaded workbook values are retained as source history. Authorized edits are stored separately in CourseTrack.
           </span>
         </div>
-        <StatusBadge tone="sample">Mock LMS</StatusBadge>
+        <StatusBadge tone="info">Uploaded</StatusBadge>
       </div>
 
       <section className="library-toolbar">
@@ -518,6 +543,7 @@ export function CourseLibrary({ courses }: { courses: CourseLibraryRecord[] }) {
                           favorites.includes(row.original.id) ? "favorite-active" : ""
                         }`}
                         onClick={() => toggleFavorite(row.original.id)}
+                        disabled={favoritePending === row.original.id}
                         aria-label={`${favorites.includes(row.original.id) ? "Remove" : "Add"} ${row.original.title} ${favorites.includes(row.original.id) ? "from" : "to"} favorites`}
                       >
                         <Star
@@ -565,6 +591,7 @@ export function CourseLibrary({ courses }: { courses: CourseLibraryRecord[] }) {
                       favorites.includes(course.id) ? "favorite-active" : ""
                     }`}
                     onClick={() => toggleFavorite(course.id)}
+                    disabled={favoritePending === course.id}
                     aria-label="Toggle favorite"
                   >
                     <Star
