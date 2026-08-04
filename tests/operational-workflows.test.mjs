@@ -17,6 +17,14 @@ test("the operational migration backfills provenance without deleting source his
   assert.doesNotMatch(sql, /delete\s+from\s+(courses|course_versions|accreditation_records|notes|course_flags|revamp_proposals)/i);
 });
 
+test("the course health trigger casts PostgreSQL bigint counts to the score function contract", async () => {
+  const sql = await read("supabase/migrations/202608040007_course_operations.sql");
+  assert.match(
+    sql,
+    /select count\(\*\)::integer from public\.field_comparisons/,
+  );
+});
+
 test("mutation routes authenticate before record lookup and use shared validation", async () => {
   const paths = [
     "app/api/courses/[id]/route.ts",

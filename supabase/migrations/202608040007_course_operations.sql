@@ -84,7 +84,7 @@ declare score integer;
 begin
   score := public.course_health_score(
     new.metadata_completeness_score,
-    (select count(*) from public.field_comparisons where course_id = new.id and comparison_status = 'Conflict' and selected_source is null),
+    (select count(*)::integer from public.field_comparisons where course_id = new.id and comparison_status = 'Conflict' and selected_source is null),
     jsonb_array_length(coalesce(new.import_validation_errors, '[]'::jsonb)),
     exists (select 1 from public.lms_snapshots where course_id = new.id and is_current)
   );
