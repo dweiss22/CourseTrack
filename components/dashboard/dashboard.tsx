@@ -188,6 +188,13 @@ export function Dashboard({
         </div>
       </section>
 
+      {snapshot.degradedMode && (
+        <div className="inline-alert" role="status">
+          <Database size={17} />
+          <span><strong>Course data upgrade pending.</strong> Dashboard summaries remain available while the new comparison tools are being activated.</span>
+        </div>
+      )}
+
       <section className="metric-grid" aria-label="Portfolio summary">
         {metricCards.map((metric) => {
           const Icon = metric.icon;

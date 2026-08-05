@@ -816,6 +816,7 @@ export interface DashboardSnapshot {
   healthData: { name: Course["healthStatus"]; value: number }[];
   reviewQueue: DashboardQueueCourse[];
   riskQueue: DashboardQueueCourse[];
+  degradedMode?: boolean;
 }
 
 export async function fetchDashboardSnapshot(client: SupabaseClient, input: { vertical?: string; includeExcluded?: boolean } = {}): Promise<DashboardSnapshot> {
@@ -823,8 +824,77 @@ export async function fetchDashboardSnapshot(client: SupabaseClient, input: { ve
     p_vertical: input.vertical ?? "",
     p_include_excluded: input.includeExcluded ?? false,
   });
+  if (error?.code === "PGRST202") return fetchLegacyDashboardSnapshot(client, input);
   if (error) throw new Error(`Could not read the dashboard snapshot: ${error.message}`);
   return data as DashboardSnapshot;
+}
+
+async function fetchLegacyDashboardSnapshot(client: SupabaseClient, input: { vertical?: string; includeExcluded?: boolean }): Promise<DashboardSnapshot> {
+  const [verticalRows, courseRows, flagRows, snapshotRows, metadataRows, conflictRows] = await Promise.all([
+    fetchAllRows(client, "verticals", "id,slug"),
+    fetchAllRows(client, "courses", "id,app_id,title,primary_vertical_id,management_classification,health_status,next_review_date,owner_name,metadata_completeness_score,reconciliation_status,retrieval_status,import_validation_errors", (query) => query.is("archived_at", null)),
+    fetchAllRows(client, "course_flags", "course_id", (query) => query.is("archived_at", null)),
+    fetchAllRows(client, "lms_snapshots", "course_id", (query) => query.eq("is_current", true)),
+    fetchAllRows(client, "content_metadata_records", "course_id"),
+    fetchAllRows(client, "field_comparisons", "course_id", (query) => query.eq("comparison_status", "Conflict").is("selected_source", null)),
+  ]);
+  const verticalById = new Map(verticalRows.map((row) => [row.id as string, row.slug as string]));
+  const countByCourse = (rows: Row[]) => {
+    const counts = new Map<string, number>();
+    for (const row of rows) counts.set(row.course_id as string, (counts.get(row.course_id as string) ?? 0) + 1);
+    return counts;
+  };
+  const flagCounts = countByCourse(flagRows);
+  const conflictCounts = countByCourse(conflictRows);
+  const lmsCourseIds = new Set(snapshotRows.map((row) => row.course_id as string));
+  const metadataCourseIds = new Set(metadataRows.map((row) => row.course_id as string));
+  const courses = courseRows.map((row) => {
+    const databaseId = row.id as string;
+    return {
+      id: row.app_id as string,
+      title: row.title as string,
+      primaryVertical: SLUG_TO_VERTICAL[verticalById.get(row.primary_vertical_id as string) ?? ""] ?? "Unclassified",
+      managementClassification: row.management_classification as Course["managementClassification"],
+      healthStatus: row.health_status as Course["healthStatus"],
+      nextReviewDate: (row.next_review_date as string) ?? null,
+      owner: (row.owner_name as string) ?? null,
+      metadataCompletenessScore: Number(row.metadata_completeness_score ?? 0),
+      reconciliationStatus: row.reconciliation_status as Course["reconciliationStatus"],
+      retrievalStatus: row.retrieval_status as Course["retrievalStatus"],
+      validationCount: Array.isArray(row.import_validation_errors) ? row.import_validation_errors.length : 0,
+      hasLms: lmsCourseIds.has(databaseId),
+      hasMetadata: metadataCourseIds.has(databaseId),
+      conflictCount: conflictCounts.get(databaseId) ?? 0,
+      flagCount: flagCounts.get(databaseId) ?? 0,
+    };
+  });
+  const portfolio = input.includeExcluded ? courses : courses.filter((course) => course.managementClassification !== "Non-Lexipol excluded");
+  const filtered = !input.vertical || input.vertical === "All verticals" ? portfolio : portfolio.filter((course) => course.primaryVertical === input.vertical);
+  const queueCourse = (course: (typeof courses)[number]): DashboardQueueCourse => ({
+    id: course.id, title: course.title, primaryVertical: course.primaryVertical, owner: course.owner,
+    nextReviewDate: course.nextReviewDate, healthStatus: course.healthStatus, flagCount: course.flagCount,
+    metadataCompletenessScore: course.metadataCompletenessScore,
+  });
+  return {
+    degradedMode: true,
+    metrics: {
+      totalLmsRetrieved: courses.filter((course) => course.hasLms).length,
+      lexipolManaged: portfolio.filter((course) => course.managementClassification === "Lexipol managed").length,
+      nonLexipolTracked: portfolio.filter((course) => course.managementClassification === "Non-Lexipol tracked").length,
+      unclassified: portfolio.filter((course) => course.managementClassification === "Unclassified").length,
+      missingContentMetadata: portfolio.filter((course) => course.hasLms && !course.hasMetadata).length,
+      missingFromLms: portfolio.filter((course) => !course.hasLms && course.hasMetadata).length,
+      unresolvedConflicts: portfolio.filter((course) => course.conflictCount > 0).length,
+      mappingRequired: portfolio.filter((course) => course.reconciliationStatus === "Mapping required").length,
+      staleLms: portfolio.filter((course) => ["Stale Data", "Retrieval Failed"].includes(course.retrievalStatus)).length,
+      importValidationErrors: portfolio.reduce((total, course) => total + course.validationCount, 0),
+    },
+    coursesInView: filtered.length,
+    verticalData: verticals.map((name) => ({ name, courses: portfolio.filter((course) => course.primaryVertical === name).length })),
+    healthData: (["Healthy", "Monitor", "Needs Review", "At Risk", "Critical"] as Course["healthStatus"][]).map((name) => ({ name, value: filtered.filter((course) => course.healthStatus === name).length })),
+    reviewQueue: filtered.filter((course) => course.nextReviewDate).sort((left, right) => (left.nextReviewDate ?? "").localeCompare(right.nextReviewDate ?? "") || left.id.localeCompare(right.id)).slice(0, 5).map(queueCourse),
+    riskQueue: filtered.filter((course) => ["Critical", "At Risk"].includes(course.healthStatus)).sort((left, right) => (left.healthStatus === right.healthStatus ? right.flagCount - left.flagCount : left.healthStatus === "Critical" ? -1 : 1) || left.id.localeCompare(right.id)).slice(0, 5).map(queueCourse),
+  };
 }
 
 export async function fetchPortfolioSummaries(client: SupabaseClient): Promise<PortfolioSummary[]> {
