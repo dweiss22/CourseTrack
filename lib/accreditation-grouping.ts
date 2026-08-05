@@ -105,7 +105,7 @@ export function assessAccreditationHistory(
 
   for (const record of records.filter((item) => !item.archivedAt)) {
     const organizationKey = normalizeAccreditationKey(record.organization);
-    const jurisdictionKey = normalizeAccreditationKey(record.jurisdiction || "National");
+    const jurisdictionKey = normalizeAccreditationKey(record.jurisdiction);
     const key = `${courseKey}::${organizationKey}::${jurisdictionKey}`;
     const list = grouped.get(key) ?? [];
     list.push(record);
@@ -146,7 +146,7 @@ export function assessAccreditationHistory(
       key,
       courseKey,
       organization: summary.record.organization,
-      jurisdiction: summary.record.jurisdiction || "National",
+      jurisdiction: summary.record.jurisdiction || "Not provided",
       summary,
       current,
       history: assessed.slice(1),

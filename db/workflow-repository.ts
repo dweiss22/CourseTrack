@@ -228,7 +228,8 @@ export async function archiveWorkflowRecord(input: {
   actor: Actor;
 }): Promise<void> {
   const client = database();
-  const { data, error } = await client.rpc("archive_workflow_record", {
+  const managed = input.table === "course_versions" || input.table === "accreditation_records";
+  const { data, error } = await client.rpc(managed ? "archive_managed_record" : "archive_workflow_record", {
     p_table_name: input.table, p_record_id: input.id,
     p_expected_updated_at: input.expectedUpdatedAt ?? null,
     p_actor_id: input.actor.userId, p_actor_email: input.actor.email,
@@ -236,13 +237,49 @@ export async function archiveWorkflowRecord(input: {
   if (error || data !== true) throw new Error(`Could not archive the record: ${error?.message ?? "Database did not confirm archival."}`);
 }
 
+export async function restoreManagedRecord(input: {
+  table: "course_versions" | "accreditation_records";
+  id: string;
+  expectedUpdatedAt: string;
+  actor: Actor;
+}): Promise<void> {
+  const { data, error } = await database().rpc("restore_managed_record", {
+    p_table_name: input.table,
+    p_record_id: input.id,
+    p_expected_updated_at: input.expectedUpdatedAt,
+    p_actor_id: input.actor.userId,
+    p_actor_email: input.actor.email,
+  });
+  if (error || data !== true) throw new Error(`Could not restore the record: ${error?.message ?? "Database did not confirm restoration."}`);
+}
+
+export async function confirmDataAlignment(input: {
+  recordType: "field_comparison" | "accreditation";
+  recordId: string;
+  note: string | null;
+  expectedUpdatedAt: string;
+  actor: Actor;
+}): Promise<Row> {
+  const { data, error } = await database().rpc("confirm_data_alignment", {
+    p_record_type: input.recordType,
+    p_record_id: input.recordId,
+    p_note: input.note,
+    p_expected_updated_at: input.expectedUpdatedAt,
+    p_actor_id: input.actor.userId,
+    p_actor_email: input.actor.email,
+  });
+  if (error) throw new Error(`Could not confirm source alignment: ${error.message}`);
+  return data as Row;
+}
+
 function mapAccreditation(row: Row): AccreditationRecord {
   return {
     id: row.id as string,
     organization: row.organization as string,
-    jurisdiction: (row.jurisdiction as string) || "National",
+    jurisdiction: (row.jurisdiction as string) ?? "",
     status: row.status as AccreditationRecord["status"],
     approvalNumber: (row.approval_number as string) ?? null,
+    topicNumber: (row.topic_number as string) ?? null,
     creditHours: Number(row.credit_hours ?? 0),
     effectiveDate: (row.effective_date as string) ?? null,
     expirationDate: (row.expiration_date as string) ?? null,
@@ -252,6 +289,13 @@ function mapAccreditation(row: Row): AccreditationRecord {
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
     archivedAt: (row.archived_at as string) ?? null,
+    sourceDomain: (row.source_domain as AccreditationRecord["sourceDomain"]) ?? "coursetrack",
+    sourceTransport: (row.source_transport as AccreditationRecord["sourceTransport"]) ?? "manual",
+    sourceNormalizedValues: (row.source_normalized_payload as AccreditationRecord["sourceNormalizedValues"]) ?? {},
+    alignmentStatus: (row.alignment_status as AccreditationRecord["alignmentStatus"]) ?? "App only",
+    confirmationActor: (row.alignment_confirmed_by_email as string) ?? null,
+    confirmationTime: (row.alignment_confirmed_at as string) ?? null,
+    confirmationNote: (row.alignment_confirmation_note as string) ?? null,
   };
 }
 
@@ -262,13 +306,23 @@ export async function saveAccreditation(input: {
   jurisdiction: string;
   status: AccreditationRecord["status"];
   approvalNumber: string | null;
+  topicNumber: string | null;
   creditHours: number;
   effectiveDate: string | null;
   expirationDate: string | null;
   expectedUpdatedAt?: string;
   actor: Actor;
 }): Promise<AccreditationRecord> {
-  return mapAccreditation(await saveWorkflowEntity({ entity: "accreditation", id: input.id, courseAppId: input.courseAppId, expectedUpdatedAt: input.expectedUpdatedAt, payload: { organization: input.organization, jurisdiction: input.jurisdiction, status: input.status, approvalNumber: input.approvalNumber, creditHours: input.creditHours, effectiveDate: input.effectiveDate, expirationDate: input.expirationDate }, actor: input.actor }));
+  const { data, error } = await database().rpc("save_accreditation_v2", {
+    p_record_id: input.id ?? null,
+    p_course_app_id: input.courseAppId ?? null,
+    p_payload: { organization: input.organization, jurisdiction: input.jurisdiction, status: input.status, approvalNumber: input.approvalNumber, topicNumber: input.topicNumber, creditHours: input.creditHours, effectiveDate: input.effectiveDate, expirationDate: input.expirationDate },
+    p_expected_updated_at: input.expectedUpdatedAt ?? null,
+    p_actor_id: input.actor.userId,
+    p_actor_email: input.actor.email,
+  });
+  if (error) throw new Error(`Could not save the accreditation: ${error.message}`);
+  return mapAccreditation(data as Row);
 }
 
 function mapVersion(row: Row): CourseVersion {

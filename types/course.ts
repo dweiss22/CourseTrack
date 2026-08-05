@@ -7,6 +7,7 @@ export const verticals = [
   "LGU",
   "Lexipol",
   "Wellness",
+  "Unclassified",
 ] as const;
 
 export type Vertical = (typeof verticals)[number];
@@ -20,6 +21,7 @@ export const verticalNames: Record<Vertical, string> = {
   LGU: "Local Government University",
   Lexipol: "Internal employee LMS",
   Wellness: "Course content for the Wellness app",
+  Unclassified: "No reliable LMS or metadata mapping",
 };
 
 export function getVerticalLabel(vertical: Vertical): string {
@@ -59,13 +61,38 @@ export type ComparisonStatus =
 
 export type ResolvedFieldSource = "lms" | "content_metadata" | null;
 
-export interface FieldComparison {
+export type DataAlignmentStatus =
+  | "In sync"
+  | "Pending LMS update"
+  | "Manually confirmed"
+  | "Missing metadata"
+  | "App only"
+  | "Mapping required";
+
+export type ComparisonFieldScope = "shared" | "lms_exclusive" | "metadata_only" | "app_only";
+export type SourceTransport = "uploaded" | "lms_api" | "manual";
+
+export interface DataComparison {
+  id: string;
   fieldKey: string;
   fieldLabel: string;
   lmsRawValue: unknown;
   lmsNormalizedValue: unknown;
   contentMetadataRawValue: unknown;
   contentMetadataNormalizedValue: unknown;
+  courseTrackNormalizedValue: unknown;
+  fieldScope: ComparisonFieldScope;
+  alignmentStatus: DataAlignmentStatus;
+  lmsSourceTimestamp: string | null;
+  metadataSourceTimestamp: string | null;
+  confirmationActor: string | null;
+  confirmationTime: string | null;
+  confirmationNote: string | null;
+  sourceValueHash: string | null;
+  confirmedSourceHash: string | null;
+}
+
+export interface FieldComparison extends DataComparison {
   resolvedValue: unknown;
   selectedSource: ResolvedFieldSource;
   comparisonStatus: ComparisonStatus;
@@ -141,6 +168,7 @@ export interface LmsCourseSnapshot {
   rawPayload: Record<string, unknown>;
   normalized: NormalizedLmsPayload;
   mappingWarnings: string[];
+  sourceTransport?: SourceTransport;
 }
 
 export interface ContentMetadataRecord {
@@ -327,6 +355,7 @@ export interface VersionWrikeTaskReference {
   linkMethod: "manual_permalink" | "selected_candidate" | null;
   lastVerifiedAt: string | null;
   updatedAt: string;
+  wrikePublishedDate: string | null;
 }
 
 export interface CourseVersion {
@@ -347,6 +376,7 @@ export interface CourseVersion {
   originProvenance?: Provenance;
   updatedAt?: string;
   archivedAt?: string | null;
+  sourceTransport?: SourceTransport;
 }
 
 export type AccreditationRiskState =
@@ -379,6 +409,7 @@ export interface AccreditationRecord {
     | "Expired"
     | "Not Required";
   approvalNumber: string | null;
+  topicNumber: string | null;
   creditHours: number;
   effectiveDate: string | null;
   expirationDate: string | null;
@@ -388,6 +419,20 @@ export interface AccreditationRecord {
   updatedAt?: string;
   archivedAt?: string | null;
   originProvenance?: Provenance;
+  sourceDomain: "lms" | "coursetrack";
+  sourceTransport: SourceTransport;
+  sourceNormalizedValues: {
+    organization?: string | null;
+    jurisdiction?: string | null;
+    approvalNumber?: string | null;
+    topicNumber?: string | null;
+    effectiveDate?: string | null;
+    expirationDate?: string | null;
+  };
+  alignmentStatus: Extract<DataAlignmentStatus, "In sync" | "Pending LMS update" | "Manually confirmed" | "App only">;
+  confirmationActor: string | null;
+  confirmationTime: string | null;
+  confirmationNote: string | null;
 }
 
 export interface AssessedAccreditationRecord {
@@ -506,7 +551,7 @@ export interface Course {
   lifecycleStatus: LifecycleStatus;
   publicationStatus: PublicationStatus;
   deliveryFormat: string;
-  durationMinutes: number;
+  durationMinutes: number | null;
   authoringTool: string;
   stateCode: string | null;
   owner: string | null;
@@ -575,9 +620,9 @@ export interface CourseProjectionUpdate {
   lifecycleStatus: Exclude<LifecycleStatus, "Proposed" | "Legal Review">;
   publicationStatus: PublicationStatus;
   contentType: string;
-  durationMinutes: number;
+  durationMinutes: number | null;
   trainingCredits: NormalizedTrainingCredit;
-  published: boolean;
+  published: boolean | null;
   authoringTool: string;
   stateCode: string;
   owner: string;

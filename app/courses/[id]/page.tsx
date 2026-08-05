@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { CourseDetail } from "@/components/course-detail/course-detail";
-import { getActiveAssignees, getAllTags, getAllTopics, getCourseRecord, getFavorite } from "@/db";
+import { getActiveAssignees, getAllTags, getAllTopics, getCourseRecord, getFavorite, getLmsAuthorityMode } from "@/db";
 import { requireUser } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
@@ -26,12 +26,13 @@ export default async function CourseDetailPage({
 }) {
   const authContext = await requireUser();
   const { id } = await params;
-  const [course, allTopics, allTags, initialFavorite, assignees] = await Promise.all([
+  const [course, allTopics, allTags, initialFavorite, assignees, lmsAuthorityMode] = await Promise.all([
     getCourseRecord(id),
     getAllTopics(),
     getAllTags(),
     getFavorite(id, authContext.userId),
     getActiveAssignees(),
+    getLmsAuthorityMode(),
   ]);
   if (!course) notFound();
   return (
@@ -41,7 +42,10 @@ export default async function CourseDetailPage({
       tagSuggestions={allTags.map((tag) => tag.label)}
       initialFavorite={initialFavorite}
       canEditCourse={["super_admin", "admin", "content"].includes(authContext.role)}
-      lmsConnected={false}
+      canManageVersions={["super_admin", "admin", "content"].includes(authContext.role)}
+      canManageAccreditations={["super_admin", "admin", "accreditation"].includes(authContext.role)}
+      isAdministrator={["super_admin", "admin"].includes(authContext.role)}
+      lmsAuthorityMode={lmsAuthorityMode}
       assignees={assignees}
     />
   );

@@ -43,6 +43,7 @@ next-env.d.ts
 /outputs/
 /work/
 /tmp/lms-import/
+/backups/
 
 # local discovery/source artifacts (kept outside application commits)
 /Files/

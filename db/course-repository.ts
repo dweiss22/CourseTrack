@@ -121,19 +121,19 @@ async function fetchGraph(client: SupabaseClient, courseAppId?: string): Promise
       client,
       "course_versions",
       "id,course_id,version_number,version_type,publication_date,is_current,authoring_tool,package_standard,release_notes,managed_by,created_by_email,version_status,provenance,origin_provenance,created_at,updated_at,archived_at",
-      (query) => byCourse(query).is("archived_at", null),
+      byCourse,
     ),
     fetchAllRows(
       client,
       "version_wrike_task_references",
-      "id,course_version_id,external_task_id,task_title,external_project_id,project_title,task_status,assignee_names,due_date,permalink,provider_name,retrieved_at,linked_by_email,linked_at,link_method,last_verified_at,updated_at",
+      "id,course_version_id,external_task_id,task_title,external_project_id,project_title,task_status,assignee_names,due_date,permalink,provider_name,retrieved_at,linked_by_email,linked_at,link_method,last_verified_at,updated_at,wrike_published_date",
       (query) => query.is("unlinked_at", null),
     ),
     fetchAllRows(
       client,
       "accreditation_records",
-      "id,course_id,organization,jurisdiction,status,approval_number,credit_hours,effective_date,expiration_date,risk_reasons,data_source,provenance,origin_provenance,created_at,updated_at,archived_at",
-      (query) => byCourse(query).is("archived_at", null),
+      "id,course_id,organization,jurisdiction,status,approval_number,topic_number,credit_hours,effective_date,expiration_date,risk_reasons,data_source,provenance,origin_provenance,source_domain,source_transport,source_normalized_payload,alignment_status,alignment_confirmed_by_email,alignment_confirmed_at,alignment_confirmation_note,created_at,updated_at,archived_at",
+      byCourse,
     ),
     fetchAllRows(
       client,
@@ -151,14 +151,14 @@ async function fetchGraph(client: SupabaseClient, courseAppId?: string): Promise
     fetchAllRows(
       client,
       "lms_snapshots",
-      "id,course_id,provider,external_id,retrieval_run_id,retrieved_at,normalized_payload,raw_payload,mapping_warnings",
+      "id,course_id,provider,external_id,retrieval_run_id,retrieved_at,normalized_payload,raw_payload,mapping_warnings,source_transport",
       (query) => byCourse(query).eq("is_current", true),
     ),
-    fetchAllRows(client, "content_metadata_records", "course_id,normalized_payload", byCourse),
+    fetchAllRows(client, "content_metadata_records", "course_id,normalized_payload", (query) => byCourse(query).eq("is_current", true)),
     fetchAllRows(
       client,
       "field_comparisons",
-      "course_id,field_key,field_label,lms_raw_value,lms_normalized_value,content_metadata_raw_value,content_metadata_normalized_value,resolved_value,selected_source,comparison_status,resolution_reason,resolved_by_email,resolved_at,last_compared_at,updated_at,is_comparable",
+      "id,course_id,field_key,field_label,lms_raw_value,lms_normalized_value,content_metadata_raw_value,content_metadata_normalized_value,coursetrack_normalized_value,field_scope,alignment_status,source_value_hash,alignment_confirmed_source_hash,alignment_confirmed_by_email,alignment_confirmed_at,alignment_confirmation_note,resolved_value,selected_source,comparison_status,resolution_reason,resolved_by_email,resolved_at,last_compared_at,updated_at,is_comparable",
       byCourse,
     ),
     fetchAllRows(
@@ -326,9 +326,10 @@ function buildCourseFromRows(row: Row, maps: GraphMaps): Course {
     (record) => ({
       id: record.id as string,
       organization: record.organization as string,
-      jurisdiction: (record.jurisdiction as string) ?? "National",
+      jurisdiction: (record.jurisdiction as string) ?? "",
       status: record.status as AccreditationRecord["status"],
       approvalNumber: (record.approval_number as string) ?? null,
+      topicNumber: (record.topic_number as string) ?? null,
       creditHours: Number(record.credit_hours ?? 0),
       effectiveDate: (record.effective_date as string) ?? null,
       expirationDate: (record.expiration_date as string) ?? null,
@@ -338,6 +339,13 @@ function buildCourseFromRows(row: Row, maps: GraphMaps): Course {
       updatedAt: (record.updated_at as string) ?? undefined,
       archivedAt: (record.archived_at as string) ?? null,
       originProvenance: toProvenance(record.origin_provenance ?? record.provenance ?? record.data_source),
+      sourceDomain: (record.source_domain as AccreditationRecord["sourceDomain"]) ?? "coursetrack",
+      sourceTransport: (record.source_transport as AccreditationRecord["sourceTransport"]) ?? "manual",
+      sourceNormalizedValues: (record.source_normalized_payload as AccreditationRecord["sourceNormalizedValues"]) ?? {},
+      alignmentStatus: (record.alignment_status as AccreditationRecord["alignmentStatus"]) ?? "App only",
+      confirmationActor: (record.alignment_confirmed_by_email as string) ?? null,
+      confirmationTime: (record.alignment_confirmed_at as string) ?? null,
+      confirmationNote: (record.alignment_confirmation_note as string) ?? null,
     }),
   );
 
@@ -404,6 +412,7 @@ function buildCourseFromRows(row: Row, maps: GraphMaps): Course {
         rawPayload: (snapshotRow.raw_payload as Record<string, unknown>) ?? {},
         normalized: snapshotRow.normalized_payload as LmsCourseSnapshot["normalized"],
         mappingWarnings: (snapshotRow.mapping_warnings as string[]) ?? [],
+        sourceTransport: (snapshotRow.source_transport as LmsCourseSnapshot["sourceTransport"]) ?? "uploaded",
       }
     : null;
 
@@ -437,12 +446,23 @@ function buildCourseFromRows(row: Row, maps: GraphMaps): Course {
 
   const fieldComparisons: FieldComparison[] = (maps.fieldComparisonsByCourse.get(courseDbId) ?? []).map(
     (comparison) => ({
+      id: comparison.id as string,
       fieldKey: comparison.field_key as string,
       fieldLabel: comparison.field_label as string,
       lmsRawValue: comparison.lms_raw_value,
       lmsNormalizedValue: comparison.lms_normalized_value,
       contentMetadataRawValue: comparison.content_metadata_raw_value,
       contentMetadataNormalizedValue: comparison.content_metadata_normalized_value,
+      courseTrackNormalizedValue: comparison.coursetrack_normalized_value,
+      fieldScope: (comparison.field_scope as FieldComparison["fieldScope"]) ?? "shared",
+      alignmentStatus: (comparison.alignment_status as FieldComparison["alignmentStatus"]) ?? "Mapping required",
+      lmsSourceTimestamp: (row.last_retrieved_at as string) ?? null,
+      metadataSourceTimestamp: contentMetadata.importedAt ?? null,
+      confirmationActor: (comparison.alignment_confirmed_by_email as string) ?? null,
+      confirmationTime: (comparison.alignment_confirmed_at as string) ?? null,
+      confirmationNote: (comparison.alignment_confirmation_note as string) ?? null,
+      sourceValueHash: (comparison.source_value_hash as string) ?? null,
+      confirmedSourceHash: (comparison.alignment_confirmed_source_hash as string) ?? null,
       resolvedValue: comparison.resolved_value,
       selectedSource: comparison.selected_source as FieldComparison["selectedSource"],
       comparisonStatus: comparison.comparison_status as FieldComparison["comparisonStatus"],
@@ -504,7 +524,7 @@ function buildCourseFromRows(row: Row, maps: GraphMaps): Course {
   const conflictCount = fieldComparisons.filter(
     (comparison) => comparison.comparisonStatus === "Conflict" && !comparison.selectedSource,
   ).length;
-  const accreditationGroups = assessAccreditationHistory(accreditations, { courseKey: appId });
+  const accreditationGroups = assessAccreditationHistory(accreditations.filter((record) => !record.archivedAt), { courseKey: appId });
   const riskPriority = ["expired", "expiring_soon", "renewal_due", "conditional", "renewal_submitted", "undated", "active", "not_required", "future"];
   const prioritizedGroups = [...accreditationGroups].sort(
     (left, right) => riskPriority.indexOf(left.riskState) - riskPriority.indexOf(right.riskState),
@@ -515,7 +535,7 @@ function buildCourseFromRows(row: Row, maps: GraphMaps): Course {
       .map((group) => group.current?.record.expirationDate ?? null)
       .filter((value): value is string => Boolean(value))
       .sort()[0] ?? null;
-  const currentVersion = versions.find((version) => version.isCurrent)?.versionNumber ?? (row.current_version as string) ?? "1.0";
+  const currentVersion = versions.find((version) => version.isCurrent && !version.archivedAt)?.versionNumber ?? (row.current_version as string) ?? "1.0";
   const health = calculateCourseHealth({
     metadataCompletenessScore: calculateMetadataCompleteness(contentMetadata),
     unresolvedConflictCount: conflictCount,
@@ -585,7 +605,7 @@ function buildCourseFromRows(row: Row, maps: GraphMaps): Course {
     lifecycleStatus: row.lifecycle_status as Course["lifecycleStatus"],
     publicationStatus: row.publication_status as Course["publicationStatus"],
     deliveryFormat: row.delivery_format as string,
-    durationMinutes: Number(row.duration_minutes ?? 0),
+    durationMinutes: row.duration_minutes === null || row.duration_minutes === undefined ? null : Number(row.duration_minutes),
     trainingCredits: (row.training_credits as Course["trainingCredits"]) ?? contentMetadata.trainingCredits,
     published: (row.is_published as boolean | null) ?? contentMetadata.published,
     authoringTool: row.authoring_tool as string,
@@ -671,6 +691,7 @@ function buildVersion(row: Row, wrikeRefsByVersion: Map<string, Row[]>): CourseV
       linkMethod: (ref.link_method as VersionWrikeTaskReference["linkMethod"]) ?? null,
       lastVerifiedAt: (ref.last_verified_at as string) ?? null,
       updatedAt: String(ref.updated_at ?? ref.linked_at ?? ""),
+      wrikePublishedDate: (ref.wrike_published_date as string) ?? null,
     }),
   );
   return {
@@ -748,7 +769,7 @@ export interface PortfolioSummary {
   primaryTopic: string;
   tags: string[];
   owner: string | null;
-  durationMinutes: number;
+  durationMinutes: number | null;
   dataSource: Course["dataSource"];
   nextReviewDate: string | null;
   metadataCompletenessScore: number;
@@ -766,6 +787,46 @@ export interface PortfolioSummary {
 // Reconstructing the whole Course object for every row on these hot list
 // pages is what exhausted the Workers subrequest budget; this reads only
 // what's actually rendered.
+export interface DashboardQueueCourse {
+  id: string;
+  title: string;
+  primaryVertical: Vertical;
+  owner: string | null;
+  nextReviewDate: string | null;
+  healthStatus: Course["healthStatus"];
+  flagCount: number;
+  metadataCompletenessScore: number;
+}
+
+export interface DashboardSnapshot {
+  metrics: {
+    totalLmsRetrieved: number;
+    lexipolManaged: number;
+    nonLexipolTracked: number;
+    unclassified: number;
+    missingContentMetadata: number;
+    missingFromLms: number;
+    unresolvedConflicts: number;
+    mappingRequired: number;
+    staleLms: number;
+    importValidationErrors: number;
+  };
+  coursesInView: number;
+  verticalData: { name: Vertical; courses: number }[];
+  healthData: { name: Course["healthStatus"]; value: number }[];
+  reviewQueue: DashboardQueueCourse[];
+  riskQueue: DashboardQueueCourse[];
+}
+
+export async function fetchDashboardSnapshot(client: SupabaseClient, input: { vertical?: string; includeExcluded?: boolean } = {}): Promise<DashboardSnapshot> {
+  const { data, error } = await client.rpc("get_dashboard_snapshot", {
+    p_vertical: input.vertical ?? "",
+    p_include_excluded: input.includeExcluded ?? false,
+  });
+  if (error) throw new Error(`Could not read the dashboard snapshot: ${error.message}`);
+  return data as DashboardSnapshot;
+}
+
 export async function fetchPortfolioSummaries(client: SupabaseClient): Promise<PortfolioSummary[]> {
   const [
     verticalRows,
@@ -785,7 +846,7 @@ export async function fetchPortfolioSummaries(client: SupabaseClient): Promise<P
     ),
     fetchAllRows(client, "course_flags", "course_id", (query) => query.is("archived_at", null)),
     fetchAllRows(client, "lms_snapshots", "course_id", (query) => query.eq("is_current", true)),
-    fetchAllRows(client, "content_metadata_records", "course_id,normalized_payload"),
+    fetchAllRows(client, "content_metadata_records", "course_id,normalized_payload", (query) => query.eq("is_current", true)),
     fetchAllRows(
       client,
       "field_comparisons",
@@ -854,7 +915,7 @@ export async function fetchPortfolioSummaries(client: SupabaseClient): Promise<P
       primaryTopic: row.primary_topic as string,
       tags: tagsByCourse.get(courseDbId) ?? [],
       owner: (row.owner_name as string) ?? null,
-      durationMinutes: Number(row.duration_minutes ?? 0),
+      durationMinutes: row.duration_minutes === null || row.duration_minutes === undefined ? null : Number(row.duration_minutes),
       dataSource: row.data_source as Course["dataSource"],
       nextReviewDate: (row.next_review_date as string) ?? null,
       metadataCompletenessScore: calculateMetadataCompleteness(metadataByCourse.get(courseDbId)),
@@ -876,12 +937,34 @@ export interface AccreditationBoardEntry {
   record: AccreditationRecord;
 }
 
+export async function fetchAccreditationBoardPage(client: SupabaseClient, page = 1, pageSize = 100): Promise<{ items: AccreditationBoardEntry[]; total: number }> {
+  const from = (Math.max(1, page) - 1) * pageSize;
+  const { data, error, count } = await client.from("accreditation_records").select(
+    "id,course_id,organization,jurisdiction,status,approval_number,topic_number,credit_hours,effective_date,expiration_date,risk_reasons,data_source,provenance,origin_provenance,source_domain,source_transport,source_normalized_payload,alignment_status,alignment_confirmed_by_email,alignment_confirmed_at,alignment_confirmation_note,created_at,updated_at,archived_at,courses!inner(app_id,title,course_code)",
+    { count: "exact" },
+  ).order("course_id", { ascending: true }).order("expiration_date", { ascending: true, nullsFirst: false }).order("id", { ascending: true }).range(from, from + pageSize - 1);
+  if (error) throw new Error(`Could not read the accreditation page: ${error.message}`);
+  const items = ((data ?? []) as Row[]).map((row) => {
+    const course = row.courses as { app_id: string; title: string; course_code: string };
+    return { course: { courseId: course.app_id, courseTitle: course.title, courseCode: course.course_code }, record: {
+      id: row.id as string, organization: row.organization as string, jurisdiction: (row.jurisdiction as string) ?? "", status: row.status as AccreditationRecord["status"],
+      approvalNumber: (row.approval_number as string) ?? null, topicNumber: (row.topic_number as string) ?? null, creditHours: Number(row.credit_hours ?? 0),
+      effectiveDate: (row.effective_date as string) ?? null, expirationDate: (row.expiration_date as string) ?? null, source: toProvenance(row.provenance ?? row.data_source),
+      riskReasons: (row.risk_reasons as string[]) ?? [], createdAt: row.created_at as string, updatedAt: row.updated_at as string, archivedAt: (row.archived_at as string) ?? null,
+      originProvenance: toProvenance(row.origin_provenance ?? row.provenance ?? row.data_source), sourceDomain: (row.source_domain as AccreditationRecord["sourceDomain"]) ?? "coursetrack",
+      sourceTransport: (row.source_transport as AccreditationRecord["sourceTransport"]) ?? "manual", sourceNormalizedValues: (row.source_normalized_payload as AccreditationRecord["sourceNormalizedValues"]) ?? {},
+      alignmentStatus: (row.alignment_status as AccreditationRecord["alignmentStatus"]) ?? "App only", confirmationActor: (row.alignment_confirmed_by_email as string) ?? null,
+      confirmationTime: (row.alignment_confirmed_at as string) ?? null, confirmationNote: (row.alignment_confirmation_note as string) ?? null,
+    } } satisfies AccreditationBoardEntry;
+  });
+  return { items, total: count ?? 0 };
+}
+
 export async function fetchAccreditationBoard(client: SupabaseClient): Promise<AccreditationBoardEntry[]> {
   const rows = await fetchAllRows(
     client,
     "accreditation_records",
-    "id,organization,jurisdiction,status,approval_number,credit_hours,effective_date,expiration_date,risk_reasons,data_source,provenance,origin_provenance,created_at,updated_at,archived_at,courses(app_id,title,course_code)",
-    (query) => query.is("archived_at", null),
+    "id,organization,jurisdiction,status,approval_number,topic_number,credit_hours,effective_date,expiration_date,risk_reasons,data_source,provenance,origin_provenance,source_domain,source_transport,source_normalized_payload,alignment_status,alignment_confirmed_by_email,alignment_confirmed_at,alignment_confirmation_note,created_at,updated_at,archived_at,courses(app_id,title,course_code)",
   );
   return rows
     .filter((row) => row.courses)
@@ -892,9 +975,10 @@ export async function fetchAccreditationBoard(client: SupabaseClient): Promise<A
         record: {
           id: row.id as string,
           organization: row.organization as string,
-          jurisdiction: (row.jurisdiction as string) ?? "National",
+          jurisdiction: (row.jurisdiction as string) ?? "",
           status: row.status as AccreditationRecord["status"],
           approvalNumber: (row.approval_number as string) ?? null,
+          topicNumber: (row.topic_number as string) ?? null,
           creditHours: Number(row.credit_hours ?? 0),
           effectiveDate: (row.effective_date as string) ?? null,
           expirationDate: (row.expiration_date as string) ?? null,
@@ -904,6 +988,13 @@ export async function fetchAccreditationBoard(client: SupabaseClient): Promise<A
           updatedAt: (row.updated_at as string) ?? undefined,
           archivedAt: (row.archived_at as string) ?? null,
           originProvenance: toProvenance(row.origin_provenance ?? row.provenance ?? row.data_source),
+          sourceDomain: (row.source_domain as AccreditationRecord["sourceDomain"]) ?? "coursetrack",
+          sourceTransport: (row.source_transport as AccreditationRecord["sourceTransport"]) ?? "manual",
+          sourceNormalizedValues: (row.source_normalized_payload as AccreditationRecord["sourceNormalizedValues"]) ?? {},
+          alignmentStatus: (row.alignment_status as AccreditationRecord["alignmentStatus"]) ?? "App only",
+          confirmationActor: (row.alignment_confirmed_by_email as string) ?? null,
+          confirmationTime: (row.alignment_confirmed_at as string) ?? null,
+          confirmationNote: (row.alignment_confirmation_note as string) ?? null,
         },
       };
     });
@@ -914,18 +1005,32 @@ export interface VersionBoardEntry {
   version: CourseVersion;
 }
 
+export async function fetchVersionBoardPage(client: SupabaseClient, page = 1, pageSize = 100): Promise<{ items: VersionBoardEntry[]; total: number }> {
+  const from = (Math.max(1, page) - 1) * pageSize;
+  const { data, error, count } = await client.from("course_versions").select(
+    "id,version_number,version_type,publication_date,is_current,authoring_tool,package_standard,release_notes,managed_by,created_by_email,version_status,provenance,origin_provenance,created_at,updated_at,archived_at,courses!inner(app_id,title,course_code)",
+    { count: "exact" },
+  ).order("publication_date", { ascending: false }).order("id", { ascending: true }).range(from, from + pageSize - 1);
+  if (error) throw new Error(`Could not read the version page: ${error.message}`);
+  const versionRows = (data ?? []) as Row[];
+  const ids = versionRows.map((row) => row.id as string);
+  const wrikeRefRows = ids.length ? await fetchAllRows(client, "version_wrike_task_references", "id,course_version_id,external_task_id,task_title,external_project_id,project_title,task_status,assignee_names,due_date,permalink,provider_name,retrieved_at,linked_by_email,linked_at,link_method,last_verified_at,updated_at,wrike_published_date", (query) => query.in("course_version_id", ids).is("unlinked_at", null)) : [];
+  const refs = groupBy(wrikeRefRows, "course_version_id");
+  const items = versionRows.map((row) => { const course = row.courses as { app_id: string; title: string; course_code: string }; return { course: { courseId: course.app_id, courseTitle: course.title, courseCode: course.course_code }, version: buildVersion(row, refs) }; });
+  return { items, total: count ?? 0 };
+}
+
 export async function fetchVersionBoard(client: SupabaseClient): Promise<VersionBoardEntry[]> {
   const [versionRows, wrikeRefRows] = await Promise.all([
     fetchAllRows(
       client,
       "course_versions",
       "id,version_number,version_type,publication_date,is_current,authoring_tool,package_standard,release_notes,managed_by,created_by_email,version_status,provenance,origin_provenance,created_at,updated_at,archived_at,courses(app_id,title,course_code)",
-      (query) => query.is("archived_at", null),
     ),
     fetchAllRows(
       client,
       "version_wrike_task_references",
-      "id,course_version_id,external_task_id,task_title,external_project_id,project_title,task_status,assignee_names,due_date,permalink,provider_name,retrieved_at,linked_by_email,linked_at,link_method,last_verified_at,updated_at",
+      "id,course_version_id,external_task_id,task_title,external_project_id,project_title,task_status,assignee_names,due_date,permalink,provider_name,retrieved_at,linked_by_email,linked_at,link_method,last_verified_at,updated_at,wrike_published_date",
       (query) => query.is("unlinked_at", null),
     ),
   ]);

@@ -16,10 +16,10 @@ const STANDARD_SHEET = "All (comma separated)";
 const MASTER_FILE = "LMS new list - master.xlsx";
 const MASTER_SHEET = "Master";
 const STANDARD_FIELDS = new Set([
-  "courseName", "contentType", "durationMinutes", "trainingCredits",
+  "courseId", "courseName", "contentType", "durationMinutes", "trainingCredits",
   "published", "description", "publishedDate",
 ]);
-const COMPACT_FIELDS = new Set(["courseName", "contentType", "trainingCredits", "published"]);
+const COMPACT_FIELDS = new Set(["courseId", "courseName", "contentType", "durationMinutes", "trainingCredits", "published"]);
 
 function cellValue(value) {
   if (value && typeof value === "object") {
@@ -95,14 +95,15 @@ function creditHours(trainingCredits) {
 function accreditationRecord(courseId, item, trainingCredits, importedAt) {
   return {
     id: `${courseId}:${item.index}`,
-    organization: item.issuingBody || "Unknown organization",
-    jurisdiction: item.state || "National",
+    organization: item.issuingBody,
+    jurisdiction: item.state,
     status: "Approved",
     approvalNumber: item.accreditationNumber,
+    topicNumber: item.topicNumber,
     creditHours: creditHours(trainingCredits),
     effectiveDate: item.startDate,
     expirationDate: item.endDate,
-    source: "lms_api",
+    source: "uploaded",
     riskReasons: [],
     createdAt: importedAt,
     updatedAt: importedAt,
@@ -153,6 +154,8 @@ export async function loadCourseWorkbookDataset(sourceDirectory, options = {}) {
   const courses = [];
   let initialDifferenceCount = 0;
   let accreditationRecordCount = 0;
+  let accreditationTopicNumberCount = 0;
+  let standardCourseCount = 0;
   let accreditationGroupCount = 0;
   const atRiskCourseIds = new Set();
 
@@ -168,6 +171,8 @@ export async function loadCourseWorkbookDataset(sourceDirectory, options = {}) {
 
     const accreditations = (lms?.normalized.accreditations ?? []).map((item) => accreditationRecord(courseId, item, lms?.normalized.trainingCredits, importedAt));
     accreditationRecordCount += accreditations.length;
+    accreditationTopicNumberCount += (lms?.normalized.accreditations ?? []).filter((item) => item.topicNumber).length;
+    if (lms?.normalized.courseType === "Standard Course") standardCourseCount += 1;
     const groups = assessAccreditationHistory(accreditations, { courseKey: courseId, asOfDate, expirationWindowDays: 90 });
     accreditationGroupCount += groups.length;
     if (groups.some((group) => group.riskState === "expired" || group.riskState === "expiring_soon")) atRiskCourseIds.add(courseId);
@@ -204,7 +209,9 @@ export async function loadCourseWorkbookDataset(sourceDirectory, options = {}) {
       courseTrackOnly: metadataById.size - overlap,
       initialDifferenceCount,
       accreditationRecordCount,
+      accreditationTopicNumberCount,
       accreditationGroupCount,
+      standardCourseCount,
       atRiskCourses: atRiskCourseIds.size,
     },
   };
@@ -218,9 +225,11 @@ export function assertCourseWorkbookBaseline(dataset) {
     overlap: 1_828,
     lmsOnly: 16_578,
     courseTrackOnly: 124,
-    initialDifferenceCount: 6,
+    initialDifferenceCount: 8,
     accreditationRecordCount: 19_571,
+    accreditationTopicNumberCount: 513,
     accreditationGroupCount: 7_299,
+    standardCourseCount: 16_544,
   };
   if (dataset.asOfDate === "2026-08-04") expected.atRiskCourses = 697;
   const mismatches = Object.entries(expected)

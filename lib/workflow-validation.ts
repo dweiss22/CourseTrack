@@ -21,9 +21,12 @@ export const revampMoveSchema = z.object({
 
 export const accreditationSchema = z.object({
   organization: z.string().trim().min(2).max(180),
-  jurisdiction: z.string().trim().min(1).max(120),
+  // Imported LMS evidence may legitimately omit jurisdiction. The database
+  // still requires it for application-created records.
+  jurisdiction: z.string().trim().max(120),
   status: z.enum(["Approved", "Approved with Conditions", "Renewal Due", "Renewal Submitted", "Expiring Soon", "Expired", "Not Required"]),
   approvalNumber: z.string().trim().max(120).nullable(),
+  topicNumber: z.string().trim().max(120).nullable().default(null),
   creditHours: z.number().min(0).max(10_000),
   effectiveDate: optionalDate,
   expirationDate: optionalDate,
@@ -102,13 +105,13 @@ export const courseProjectionUpdateSchema = z.object({
   lifecycleStatus: z.enum(["Published", "Under Maintenance", "Internal Review", "In Development", "Scheduled for Revamp", "Retired", "Archived"]),
   publicationStatus: z.enum(["Unknown", "Not in LMS", "Draft", "Testing", "Published", "Hidden", "Inactive", "Retired", "Retrieval Error"]),
   contentType: z.string().trim().max(120),
-  durationMinutes: z.number().int().min(0).max(100_000),
+  durationMinutes: z.number().int().min(0).max(100_000).nullable(),
   trainingCredits: z.object({
     rawDisplay: z.string().trim().max(120).nullable(),
     amount: z.number().min(0).max(100_000).nullable(),
     unit: z.string().trim().max(40).nullable(),
   }).strict(),
-  published: z.boolean(),
+  published: z.boolean().nullable(),
   authoringTool: z.string().trim().max(120),
   stateCode: z.string().trim().max(40),
   owner: z.string().trim().max(120),
@@ -121,7 +124,7 @@ export const courseProjectionUpdateSchema = z.object({
   updateType: z.string().trim().max(120),
   contentUpdatedAt: optionalFormDate,
   contentNotes: z.string().trim().max(2_000),
-  internalSummary: z.string().trim().min(1).max(1_200),
+  internalSummary: z.string().trim().max(1_200),
   expectedUpdatedAt: z.string().datetime(),
 }).strict().superRefine((value, context) => {
   if (value.secondaryVerticals.includes(value.primaryVertical)) {

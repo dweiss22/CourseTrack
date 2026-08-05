@@ -19,22 +19,36 @@ test("LMS and CourseTrack workbooks reproduce the accepted import baseline", wor
     overlap: 1_828,
     lmsOnly: 16_578,
     courseTrackOnly: 124,
-    initialDifferenceCount: 6,
+    initialDifferenceCount: 8,
     accreditationRecordCount: 19_571,
+    accreditationTopicNumberCount: 513,
     accreditationGroupCount: 7_299,
+    standardCourseCount: 16_544,
     atRiskCourses: 697,
   });
   const ids = dataset.courses.map((course) => course.courseId);
   assert.equal(new Set(ids).size, ids.length, "stable union contains no duplicate course IDs");
   assert.ok(dataset.courses.some((course) => course.metadata && !course.lms), "master-only courses remain discoverable");
   assert.ok(dataset.courses.some((course) => course.lms && !course.metadata), "LMS-only courses receive display projections");
+  assert.equal(dataset.courses.filter((course) => course.lms?.normalized.courseType === "Standard Course").length, 16_544);
+  const accreditations = dataset.courses.flatMap((course) => course.accreditations);
+  assert.equal(accreditations.filter((record) => record.jurisdiction === null).length, 2_043, "blank LMS jurisdictions remain null rather than being relabeled National");
+  for (const id of ["102160981", "102161025"]) {
+    assert.equal(dataset.courses.find((course) => course.courseId === id)?.comparisons.find((item) => item.fieldKey === "durationMinutes")?.comparisonStatus, "Conflict");
+  }
 });
 
-test("apply importer preserves overrides and uses idempotent source fingerprints", async () => {
+test("apply importer performs field-level merges and uses immutable source fingerprints", async () => {
   const source = await import("node:fs/promises").then(({ readFile }) => readFile("scripts/import-course-workbooks.mjs", "utf8"));
-  assert.match(source, /existing\?\.has_manual_overrides/);
+  assert.match(source, /field_provenance/);
+  assert.match(source, /keepOverride/);
+  assert.doesNotMatch(source, /if \(existing\?\.has_manual_overrides\) continue/);
   assert.match(source, /onConflict: "lms_course_id"/);
   assert.match(source, /source_fingerprint/);
   assert.match(source, /is_current: false/);
   assert.match(source, /raw_payload/);
+  assert.match(source, /is_current: true/);
+  assert.match(source, /source_transport: "uploaded"/);
+  assert.doesNotMatch(source, /`LMS Course \$\{course\.courseId\}`|Imported CourseTrack projection\.|durationMinutes:.*\?\? 0/);
+  assert.doesNotMatch(source, /jurisdiction:\s*item\.state\s*\|\|\s*"National"/);
 });

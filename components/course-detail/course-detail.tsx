@@ -53,10 +53,11 @@ import { WrikeTaskLinkControl } from "../wrike-task-link-control";
 import { accreditationDisplayLabel, accreditationRiskLabels, groupAccreditationRecords } from "@/lib/accreditation-grouping";
 import { statusesForKind, TASK_CALLOUT_KINDS, TASK_CALLOUT_PRIORITIES, taskCalloutDueState, taskCalloutStatusAction } from "@/lib/task-callouts";
 import { AsyncCourseSelect } from "../async-course-select";
+import { AccreditationRecordEditor, VersionRecordEditor } from "../record-editors";
 
 const tabs = [
   "Overview",
-  "Source Comparison",
+  "Data Comparison",
   "Versions",
   "Accreditation",
   "Topics & Tags",
@@ -79,7 +80,7 @@ function projectionForm(course: Course): ProjectionForm {
     primaryTopic: course.primaryTopic, managementClassification: course.managementClassification, monitoringEnabled: course.monitoringEnabled,
     lifecycleStatus: editableLifecycleStatuses.includes(course.lifecycleStatus as ProjectionForm["lifecycleStatus"]) ? course.lifecycleStatus as ProjectionForm["lifecycleStatus"] : "In Development",
     publicationStatus: course.publicationStatus, contentType: course.deliveryFormat, durationMinutes: course.durationMinutes,
-    trainingCredits: course.trainingCredits, published: course.published ?? false, authoringTool: course.authoringTool,
+    trainingCredits: course.trainingCredits, published: course.published, authoringTool: course.authoringTool,
     stateCode: course.stateCode ?? "", owner: course.owner ?? "", instructionalDesigner: course.instructionalDesigner ?? "",
     publishedDate: course.originalPublishDate ?? "", lastMajorRevisionDate: course.lastMajorRevisionDate ?? "", nextReviewDate: course.nextReviewDate ?? "",
     backendLink: course.backendLink ?? "", frontendLink: course.frontendLink ?? "", updateType: course.updateType ?? "",
@@ -97,7 +98,10 @@ export function CourseDetail({
   tagSuggestions,
   initialFavorite,
   canEditCourse,
-  lmsConnected,
+  canManageVersions,
+  canManageAccreditations,
+  isAdministrator,
+  lmsAuthorityMode,
   assignees,
 }: {
   course: Course;
@@ -105,7 +109,10 @@ export function CourseDetail({
   tagSuggestions: string[];
   initialFavorite: boolean;
   canEditCourse: boolean;
-  lmsConnected: boolean;
+  canManageVersions: boolean;
+  canManageAccreditations: boolean;
+  isAdministrator: boolean;
+  lmsAuthorityMode: "workbook" | "api";
   assignees: TaskCalloutActor[];
 }) {
   const router = useRouter();
@@ -326,9 +333,9 @@ export function CourseDetail({
               <button
                 className="icon-action"
                 onClick={() => retrieveCourse()}
-                disabled={!lmsConnected || retrievalState === "running"}
-                aria-label={lmsConnected ? "Refresh LMS data" : "LMS refresh unavailable until a connector is configured"}
-                data-tooltip={lmsConnected ? "Refresh LMS data" : "LMS refresh unavailable until a connector is configured"}
+                disabled={lmsAuthorityMode !== "api" || retrievalState === "running"}
+                aria-label={lmsAuthorityMode === "api" ? "Refresh LMS data" : "LMS refresh unavailable while workbook uploads are authoritative"}
+                data-tooltip={lmsAuthorityMode === "api" ? "Refresh LMS data" : "LMS refresh unavailable while workbook uploads are authoritative"}
               >
                 <RefreshCw size={18} className={retrievalState === "running" ? "spin" : ""} />
               </button>
@@ -389,7 +396,7 @@ export function CourseDetail({
             onClick={() => setActiveTab(tab)}
           >
             {tab}
-            {tab === "Source Comparison" && (
+            {tab === "Data Comparison" && (
               <span aria-label={`${currentCourse.sourceDifferenceCount} source differences`}>{currentCourse.sourceDifferenceCount}</span>
             )}
             {tab === "Tasks & Callouts" && currentCourse.flags.filter((flag) => !flag.archivedAt).length > 0 && (
@@ -424,11 +431,11 @@ export function CourseDetail({
             </fieldset>
             <fieldset><legend>Course metadata</legend>
               <label className="form-field"><span>Content type</span><input value={form.contentType} onChange={(event) => updateForm("contentType", event.target.value)} /></label>
-              <label className="form-field"><span>Duration (minutes)</span><input type="number" min={0} value={form.durationMinutes} onChange={(event) => updateForm("durationMinutes", Number(event.target.value))} /></label>
+              <label className="form-field"><span>Duration (minutes)</span><input type="number" min={0} value={form.durationMinutes ?? ""} onChange={(event) => updateForm("durationMinutes", event.target.value === "" ? null : Number(event.target.value))} /></label>
               <label className="form-field"><span>Training credit amount</span><input type="number" min={0} step="0.01" value={form.trainingCredits.amount ?? ""} onChange={(event) => updateForm("trainingCredits", { ...form.trainingCredits, amount: event.target.value === "" ? null : Number(event.target.value) })} /></label>
               <label className="form-field"><span>Training credit unit</span><input value={form.trainingCredits.unit ?? ""} onChange={(event) => updateForm("trainingCredits", { ...form.trainingCredits, unit: event.target.value || null })} placeholder="hours or minutes" /></label>
               <label className="form-field"><span>Publication status</span><select value={form.publicationStatus} onChange={(event) => updateForm("publicationStatus", event.target.value as ProjectionForm["publicationStatus"])}>{publicationStatuses.map((value) => <option key={value}>{value}</option>)}</select></label>
-              <label className="form-field checkbox-field"><input type="checkbox" checked={form.published} onChange={(event) => updateForm("published", event.target.checked)} /><span>Published in LMS</span></label>
+              <label className="form-field"><span>Published in LMS</span><select value={form.published === null ? "unknown" : form.published ? "yes" : "no"} onChange={(event) => updateForm("published", event.target.value === "unknown" ? null : event.target.value === "yes")}><option value="unknown">Not supplied</option><option value="yes">Published</option><option value="no">Not published</option></select></label>
               <label className="form-field"><span>Publication date</span><input type="date" value={form.publishedDate} onChange={(event) => updateForm("publishedDate", event.target.value)} /></label>
               <label className="form-field"><span>Authoring tool</span><input value={form.authoringTool} onChange={(event) => updateForm("authoringTool", event.target.value)} /></label>
               <label className="form-field"><span>Content update type</span><input value={form.updateType} onChange={(event) => updateForm("updateType", event.target.value)} /></label>
@@ -449,7 +456,7 @@ export function CourseDetail({
               <label className="form-field"><span>State code</span><input value={form.stateCode} onChange={(event) => updateForm("stateCode", event.target.value)} /></label>
               <label className="form-field"><span>Last major revision</span><input type="date" value={form.lastMajorRevisionDate} onChange={(event) => updateForm("lastMajorRevisionDate", event.target.value)} /></label>
               <label className="form-field"><span>Next review date</span><input type="date" value={form.nextReviewDate} onChange={(event) => updateForm("nextReviewDate", event.target.value)} /></label>
-              <label className="form-field form-field-wide"><span>Internal summary</span><textarea value={form.internalSummary} onChange={(event) => updateForm("internalSummary", event.target.value)} minLength={1} maxLength={1200} required /><small>CourseTrack source · visible to authorized internal users</small></label>
+              <label className="form-field form-field-wide"><span>Internal summary</span><textarea value={form.internalSummary} onChange={(event) => updateForm("internalSummary", event.target.value)} maxLength={1200} /><small>CourseTrack source · visible to authorized internal users</small></label>
             </fieldset>
             <div className="form-actions">
               <button
@@ -477,20 +484,21 @@ export function CourseDetail({
           {activeTab === "Overview" && (
             <OverviewTab course={currentCourse} />
           )}
-          {activeTab === "Source Comparison" && (
-            <SourceComparisonTab
+          {activeTab === "Data Comparison" && (
+            <DataComparisonTab
               course={currentCourse}
               resolving={saveState === "saving"}
               onResolve={resolveField}
               onCourseChange={setCurrentCourse}
               canEdit={canEditCourse}
+              authorityMode={lmsAuthorityMode}
             />
           )}
           {activeTab === "Versions" && (
-            <VersionsTab course={currentCourse} onCourseChange={setCurrentCourse} canManageWrike={canEditCourse} />
+            <VersionsTab course={currentCourse} onCourseChange={setCurrentCourse} canManage={canManageVersions} isAdministrator={isAdministrator} />
           )}
           {activeTab === "Accreditation" && (
-            <AccreditationTab course={currentCourse} />
+            <AccreditationTab course={currentCourse} onCourseChange={setCurrentCourse} canManage={canManageAccreditations} isAdministrator={isAdministrator} authorityMode={lmsAuthorityMode} />
           )}
           {activeTab === "Topics & Tags" && (
             <TopicsTab
@@ -567,7 +575,7 @@ function OverviewTab({ course }: { course: Course }) {
           <ProvenanceField label="LMS course ID" value={course.lmsCourseId ?? "Not mapped"} source="LMS" locked />
           <ProvenanceField label="Management classification" value={course.managementClassification} source="CourseTrack" />
           <ProvenanceField label="Reconciliation" value={course.reconciliationStatus} source="Calculated" />
-          <ProvenanceField label="Duration" value={`${course.durationMinutes} minutes`} source="Resolved value" />
+          <ProvenanceField label="Duration" value={course.durationMinutes === null ? "Not supplied" : `${course.durationMinutes} minutes`} source="Resolved value" />
           <ProvenanceField label="Authoring tool" value={course.contentMetadata?.authoringTool ?? course.authoringTool} source="Content Metadata" />
           <ProvenanceField label="Primary vertical" value={course.primaryVertical} source="CourseTrack" />
           <ProvenanceField label="Lifecycle status" value={course.lifecycleStatus} source="CourseTrack" />
@@ -605,58 +613,76 @@ function formatSourceValue(value: unknown): string {
   return String(value);
 }
 
+function validExternalUrl(value: string | null | undefined): string | null {
+  if (!value) return null;
+  try { const url = new URL(value); return url.protocol === "https:" || url.protocol === "http:" ? url.href : null; }
+  catch { return null; }
+}
+
 function ComparisonState({ comparison }: { comparison: FieldComparison }) {
-  const state = comparison.selectedSource && comparison.comparisonStatus === "Conflict"
-    ? { label: "Resolved discrepancy", icon: Check, tone: "success" as const }
-    : comparison.comparisonStatus === "Match"
-      ? { label: "Match", icon: Check, tone: "success" as const }
-      : comparison.comparisonStatus === "LMS only"
-        ? { label: "Missing from CourseTrack", icon: Database, tone: "warning" as const }
-        : comparison.comparisonStatus === "Content Metadata only"
-          ? { label: "Missing from LMS", icon: LockKeyhole, tone: "warning" as const }
-          : comparison.comparisonStatus === "Invalid" || comparison.comparisonStatus === "Missing from both"
-            ? { label: "Invalid", icon: X, tone: "danger" as const }
-            : { label: "Discrepancy", icon: AlertTriangle, tone: "danger" as const };
+  const state = comparison.alignmentStatus === "In sync"
+    ? { label: "In sync", icon: Check, tone: "success" as const }
+    : comparison.alignmentStatus === "Manually confirmed"
+      ? { label: "Manually confirmed", icon: ShieldCheck, tone: "success" as const }
+      : comparison.alignmentStatus === "Pending LMS update"
+        ? { label: "Pending LMS update", icon: AlertTriangle, tone: "danger" as const }
+        : comparison.alignmentStatus === "Missing metadata"
+          ? { label: "Missing metadata", icon: Database, tone: "warning" as const }
+          : comparison.alignmentStatus === "App only"
+            ? { label: "App only", icon: Sparkles, tone: "info" as const }
+            : { label: "Mapping required", icon: AlertTriangle, tone: "danger" as const };
   const Icon = state.icon;
   return <StatusBadge tone={state.tone}><Icon size={12} aria-hidden="true" /> {state.label}</StatusBadge>;
 }
 
-function SourceComparisonTab({
+function DataComparisonTab({
   course,
   resolving,
   onResolve,
   onCourseChange,
   canEdit,
+  authorityMode,
 }: {
   course: Course;
   resolving: boolean;
   onResolve: (fieldKey: string, action: ResolutionAction) => void;
   onCourseChange: Dispatch<SetStateAction<Course>>;
   canEdit: boolean;
+  authorityMode: "workbook" | "api";
 }) {
   const sourceHistory = [...course.retrievalHistory, ...course.importHistory]
     .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
-  const hasDiscrepancies = course.fieldComparisons.some((comparison) => comparison.comparisonStatus !== "Match");
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [confirmationError, setConfirmationError] = useState("");
+  const hasDiscrepancies = course.fieldComparisons.some((comparison) => comparison.alignmentStatus !== "In sync");
+  const confirmAlignment = async (comparison: FieldComparison) => {
+    const note = window.prompt("Optional note describing the LMS update:", "") ?? "";
+    setConfirmingId(comparison.id); setConfirmationError("");
+    try {
+      const response = await fetch(`/api/courses/${course.id}/data-comparisons/${comparison.id}/confirm`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ expectedUpdatedAt: comparison.updatedAt, note }) });
+      const result = await response.json() as { message?: string };
+      if (!response.ok) throw new Error(result.message);
+      const confirmedAt = new Date().toISOString();
+      onCourseChange((current) => ({ ...current, sourceDifferenceCount: Math.max(0, current.sourceDifferenceCount - 1), fieldComparisons: current.fieldComparisons.map((item) => item.id === comparison.id ? { ...item, alignmentStatus: "Manually confirmed", confirmationTime: confirmedAt, confirmationNote: note, updatedAt: confirmedAt } : item) }));
+    } catch (error) { setConfirmationError(error instanceof Error ? error.message : "Alignment could not be confirmed."); }
+    finally { setConfirmingId(null); }
+  };
 
   return (
     <div className="detail-section-stack">
       <article className="panel">
         <div className="panel-heading">
           <div>
-            <h2>Source comparison</h2>
-            <p>Overlapping source values remain separate until CourseTrack resolves them.</p>
+            <h2>Data Comparison</h2>
+            <p>LMS, uploaded metadata, and editable CourseTrack values stay separate and auditable.</p>
           </div>
-          <StatusBadge
-            tone={course.conflictCount > 0 ? "danger" : "success"}
-          >
-            {course.conflictCount} unresolved conflict{course.conflictCount === 1 ? "" : "s"}
-          </StatusBadge>
+          <StatusBadge tone={course.sourceDifferenceCount > 0 ? "danger" : "success"}>{course.sourceDifferenceCount} actionable difference{course.sourceDifferenceCount === 1 ? "" : "s"}</StatusBadge>
         </div>
         <div className="readonly-callout">
           <LockKeyhole size={18} />
           <span>
-            <strong>LMS snapshot is read-only</strong>
-            Choosing an active CourseTrack value never changes an LMS snapshot or writes back to the LMS.
+            <strong>{authorityMode === "api" ? "LMS API authority" : "Workbook authority"}</strong>
+            {authorityMode === "api" ? "LMS-exclusive source fields are server-locked; resynchronization clears differences." : "Edits create a pending LMS update until a user separately confirms the LMS was changed."}
           </span>
         </div>
         {!hasDiscrepancies ? (
@@ -667,9 +693,10 @@ function SourceComparisonTab({
               <tr>
                 <th>Field</th>
                 <th>LMS value</th>
+                <th>Uploaded metadata</th>
                 <th>CourseTrack value</th>
-                <th>Comparison status</th>
-                <th>Resolution / action</th>
+                <th>Alignment</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -681,48 +708,36 @@ function SourceComparisonTab({
                   </td>
                   <td>
                     <span>{formatSourceValue(comparison.lmsNormalizedValue)}</span>
-                    <small><LockKeyhole size={11} /> Read-only LMS</small>
+                    <small>{comparison.lmsSourceTimestamp?.slice(0, 10) ?? "No LMS source"}</small>
                   </td>
                   <td>
-                    <strong>{formatSourceValue(comparison.selectedSource ? comparison.resolvedValue : comparison.contentMetadataNormalizedValue)}</strong>
-                    <small>
-                      {comparison.selectedSource
-                        ? `Active resolution selected from ${comparison.selectedSource === "lms" ? "LMS" : "uploaded CourseTrack value"}`
-                        : "Uploaded application-managed value"}
-                    </small>
+                    <span>{formatSourceValue(comparison.contentMetadataNormalizedValue)}</span>
+                    <small>{comparison.metadataSourceTimestamp?.slice(0, 10) ?? "No metadata source"}</small>
+                  </td>
+                  <td>
+                    <strong>{formatSourceValue(comparison.courseTrackNormalizedValue)}</strong>
+                    <small>Editable CourseTrack projection</small>
                     <details className="comparison-raw-details"><summary>Raw values and audit details</summary><dl><div><dt>Immutable LMS raw value</dt><dd>{formatSourceValue(comparison.lmsRawValue)}</dd></div><div><dt>Immutable uploaded raw value</dt><dd>{formatSourceValue(comparison.contentMetadataRawValue)}</dd></div><div><dt>Last compared</dt><dd>{comparison.lastComparedAt}</dd></div>{comparison.resolvedBy && <div><dt>Resolved by</dt><dd>{comparison.resolvedBy} · {comparison.resolvedAt}</dd></div>}</dl></details>
                   </td>
                   <td><ComparisonState comparison={comparison} /></td>
                   <td>
-                    {canEdit && (comparison.comparisonStatus !== "Match" || comparison.selectedSource) ? <div className="comparison-actions">
-                      <button
-                        disabled={resolving}
-                        onClick={() => onResolve(comparison.fieldKey, "Use LMS value")}
-                      >
-                        Use LMS
-                      </button>
-                      <button
-                        disabled={resolving}
-                        onClick={() => onResolve(comparison.fieldKey, "Keep Content Team value")}
-                      >
-                        Keep CourseTrack
-                      </button>
-                      <button
-                        disabled={resolving || !comparison.selectedSource}
-                        onClick={() => onResolve(comparison.fieldKey, "Clear resolution and review again")}
-                      >
-                        Clear
-                      </button>
-                    </div> : <small>{canEdit ? "No action required" : "View only"}</small>}
+                    {canEdit && comparison.alignmentStatus !== "In sync" && comparison.fieldScope === "shared" ? <div className="comparison-actions">
+                      <button disabled={resolving} onClick={() => onResolve(comparison.fieldKey, "Use LMS value")}>Use LMS</button>
+                      {authorityMode === "workbook" && comparison.alignmentStatus === "Pending LMS update" && <button disabled={confirmingId === comparison.id} onClick={() => void confirmAlignment(comparison)}>Confirm LMS updated</button>}
+                      <button disabled={resolving} onClick={() => onResolve(comparison.fieldKey, "Keep Content Team value")}>Keep CourseTrack</button>
+                      <button disabled={resolving || !comparison.selectedSource} onClick={() => onResolve(comparison.fieldKey, "Clear resolution and review again")}>Clear</button>
+                    </div> : <small>{!canEdit ? "View only" : comparison.fieldScope === "metadata_only" && comparison.alignmentStatus === "App only" ? "CourseTrack override; no LMS action required" : "No action required"}</small>}
                     {comparison.resolvedBy && (
                       <small>{comparison.resolvedBy} · {comparison.resolvedAt?.slice(0, 10)}</small>
                     )}
+                    {comparison.confirmationTime && <small>{comparison.confirmationActor ?? "Confirmed"} · {comparison.confirmationTime.slice(0, 10)}{comparison.confirmationNote ? ` · ${comparison.confirmationNote}` : ""}</small>}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>}
+        {confirmationError && <p className="taxonomy-editor-error" role="alert">{confirmationError}</p>}
       </article>
 
       <article className="panel">
@@ -744,6 +759,11 @@ function SourceComparisonTab({
           <ProvenanceField label="Vertical assignments" value={`${course.verticalAssignments.length} sourced assignments`} source="Multiple" />
           <ProvenanceField label="Relationships" value={`${course.relationships.length} parent/child records`} source="Content Metadata" />
           <ProvenanceField label="Accreditation comparison" value={`${course.lmsSnapshot?.normalized.accreditations.length ?? 0} LMS records · ${course.accreditations.length} active records`} source="LMS / CourseTrack" />
+        </div>
+        <div className="button-row" aria-label="Course source links">
+          {validExternalUrl(course.backendLink) && <a className="button button-primary" href={validExternalUrl(course.backendLink)!} target="_blank" rel="noreferrer"><Link2 size={15} /> Open LMS backend</a>}
+          {validExternalUrl(course.frontendLink) && <a className="button button-secondary" href={validExternalUrl(course.frontendLink)!} target="_blank" rel="noreferrer"><Link2 size={15} /> Open LMS course</a>}
+          {!validExternalUrl(course.backendLink) && !validExternalUrl(course.frontendLink) && <small>No valid LMS links are available.</small>}
         </div>
         {(course.mappingWarnings.length > 0 || course.importValidationErrors.length > 0) && (
           <div className="source-warning-list">
@@ -833,12 +853,37 @@ function RelationshipEditor({ course, onCourseChange }: { course: Course; onCour
 function VersionsTab({
   course,
   onCourseChange,
-  canManageWrike,
+  canManage,
+  isAdministrator,
 }: {
   course: Course;
   onCourseChange: Dispatch<SetStateAction<Course>>;
-  canManageWrike: boolean;
+  canManage: boolean;
+  isAdministrator: boolean;
 }) {
+  const [editingVersion, setEditingVersion] = useState<CourseVersion | "new" | null>(null);
+  const [pending, setPending] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+  const [versionMessage, setVersionMessage] = useState("");
+  const visibleVersions = course.versions.filter((version) => showArchived ? Boolean(version.archivedAt) : !version.archivedAt);
+  const saveVersionRecord = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault(); const form = new FormData(event.currentTarget); const current = editingVersion === "new" ? null : editingVersion;
+    const payload = { versionNumber: String(form.get("versionNumber")), versionType: String(form.get("versionType")), publicationDate: String(form.get("publicationDate")), versionStatus: String(form.get("versionStatus")), isCurrent: form.get("isCurrent") === "on", releaseNotes: String(form.get("releaseNotes")), authoringTool: String(form.get("authoringTool")), packageStandard: String(form.get("packageStandard")), expectedUpdatedAt: current?.updatedAt };
+    setPending(true); setVersionMessage("");
+    try {
+      const response = await fetch(current ? `/api/course-versions/${current.id}` : `/api/courses/${course.id}/versions`, { method: current ? "PATCH" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
+      const result = await response.json() as { version?: CourseVersion; message?: string }; if (!response.ok || !result.version) throw new Error(result.message);
+      onCourseChange((value) => ({ ...value, versions: current ? value.versions.map((item) => item.id === current.id ? { ...result.version!, wrikeTaskReferences: item.wrikeTaskReferences } : result.version!.isCurrent ? { ...item, isCurrent: false, versionStatus: "Superseded" as const } : item) : [...value.versions.map((item) => result.version!.isCurrent ? { ...item, isCurrent: false, versionStatus: "Superseded" as const } : item), result.version!] }));
+      setEditingVersion(null); setVersionMessage(result.message ?? "Version saved.");
+    } catch (error) { setVersionMessage(error instanceof Error ? error.message : "Version could not be saved."); }
+    finally { setPending(false); }
+  };
+  const archiveOrRestore = async (version: CourseVersion, restore: boolean) => {
+    if (!version.updatedAt || (!restore && !window.confirm(`Archive version ${version.versionNumber}?`))) return;
+    setPending(true); setVersionMessage("");
+    try { const response = await fetch(`/api/course-versions/${version.id}${restore ? "/restore" : ""}`, { method: restore ? "POST" : "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ expectedUpdatedAt: version.updatedAt }) }); const result = await response.json() as { message?: string }; if (!response.ok) throw new Error(result.message); const now = new Date().toISOString(); onCourseChange((value) => ({ ...value, versions: value.versions.map((item) => item.id === version.id ? { ...item, archivedAt: restore ? null : now, updatedAt: now } : item) })); setVersionMessage(result.message ?? (restore ? "Version restored." : "Version archived.")); }
+    catch (error) { setVersionMessage(error instanceof Error ? error.message : "Version could not be updated."); } finally { setPending(false); }
+  };
   return (
     <div className="detail-section-stack">
       <section className="version-governance-banner">
@@ -858,37 +903,41 @@ function VersionsTab({
             <h2>Version history</h2>
             <p>Historical records are retained; only one CourseTrack version is current.</p>
           </div>
-          <span className="panel-stat">{course.versions.length} versions</span>
+          <div className="button-row">{canManage && <button className="button button-primary" onClick={() => setEditingVersion("new")}>Create version</button>}<button className="button button-secondary" onClick={() => setShowArchived((value) => !value)}>{showArchived ? "Show active" : "Archived history"}</button></div>
         </div>
+        {versionMessage && <div className="inline-alert" role="status"><ShieldCheck size={16} /><span>{versionMessage}</span></div>}
+        {editingVersion && <VersionRecordEditor version={editingVersion === "new" ? null : editingVersion} courseField={<input type="hidden" name="courseId" value={course.id} />} pending={pending} onSubmit={saveVersionRecord} onCancel={() => setEditingVersion(null)} />}
         <div className="table-scroll">
           <table className="data-table version-detail-table">
             <thead>
               <tr>
                 <th>Version</th>
                 <th>Type</th>
-                <th>Published</th>
+                <th>Publication dates</th>
                 <th>Wrike Task Link</th>
                 <th>Release notes</th>
                 <th>Maintained by</th>
                 <th>Status</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {[...course.versions].reverse().map((version) => (
+              {[...visibleVersions].reverse().map((version) => (
                 <tr key={version.id}>
                   <td className="mono-cell">v{version.versionNumber}</td>
                   <td>{version.versionType}</td>
-                  <td>{version.publicationDate}</td>
+                  <td><strong>CourseTrack: {version.publicationDate}</strong><small>Wrike: {version.wrikeTaskReferences[0]?.wrikePublishedDate ?? "Not mapped"}</small><small>Metadata fallback: {course.contentUpdatedAt ?? "Not supplied"}</small></td>
                   <td className="version-wrike-cell">
-                    <VersionWrikeCell version={version} onCourseChange={onCourseChange} canManage={canManageWrike} />
+                    <VersionWrikeCell version={version} onCourseChange={onCourseChange} canManage={canManage && !version.archivedAt} />
                   </td>
                   <td>{version.releaseNotes}</td>
-                  <td><StatusBadge tone="success">{version.managedBy}</StatusBadge></td>
-                  <td>{version.isCurrent ? <StatusBadge tone="success">Current</StatusBadge> : <StatusBadge>{version.versionStatus}</StatusBadge>}</td>
+                  <td><StatusBadge tone="success">{provenanceLabels[version.provenance ?? "coursetrack"]}</StatusBadge><small>Origin: {provenanceLabels[version.originProvenance ?? "coursetrack"]}</small></td>
+                  <td>{version.archivedAt ? <StatusBadge>Archived</StatusBadge> : version.isCurrent ? <StatusBadge tone="success">Current</StatusBadge> : <StatusBadge>{version.versionStatus}</StatusBadge>}</td>
+                  <td><div className="table-actions">{canManage && !version.archivedAt && <button onClick={() => setEditingVersion(version)}>Edit</button>}{canManage && !version.archivedAt && <button disabled={pending || version.isCurrent} onClick={() => void archiveOrRestore(version, false)}>Archive</button>}{isAdministrator && version.archivedAt && <button disabled={pending} onClick={() => void archiveOrRestore(version, true)}>Restore</button>}</div></td>
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table>{visibleVersions.length === 0 && <div className="empty-state compact-empty"><History size={22} /><p>No {showArchived ? "archived" : "active"} versions.</p></div>}
         </div>
         <div className="readonly-callout">
           <ShieldCheck size={18} />
@@ -955,6 +1004,7 @@ function VersionWrikeCellLegacy({
         linkMethod,
         lastVerifiedAt: null,
         updatedAt: now,
+        wrikePublishedDate: null,
       },
     ]);
     setLinking(false);
@@ -1140,19 +1190,37 @@ type VersionWrikeCellLink = { id: string; wrikeTaskId: string; taskTitle: string
 
 void VersionWrikeCellLegacy;
 
-function AccreditationTab({ course }: { course: Course }) {
-  if (course.accreditations.length === 0) {
-    return (
-      <div className="empty-state panel">
-        <Award size={28} />
-        <h2>No accreditation records</h2>
-        <p>Add an internal accreditation record when this course requires approval tracking.</p>
-      </div>
-    );
-  }
-  const groups = groupAccreditationRecords(course.accreditations);
+function AccreditationTab({ course, onCourseChange, canManage, isAdministrator, authorityMode }: { course: Course; onCourseChange: Dispatch<SetStateAction<Course>>; canManage: boolean; isAdministrator: boolean; authorityMode: "workbook" | "api" }) {
+  const [editingRecord, setEditingRecord] = useState<AccreditationRecord | "new" | null>(null);
+  const [pending, setPending] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+  const [accreditationMessage, setAccreditationMessage] = useState("");
+  const activeRecords = course.accreditations.filter((record) => !record.archivedAt);
+  const archivedRecords = course.accreditations.filter((record) => record.archivedAt);
+  const groups = groupAccreditationRecords(activeRecords);
+  const saveRecord = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault(); const form = new FormData(event.currentTarget); const current = editingRecord === "new" ? null : editingRecord;
+    const value = (name: string, fallback: string | null = null) => form.get(name) === null ? fallback : String(form.get(name));
+    const payload = { organization: value("organization", current?.organization ?? "")!, jurisdiction: value("jurisdiction", current?.jurisdiction ?? "")!, status: value("status", current?.status ?? "Approved")!, approvalNumber: value("approvalNumber", current?.approvalNumber ?? null) || null, topicNumber: value("topicNumber", current?.topicNumber ?? null) || null, creditHours: Number(value("creditHours", String(current?.creditHours ?? 0))), effectiveDate: value("effectiveDate", current?.effectiveDate ?? null) || null, expirationDate: value("expirationDate", current?.expirationDate ?? null) || null, expectedUpdatedAt: current?.updatedAt };
+    setPending(true); setAccreditationMessage("");
+    try { const response = await fetch(current ? `/api/accreditations/${current.id}` : `/api/courses/${course.id}/accreditations`, { method: current ? "PATCH" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) }); const result = await response.json() as { record?: AccreditationRecord; message?: string }; if (!response.ok || !result.record) throw new Error(result.message); onCourseChange((valueCourse) => ({ ...valueCourse, accreditations: current ? valueCourse.accreditations.map((item) => item.id === current.id ? result.record! : item) : [...valueCourse.accreditations, result.record!] })); setEditingRecord(null); setAccreditationMessage(result.message ?? "Accreditation saved."); }
+    catch (error) { setAccreditationMessage(error instanceof Error ? error.message : "Accreditation could not be saved."); } finally { setPending(false); }
+  };
+  const archiveOrRestore = async (record: AccreditationRecord, restore: boolean) => {
+    if (!record.updatedAt || (!restore && !window.confirm(`Archive ${record.organization} accreditation?`))) return; setPending(true); setAccreditationMessage("");
+    try { const response = await fetch(`/api/accreditations/${record.id}${restore ? "/restore" : ""}`, { method: restore ? "POST" : "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ expectedUpdatedAt: record.updatedAt }) }); const result = await response.json() as { message?: string }; if (!response.ok) throw new Error(result.message); const now = new Date().toISOString(); onCourseChange((value) => ({ ...value, accreditations: value.accreditations.map((item) => item.id === record.id ? { ...item, archivedAt: restore ? null : now, updatedAt: now, alignmentStatus: !restore && item.sourceDomain === "lms" ? "Pending LMS update" : item.alignmentStatus } : item) })); setAccreditationMessage(result.message ?? (restore ? "Accreditation restored." : "Accreditation archived.")); }
+    catch (error) { setAccreditationMessage(error instanceof Error ? error.message : "Accreditation could not be updated."); } finally { setPending(false); }
+  };
+  const confirmRecord = async (record: AccreditationRecord) => { if (!record.updatedAt) return; setPending(true); const note = window.prompt("Optional note describing the LMS update:", "") ?? ""; try { const response = await fetch(`/api/accreditations/${record.id}/confirm`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ expectedUpdatedAt: record.updatedAt, note }) }); const result = await response.json() as { message?: string }; if (!response.ok) throw new Error(result.message); const now = new Date().toISOString(); onCourseChange((value) => ({ ...value, accreditations: value.accreditations.map((item) => item.id === record.id ? { ...item, alignmentStatus: "Manually confirmed", confirmationTime: now, confirmationNote: note, updatedAt: now } : item) })); setAccreditationMessage(result.message ?? "Alignment confirmed."); } catch (error) { setAccreditationMessage(error instanceof Error ? error.message : "Alignment could not be confirmed."); } finally { setPending(false); } };
   return (
     <div className="detail-section-stack">
+      <section className="version-governance-banner"><Award size={22} /><div><strong>Accreditation is managed in CourseTrack</strong><span>Workbook-origin records retain immutable LMS evidence. Changes are tracked as record-level differences.</span></div></section>
+      <article className="panel"><div className="panel-heading"><div><h2>Accreditation management</h2><p>{activeRecords.length} active · {archivedRecords.length} archived</p></div><div className="button-row">{canManage && <button className="button button-primary" onClick={() => setEditingRecord("new")}>Add accreditation</button>}<button className="button button-secondary" onClick={() => setShowArchived((value) => !value)}>{showArchived ? "Show active" : "Archived history"}</button></div></div>
+      {accreditationMessage && <div className="inline-alert" role="status"><ShieldCheck size={16} /><span>{accreditationMessage}</span></div>}
+      {editingRecord && <AccreditationRecordEditor record={editingRecord === "new" ? null : editingRecord} courseField={<input type="hidden" name="courseId" value={course.id} />} pending={pending} apiLocked={authorityMode === "api"} onSubmit={saveRecord} onCancel={() => setEditingRecord(null)} />}
+      <div className="table-scroll"><table className="data-table"><thead><tr><th>Issuing body</th><th>Jurisdiction</th><th>Accreditation / topic</th><th>Dates</th><th>Status / credits</th><th>Alignment</th><th>Actions</th></tr></thead><tbody>{(showArchived ? archivedRecords : activeRecords).map((record) => <tr key={record.id}><td>{record.organization}</td><td>{record.jurisdiction || "—"}</td><td>{record.approvalNumber ?? "—"}<small>Topic: {record.topicNumber ?? "—"}</small></td><td>{record.effectiveDate ?? "—"} – {record.expirationDate ?? "—"}</td><td>{record.status}<small>{record.creditHours} hours</small></td><td><StatusBadge tone={record.alignmentStatus === "Pending LMS update" ? "danger" : record.alignmentStatus === "Manually confirmed" || record.alignmentStatus === "In sync" ? "success" : "info"}>{record.alignmentStatus}</StatusBadge></td><td><div className="table-actions">{canManage && !record.archivedAt && <button onClick={() => setEditingRecord(record)}>Edit</button>}{canManage && !record.archivedAt && <button disabled={pending || (authorityMode === "api" && record.sourceDomain === "lms")} onClick={() => void archiveOrRestore(record, false)}>Archive</button>}{canManage && authorityMode === "workbook" && record.alignmentStatus === "Pending LMS update" && !record.archivedAt && <button disabled={pending} onClick={() => void confirmRecord(record)}>Confirm LMS updated</button>}{isAdministrator && record.archivedAt && <button disabled={pending} onClick={() => void archiveOrRestore(record, true)}>Restore</button>}</div></td></tr>)}</tbody></table></div>
+      {(showArchived ? archivedRecords : activeRecords).length === 0 && <div className="empty-state compact-empty"><Award size={24} /><p>No {showArchived ? "archived" : "active"} accreditation records.</p></div>}
+      </article>
       {groups.map((group) => <AccreditationGroupCard group={group} key={group.key} />)}
     </div>
   );
@@ -1214,9 +1282,11 @@ function AccreditationRecordFields({ record }: { record: AccreditationRecord }) 
     <>
       <div className="field-grid">
         <ProvenanceField label="Approval number" value={record.approvalNumber ?? "Missing"} source={provenanceLabels[record.source]} locked={record.source === "lms_api"} />
+        <ProvenanceField label="Topic number" value={record.topicNumber ?? "Not used"} source={provenanceLabels[record.source]} locked={record.source === "lms_api"} />
         <ProvenanceField label="Effective date" value={record.effectiveDate ?? "Not set"} source={provenanceLabels[record.source]} locked={record.source === "lms_api"} />
         <ProvenanceField label="Expiration date" value={record.expirationDate ?? "Not set"} source={provenanceLabels[record.source]} locked={record.source === "lms_api"} />
-        <ProvenanceField label="Credit hours" value={String(record.creditHours)} source={provenanceLabels[record.source]} locked={record.source === "lms_api"} />
+        <ProvenanceField label="Credit hours" value={String(record.creditHours)} source={provenanceLabels[record.source]} />
+        <ProvenanceField label="Alignment" value={record.alignmentStatus} source="CourseTrack" />
       </div>
       {record.riskReasons.length > 0 && (
         <div className="risk-reasons">

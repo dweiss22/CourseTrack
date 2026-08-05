@@ -8,7 +8,7 @@ import type { WrikeConnectorState, WrikeTaskCandidate } from "@/db";
 type LinkResult = {
   id: string; wrikeTaskId: string; taskTitle: string; permalink: string | null;
   taskStatus: string | null; projectTitle: string | null; assigneeNames: string[];
-  dueDate: string | null; updatedAt: string; lastVerifiedAt?: string;
+  dueDate: string | null; updatedAt: string; lastVerifiedAt?: string; wrikePublishedDate: string | null;
 };
 
 function wrikeUrl(value: string): boolean {
@@ -48,7 +48,7 @@ export function WrikeTaskLinkControl({ version, canManage, onReferencesChange }:
 
   const apply = (link: LinkResult, method: VersionWrikeTaskReference["linkMethod"], verifiedAt: string | null = null) => {
     const now = new Date().toISOString();
-    onReferencesChange([{ id: link.id, wrikeTaskId: link.wrikeTaskId, taskTitle: link.taskTitle, projectId: null, projectTitle: link.projectTitle, taskStatus: link.taskStatus, assigneeNames: link.assigneeNames, dueDate: link.dueDate, permalink: link.permalink, provider: "Live Wrike", retrievedAt: now, linkedAt: active?.linkedAt ?? now, linkedBy: active?.linkedBy ?? "Current user", linkMethod: method, lastVerifiedAt: verifiedAt, updatedAt: link.updatedAt }]);
+    onReferencesChange([{ id: link.id, wrikeTaskId: link.wrikeTaskId, taskTitle: link.taskTitle, projectId: null, projectTitle: link.projectTitle, taskStatus: link.taskStatus, assigneeNames: link.assigneeNames, dueDate: link.dueDate, permalink: link.permalink, provider: "Live Wrike", retrievedAt: now, linkedAt: active?.linkedAt ?? now, linkedBy: active?.linkedBy ?? "Current user", linkMethod: method, lastVerifiedAt: verifiedAt, updatedAt: link.updatedAt, wrikePublishedDate: link.wrikePublishedDate }]);
     setEditing(false); setQuery(""); setSelected(null); setCandidates([]);
   };
 

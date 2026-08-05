@@ -2,19 +2,23 @@ import { cache } from "react";
 import { getSupabaseAdminClient } from "@/lib/supabase-server";
 import {
   fetchAccreditationBoard,
+  fetchAccreditationBoardPage,
   fetchAllTags,
   fetchAllTopics,
   fetchCourseGraphByAppId,
   fetchCoursesForTag,
   fetchCoursesForTopic,
+  fetchDashboardSnapshot,
   fetchFlagBoard,
   fetchFullCourseGraph,
   fetchPortfolioSummaries,
   fetchReportMetrics,
   fetchRevampBoard,
   fetchVersionBoard,
+  fetchVersionBoardPage,
   type AccreditationBoardEntry,
   type CourseSummary,
+  type DashboardSnapshot,
   type FlagBoardEntry,
   type PortfolioReportMetrics,
   type PortfolioSummary,
@@ -26,6 +30,7 @@ import {
 export type {
   AccreditationBoardEntry,
   CourseSummary,
+  DashboardSnapshot,
   FlagBoardEntry,
   PortfolioReportMetrics,
   PortfolioSummary,
@@ -78,6 +83,7 @@ export { getIntegrationMappingSummary } from "@/db/integration-repository";
 import type { ApplicationRole } from "@/lib/auth";
 export {
   archiveWorkflowRecord,
+  confirmDataAlignment,
   deleteWorkflowRecordPermanently,
   assignCourseRelationship,
   createRevampTask,
@@ -87,6 +93,7 @@ export {
   moveRevampTask,
   removeCourseRelationship,
   restoreTaskCallout,
+  restoreManagedRecord,
   saveAccreditation,
   saveFlag,
   saveNote,
@@ -104,6 +111,14 @@ type DatabaseStatus = {
   courseCount: number;
   databaseProvider: "Supabase/Postgres";
 };
+
+export async function getLmsAuthorityMode(): Promise<"workbook" | "api"> {
+  const client = getSupabaseAdminClient();
+  if (!client) return "workbook";
+  const { data, error } = await client.from("lms_authority_settings").select("authority_mode").eq("singleton", true).maybeSingle();
+  if (error || data?.authority_mode !== "api") return "workbook";
+  return "api";
+}
 
 type PersistedRetrievalRun = {
   id: string;
@@ -195,6 +210,10 @@ export async function getPortfolioSummaries(): Promise<PortfolioSummary[]> {
   return fetchPortfolioSummaries(requireDatabaseClient());
 }
 
+export async function getDashboardSnapshot(input: { vertical?: string; includeExcluded?: boolean } = {}): Promise<DashboardSnapshot> {
+  return fetchDashboardSnapshot(requireDatabaseClient(), input);
+}
+
 export interface CourseLibraryPageQuery {
   page?: number;
   pageSize?: number;
@@ -211,26 +230,28 @@ export interface CourseLibraryPageQuery {
 export async function getCourseLibraryPage(input: CourseLibraryPageQuery = {}): Promise<{ items: PortfolioSummary[]; total: number; page: number; pageSize: number }> {
   const page = Math.max(1, Math.trunc(input.page ?? 1));
   const pageSize = Math.min(100, Math.max(10, Math.trunc(input.pageSize ?? 25)));
-  const search = input.search?.trim().toLowerCase() ?? "";
-  const items = (await fetchPortfolioSummaries(requireDatabaseClient())).filter((course) => {
-    const searchable = [course.title, course.shortTitle, course.courseCode, course.lmsCourseId ?? "", course.description, course.primaryTopic, course.tags.join(" "), course.topicAssignments.map((item) => item.topic).join(" "), course.owner ?? ""].join(" ").toLowerCase();
-    return (!search || searchable.includes(search))
-      && (!input.vertical || input.vertical === "All verticals" || course.primaryVertical === input.vertical)
-      && (!input.lifecycle || input.lifecycle === "All statuses" || course.lifecycleStatus === input.lifecycle)
-      && (!input.health || input.health === "All health levels" || course.healthStatus === input.health)
-      && (!input.classification || input.classification === "All classifications" || (input.classification === "Included portfolio" ? course.managementClassification !== "Non-Lexipol excluded" : course.managementClassification === input.classification))
-      && (!input.workQueue || input.workQueue === "All queues"
-        || (input.workQueue === "Missing Content Metadata" && course.hasLmsSnapshot && !course.hasContentMetadata)
-        || (input.workQueue === "Missing from LMS" && !course.hasLmsSnapshot && course.hasContentMetadata)
-        || (input.workQueue === "Field conflicts" && course.conflictCount > 0)
-        || (input.workQueue === "Mapping required" && course.reconciliationStatus === "Mapping required")
-        || (input.workQueue === "Invalid import records" && course.importValidationErrorCount > 0)
-        || (input.workQueue === "Stale LMS data" && ["Stale Data", "Retrieval Failed"].includes(course.retrievalStatus)));
+  const { data, error } = await requireDatabaseClient().rpc("search_course_library", {
+    p_search: input.search?.trim() ?? "", p_vertical: input.vertical ?? "", p_lifecycle: input.lifecycle ?? "",
+    p_health: input.health ?? "", p_classification: input.classification ?? "Included portfolio",
+    p_work_queue: input.workQueue ?? "", p_sort: input.sort ?? "title", p_descending: input.descending ?? false,
+    p_limit: pageSize, p_offset: (page - 1) * pageSize,
   });
-  const sort = input.sort && input.sort in (items[0] ?? {}) ? input.sort as keyof PortfolioSummary : "title";
-  items.sort((a, b) => String(a[sort] ?? "").localeCompare(String(b[sort] ?? ""), undefined, { numeric: true }) * (input.descending ? -1 : 1));
-  const from = (page - 1) * pageSize;
-  return { items: items.slice(from, from + pageSize), total: items.length, page, pageSize };
+  if (error) throw databaseError("Could not search the course library", error);
+  type LibraryRow = Record<string, unknown>;
+  const rows = (data ?? []) as LibraryRow[];
+  const items: PortfolioSummary[] = rows.map((row) => ({
+    id: row.id as string, title: row.title as string, shortTitle: (row.short_title as string) ?? "", courseCode: row.course_code as string,
+    lmsCourseId: (row.lms_course_id as string) ?? null, description: (row.description as string) ?? "", primaryVertical: row.primary_vertical as PortfolioSummary["primaryVertical"],
+    managementClassification: row.management_classification as PortfolioSummary["managementClassification"], reconciliationStatus: row.reconciliation_status as PortfolioSummary["reconciliationStatus"],
+    retrievalStatus: row.retrieval_status as PortfolioSummary["retrievalStatus"], lastRetrievedAt: (row.last_retrieved_at as string) ?? null,
+    healthStatus: row.health_status as PortfolioSummary["healthStatus"], lifecycleStatus: row.lifecycle_status as PortfolioSummary["lifecycleStatus"],
+    primaryTopic: (row.primary_topic as string) ?? "", tags: (row.tags as string[]) ?? [], owner: (row.owner_name as string) ?? null,
+    durationMinutes: row.duration_minutes === null || row.duration_minutes === undefined ? null : Number(row.duration_minutes), dataSource: row.data_source as PortfolioSummary["dataSource"], nextReviewDate: (row.next_review_date as string) ?? null,
+    metadataCompletenessScore: Number(row.metadata_completeness_score ?? 0), conflictCount: Number(row.conflict_count ?? 0), sourceDifferenceCount: Number(row.source_difference_count ?? 0),
+    flagCount: Number(row.flag_count ?? 0), hasLmsSnapshot: Boolean(row.has_lms_snapshot), hasContentMetadata: Boolean(row.has_content_metadata),
+    importValidationErrorCount: Number(row.import_validation_error_count ?? 0), topicAssignments: ((row.topics as string[]) ?? []).map((topic) => ({ topic })),
+  }));
+  return { items, total: Number(rows[0]?.total_count ?? 0), page, pageSize };
 }
 
 export const getCourseRecord = cache(async (courseId: string): Promise<Course | undefined> => {
@@ -359,8 +380,16 @@ export async function getAccreditationBoard(): Promise<AccreditationBoardEntry[]
   return fetchAccreditationBoard(requireDatabaseClient());
 }
 
+export async function getAccreditationBoardPage(page = 1, pageSize = 100): Promise<{ items: AccreditationBoardEntry[]; total: number }> {
+  return fetchAccreditationBoardPage(requireDatabaseClient(), page, pageSize);
+}
+
 export async function getVersionBoard(): Promise<VersionBoardEntry[]> {
   return fetchVersionBoard(requireDatabaseClient());
+}
+
+export async function getVersionBoardPage(page = 1, pageSize = 100): Promise<{ items: VersionBoardEntry[]; total: number }> {
+  return fetchVersionBoardPage(requireDatabaseClient(), page, pageSize);
 }
 
 export async function getRevampBoard(): Promise<RevampBoardEntry[]> {
