@@ -357,10 +357,11 @@ begin
   if p_selected_source is not null and p_selected_source not in ('lms', 'content_metadata') then raise exception 'Resolution source is invalid.' using errcode = '22023'; end if;
 
   if p_selected_source = 'lms' then
-    if p_field_key not in ('courseName', 'contentType', 'durationMinutes', 'trainingCredits', 'published', 'description', 'publishedDate') then
+    if p_field_key not in ('courseId', 'courseName', 'contentType', 'durationMinutes', 'trainingCredits', 'published', 'description', 'publishedDate') then
       raise exception 'This LMS field cannot be copied into the CourseTrack projection.' using errcode = '22023';
     end if;
     update public.courses set
+      course_code = case when p_field_key = 'courseId' then previous.lms_normalized_value #>> '{}' else course_code end,
       title = case when p_field_key = 'courseName' then previous.lms_normalized_value #>> '{}' else title end,
       delivery_format = case when p_field_key = 'contentType' then previous.lms_normalized_value #>> '{}' else delivery_format end,
       duration_minutes = case when p_field_key = 'durationMinutes' then (previous.lms_normalized_value #>> '{}')::integer else duration_minutes end,

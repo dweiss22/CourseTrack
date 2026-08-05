@@ -15,7 +15,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Bar,
   BarChart,
@@ -29,11 +29,12 @@ import {
   YAxis,
 } from "recharts";
 import {
-  type Course,
   getVerticalLabel,
   type RetrievalRun,
+  type Vertical,
   verticals,
 } from "@/types/course";
+import type { DashboardSnapshot } from "@/db";
 import { StatusBadge } from "../status-badge";
 
 const healthColors: Record<string, string> = {
@@ -44,43 +45,7 @@ const healthColors: Record<string, string> = {
   Critical: "#D50032",
 };
 
-export type DashboardCourse = Pick<
-  Course,
-  | "id"
-  | "title"
-  | "primaryVertical"
-  | "managementClassification"
-  | "healthStatus"
-  | "nextReviewDate"
-  | "owner"
-  | "metadataCompletenessScore"
-  | "reconciliationStatus"
-  | "retrievalStatus"
-  | "conflictCount"
-> & {
-  flagCount: number;
-  hasLmsSnapshot: boolean;
-  hasContentMetadata: boolean;
-  importValidationErrorCount: number;
-};
-
-function buildMetricCards(courses: DashboardCourse[], includeExcluded: boolean) {
-  const portfolio = includeExcluded
-    ? courses
-    : courses.filter((course) => course.managementClassification !== "Non-Lexipol excluded");
-  const metrics = {
-    totalLmsRetrieved: courses.filter((course) => course.hasLmsSnapshot).length,
-    lexipolManaged: portfolio.filter((course) => course.managementClassification === "Lexipol managed").length,
-    nonLexipolTracked: portfolio.filter((course) => course.managementClassification === "Non-Lexipol tracked").length,
-    unclassified: portfolio.filter((course) => course.managementClassification === "Unclassified").length,
-    missingContentMetadata: portfolio.filter((course) => course.hasLmsSnapshot && !course.hasContentMetadata).length,
-    missingFromLms: portfolio.filter((course) => !course.hasLmsSnapshot && course.hasContentMetadata).length,
-    unresolvedConflicts: portfolio.filter((course) => course.conflictCount > 0).length,
-    mappingRequired: portfolio.filter((course) => course.reconciliationStatus === "Mapping required").length,
-    staleLms: portfolio.filter((course) => ["Stale Data", "Retrieval Failed"].includes(course.retrievalStatus)).length,
-    importValidationErrors: portfolio.reduce((total, course) => total + course.importValidationErrorCount, 0),
-  };
-
+function buildMetricCards(metrics: DashboardSnapshot["metrics"]) {
   return [
     {
       label: "LMS courses retrieved",
@@ -156,68 +121,27 @@ function buildMetricCards(courses: DashboardCourse[], includeExcluded: boolean) 
 }
 
 export function Dashboard({
-  courses,
+  snapshot,
   retrievalRuns,
   firstName,
+  selectedVertical,
+  includeExcluded,
 }: {
-  courses: DashboardCourse[];
+  snapshot: DashboardSnapshot;
   retrievalRuns: RetrievalRun[];
   firstName: string;
+  selectedVertical: Vertical | "All verticals";
+  includeExcluded: boolean;
 }) {
-  const [verticalFilter, setVerticalFilter] = useState("All verticals");
-  const [includeExcluded, setIncludeExcluded] = useState(false);
+  const router = useRouter();
   const today = new Date().toISOString().slice(0, 10);
-  const metricCards = useMemo(
-    () => buildMetricCards(courses, includeExcluded),
-    [courses, includeExcluded],
-  );
-
-  const portfolioCourses = useMemo(
-    () =>
-      includeExcluded
-        ? courses
-        : courses.filter(
-            (course) =>
-              course.managementClassification !== "Non-Lexipol excluded",
-          ),
-    [courses, includeExcluded],
-  );
-
-  const filteredCourses = useMemo(
-    () =>
-      verticalFilter === "All verticals"
-        ? portfolioCourses
-        : portfolioCourses.filter(
-            (course) => course.primaryVertical === verticalFilter,
-          ),
-    [portfolioCourses, verticalFilter],
-  );
-
-  const verticalData = verticals.map((vertical) => ({
-    name: vertical,
-    courses: portfolioCourses.filter(
-      (course) => course.primaryVertical === vertical,
-    ).length,
-  }));
-
-  const healthData = Object.keys(healthColors).map((status) => ({
-    name: status,
-    value: filteredCourses.filter((course) => course.healthStatus === status)
-      .length,
-  }));
-
-  const reviewQueue = filteredCourses
-    .filter((course) => course.nextReviewDate)
-    .sort((a, b) =>
-      (a.nextReviewDate ?? "").localeCompare(b.nextReviewDate ?? ""),
-    )
-    .slice(0, 5);
-
-  const riskQueue = filteredCourses
-    .filter((course) =>
-      ["Critical", "At Risk"].includes(course.healthStatus),
-    )
-    .slice(0, 5);
+  const metricCards = buildMetricCards(snapshot.metrics);
+  const updateFilters = (vertical: Vertical | "All verticals", excluded: boolean) => {
+    const params = new URLSearchParams();
+    if (vertical !== "All verticals") params.set("vertical", vertical);
+    if (excluded) params.set("excluded", "1");
+    router.replace(params.size ? `/?${params}` : "/");
+  };
 
   return (
     <div className="page-stack">
@@ -233,8 +157,8 @@ export function Dashboard({
         <div className="heading-actions">
           <select
             className="select-control"
-            value={verticalFilter}
-            onChange={(event) => setVerticalFilter(event.target.value)}
+            value={selectedVertical}
+            onChange={(event) => updateFilters(event.target.value as Vertical | "All verticals", includeExcluded)}
             aria-label="Filter dashboard by vertical"
           >
             <option>All verticals</option>
@@ -248,7 +172,7 @@ export function Dashboard({
             <input
               type="checkbox"
               checked={includeExcluded}
-              onChange={(event) => setIncludeExcluded(event.target.checked)}
+              onChange={(event) => updateFilters(selectedVertical, event.target.checked)}
             />
             Include excluded
           </label>
@@ -295,7 +219,7 @@ export function Dashboard({
           </div>
           <div className="chart-frame chart-wide" aria-label="Bar chart of courses by vertical">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={verticalData} margin={{ top: 12, right: 6, left: -24, bottom: 16 }}>
+              <BarChart data={snapshot.verticalData} margin={{ top: 12, right: 6, left: -24, bottom: 16 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border-subtle)" />
                 <XAxis dataKey="name" tick={{ fontSize: 13, fill: "var(--text-muted)" }} angle={-18} textAnchor="end" height={56} axisLine={false} tickLine={false} />
                 <YAxis allowDecimals={false} tick={{ fontSize: 13, fill: "var(--text-muted)" }} axisLine={false} tickLine={false} />
@@ -318,7 +242,7 @@ export function Dashboard({
           <div className="panel-heading">
             <div>
               <h2>Portfolio health</h2>
-              <p>{filteredCourses.length} courses in view</p>
+              <p>{snapshot.coursesInView} courses in view</p>
             </div>
             <CircleGauge size={20} className="panel-icon" />
           </div>
@@ -326,8 +250,8 @@ export function Dashboard({
             <div className="chart-frame chart-donut" aria-label="Donut chart of portfolio health">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
-                  <Pie data={healthData} dataKey="value" nameKey="name" innerRadius={52} outerRadius={78} paddingAngle={3}>
-                    {healthData.map((entry) => (
+                  <Pie data={snapshot.healthData} dataKey="value" nameKey="name" innerRadius={52} outerRadius={78} paddingAngle={3}>
+                    {snapshot.healthData.map((entry) => (
                       <Cell key={entry.name} fill={healthColors[entry.name]} />
                     ))}
                   </Pie>
@@ -342,12 +266,12 @@ export function Dashboard({
                 </PieChart>
               </ResponsiveContainer>
               <div className="donut-center">
-                <strong>{filteredCourses.length}</strong>
+                <strong>{snapshot.coursesInView}</strong>
                 <span>courses</span>
               </div>
             </div>
             <div className="chart-legend">
-              {healthData.map((entry) => (
+              {snapshot.healthData.map((entry) => (
                 <div key={entry.name}>
                   <span style={{ background: healthColors[entry.name] }} />
                   <small>{entry.name}</small>
@@ -369,7 +293,7 @@ export function Dashboard({
             <CalendarClock size={20} className="panel-icon" />
           </div>
           <div className="action-list">
-            {reviewQueue.map((course) => (
+            {snapshot.reviewQueue.map((course) => (
               <Link href={`/courses/${course.id}`} key={course.id}>
                 <div>
                   <strong>{course.title}</strong>
@@ -399,7 +323,7 @@ export function Dashboard({
             <AlertTriangle size={20} className="panel-icon panel-icon-danger" />
           </div>
           <div className="action-list">
-            {riskQueue.map((course) => (
+            {snapshot.riskQueue.map((course) => (
               <Link href={`/courses/${course.id}`} key={course.id}>
                 <div>
                   <strong>{course.title}</strong>

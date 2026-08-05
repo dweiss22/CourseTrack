@@ -2023,6 +2023,24 @@ kbd {
   background: var(--surface);
 }
 
+.pagination-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 12px 0;
+}
+
+.pagination-bar span {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.is-disabled {
+  pointer-events: none;
+  opacity: 0.5;
+}
+
 .empty-state {
   display: grid;
   min-height: 240px;

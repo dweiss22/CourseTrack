@@ -139,6 +139,19 @@ test("LMS scalar normalizers handle IDs, booleans, dates, authors, lists, N/A, a
   assert.match(mismatch.warnings.join(" "), /Could not normalize date/);
 });
 
+test("compact LMS rows derive duration from training credits without changing the raw source", () => {
+  const parsed = parseLmsRow({
+    id: 102160981,
+    name: "Compact course",
+    content_type: "Full Length Course",
+    training_credits: "1.5 hours",
+    published: true,
+  });
+  assert.equal(parsed.normalized.durationMinutes, 90);
+  assert.equal(parsed.normalized.courseType, "Full Length Course");
+  assert.equal(parsed.rawPayload.duration, undefined);
+});
+
 test("Content Metadata parser enforces the 17-column contract without penalizing blank optional fields", () => {
   assert.equal(CONTENT_METADATA_HEADERS.length, 17);
   assert.deepEqual(Object.keys(metadataRow()), [...CONTENT_METADATA_HEADERS]);
@@ -221,7 +234,7 @@ test("ID-based source reconciliation distinguishes matches, one-sided records, a
   const matchedLms = parseLmsRow(lmsRow());
   const matchedMetadata = parseContentMetadataRow(metadataRow());
   const matched = reconcileCourseSources(matchedLms, matchedMetadata);
-  assert.equal(matched.length, 7);
+  assert.equal(matched.length, 8);
   assert.ok(matched.every((comparison) => comparison.comparisonStatus === "Match"));
 
   assert.ok(reconcileCourseSources(matchedLms, null).every((comparison) => comparison.comparisonStatus === "LMS only"));

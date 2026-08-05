@@ -461,7 +461,19 @@ export function parseLmsRow(
   const warnings: string[] = [];
   const courseId = normalizeCourseId(sourceValue(row, LMS_ALIASES.courseId));
   if (courseId.error) errors.push(courseId.error);
-  const duration = normalizeLmsDuration(sourceValue(row, LMS_ALIASES.duration));
+  const explicitDuration = normalizeLmsDuration(sourceValue(row, LMS_ALIASES.duration));
+  const trainingCredits = parseTrainingCredits(sourceValue(row, LMS_ALIASES.trainingCredits));
+  const derivedDuration = trainingCredits.amount === null
+    ? null
+    : trainingCredits.unit === "hours"
+      ? Math.round(trainingCredits.amount * 60)
+      : trainingCredits.unit === "minutes"
+        ? Math.round(trainingCredits.amount)
+        : null;
+  const duration = {
+    value: explicitDuration.value ?? derivedDuration,
+    error: explicitDuration.error,
+  };
   if (duration.error) warnings.push(duration.error);
   const publishedDate = normalizeDate(sourceValue(row, LMS_ALIASES.publishedDate));
   const createdDate = normalizeDate(sourceValue(row, LMS_ALIASES.createdDate));
@@ -510,7 +522,7 @@ export function parseLmsRow(
       createdDate: createdDate.value,
       lastRevisionDate: lastRevisionDate.value,
       courseAccreditationState: splitSemicolonValues(sourceValue(row, LMS_ALIASES.accreditationState)),
-      trainingCredits: parseTrainingCredits(sourceValue(row, LMS_ALIASES.trainingCredits)),
+      trainingCredits,
       accreditations: accreditations.records,
     },
     errors,
@@ -729,6 +741,7 @@ export function parseTopicsMatrix(
 }
 
 const COMPARISON_FIELDS = [
+  { key: "courseId", label: "Course ID", lms: "courseId", metadata: "lmsCourseId" },
   { key: "courseName", label: "Course Name", lms: "courseName", metadata: "courseName" },
   { key: "contentType", label: "Content Type", lms: "courseType", metadata: "contentType" },
   { key: "durationMinutes", label: "Duration", lms: "durationMinutes", metadata: "durationMinutes" },
@@ -739,6 +752,7 @@ const COMPARISON_FIELDS = [
 ] as const;
 
 const LMS_COMPARISON_ALIASES = {
+  courseId: LMS_ALIASES.courseId,
   courseName: LMS_ALIASES.courseName,
   contentType: LMS_ALIASES.courseType,
   durationMinutes: LMS_ALIASES.duration,
@@ -749,6 +763,7 @@ const LMS_COMPARISON_ALIASES = {
 } as const;
 
 const CONTENT_COMPARISON_ALIASES = {
+  courseId: CONTENT_ALIASES.courseId,
   courseName: CONTENT_ALIASES.courseName,
   contentType: CONTENT_ALIASES.contentType,
   durationMinutes: CONTENT_ALIASES.durationMinutes,

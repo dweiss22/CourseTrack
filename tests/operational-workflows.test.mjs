@@ -60,6 +60,54 @@ test("mutation routes authenticate before record lookup and use shared validatio
   }
 });
 
+test("course data repair adds three-source alignment, authority locks, archive restore, and server pagination", async () => {
+  const sql = await read("supabase/migrations/202608050001_course_data_repair_and_comparison.sql");
+  assert.match(sql, /lms_authority_settings/);
+  assert.match(sql, /authority_mode in \('workbook', 'api'\)/);
+  assert.match(sql, /content_metadata_one_current_per_course_idx/);
+  assert.match(sql, /coursetrack_normalized_value/);
+  for (const status of ["In sync", "Pending LMS update", "Manually confirmed", "Missing metadata", "App only", "Mapping required"]) assert.match(sql, new RegExp(status));
+  assert.match(sql, /source_normalized_payload/);
+  assert.match(sql, /topic_number/);
+  assert.match(sql, /confirm_data_alignment/);
+  assert.match(sql, /restore_managed_record/);
+  assert.match(sql, /Select another current version before archiving/);
+  assert.match(sql, /healthy connector and successful API snapshot/i);
+  assert.match(sql, /search_course_library/);
+  assert.match(sql, /get_dashboard_snapshot/);
+  assert.match(sql, /limit 5/);
+  assert.doesNotMatch(sql, /delete\s+from\s+public\.(lms_snapshots|content_metadata_records|accreditation_records|course_versions)/i);
+});
+
+test("dashboard aggregation stays server-side and returns bounded queues", async () => {
+  const [page, dashboard] = await Promise.all([
+    read("app/page.tsx"),
+    read("components/dashboard/dashboard.tsx"),
+  ]);
+  assert.match(page, /getDashboardSnapshot/);
+  assert.doesNotMatch(page, /getPortfolioSummaries/);
+  assert.match(dashboard, /snapshot\.reviewQueue/);
+  assert.match(dashboard, /snapshot\.riskQueue/);
+  assert.doesNotMatch(dashboard, /courses:\s*DashboardCourse\[\]/);
+});
+
+test("Data Comparison and managed-record endpoints expose the required workflows", async () => {
+  const [detail, comparisonRoute, accreditationRestore, versionRestore] = await Promise.all([
+    read("components/course-detail/course-detail.tsx"),
+    read("app/api/courses/[id]/data-comparisons/[comparisonId]/confirm/route.ts"),
+    read("app/api/accreditations/[id]/restore/route.ts"),
+    read("app/api/course-versions/[id]/restore/route.ts"),
+  ]);
+  assert.match(detail, /"Data Comparison"/);
+  assert.match(detail, /Uploaded metadata/);
+  assert.match(detail, /Confirm LMS updated/);
+  assert.match(detail, /Create version/);
+  assert.match(detail, /Add accreditation/);
+  assert.match(comparisonRoute, /confirmDataAlignment/);
+  assert.match(accreditationRestore, /requireApiRole\("super_admin", "admin"\)/);
+  assert.match(versionRestore, /requireApiRole\("super_admin", "admin"\)/);
+});
+
 test("Revamp UI has one pointer/keyboard drag handle, permission, ordering, and rollback contracts", async () => {
   const source = await read("components/portfolio-workspaces.tsx");
   assert.match(source, /className={`drag-handle/);

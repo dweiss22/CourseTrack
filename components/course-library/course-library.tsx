@@ -78,7 +78,7 @@ const columns = [
       <div className="course-title-cell">
         <Link href={`/courses/${row.original.id}`}>{row.original.title}</Link>
         <span>
-          {row.original.courseCode} · {row.original.durationMinutes} min
+          {row.original.courseCode} · {row.original.durationMinutes === null ? "Duration not supplied" : `${row.original.durationMinutes} min`}
         </span>
       </div>
     ),
@@ -716,7 +716,7 @@ export function CourseLibrary({ courses: initialCourses, initialTotal, initialFa
                 <p>{course.description}</p>
                 <div className="course-card-meta">
                   <span>{course.courseCode}</span>
-                  <span>{course.durationMinutes} min</span>
+                  <span>{course.durationMinutes === null ? "Duration not supplied" : `${course.durationMinutes} min`}</span>
                   <span>{course.retrievalStatus}</span>
                 </div>
                 <div className="course-card-badges">

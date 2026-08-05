@@ -12,6 +12,15 @@ function repositoryError(context: string, error: { message: string }): Error {
   return new Error(`${context}: ${error.message}`);
 }
 
+function mappedWrikePublishedDate(customFields: unknown): string | null {
+  const fieldId = process.env.WRIKE_VERSION_PUBLISHED_DATE_FIELD_ID?.trim();
+  if (!fieldId || !Array.isArray(customFields)) return null;
+  const value = customFields.find((item): item is { id: string; value: string } => Boolean(item && typeof item === "object" && (item as { id?: unknown }).id === fieldId && typeof (item as { value?: unknown }).value === "string"))?.value;
+  if (!value) return null;
+  const match = /^(\d{4}-\d{2}-\d{2})/.exec(value);
+  return match?.[1] ?? null;
+}
+
 // ---------------------------------------------------------------------------
 // Connection (singleton, permanent token)
 // ---------------------------------------------------------------------------
@@ -560,6 +569,7 @@ export interface WrikeVersionLink {
   assigneeNames: string[];
   dueDate: string | null;
   updatedAt: string;
+  wrikePublishedDate: string | null;
 }
 
 export async function linkCourseVersionWrikeTask(
@@ -623,7 +633,7 @@ export async function linkCourseVersionWrikeTask(
     throw new Error("Provide either a Wrike permalink or a selected candidate task id.");
   }
 
-  const { data: indexed } = await client.from("wrike_tasks").select("project_ids,project_titles,assignee_names,due_date").eq("wrike_task_id", resolvedTask.id).maybeSingle();
+  const { data: indexed } = await client.from("wrike_tasks").select("project_ids,project_titles,assignee_names,due_date,custom_fields").eq("wrike_task_id", resolvedTask.id).maybeSingle();
   const { data, error } = await client.rpc("save_version_wrike_link", {
     p_course_version_id: input.courseVersionId,
     p_task: {
@@ -638,7 +648,13 @@ export async function linkCourseVersionWrikeTask(
     p_actor_email: input.actorEmail,
   });
   if (error) throw repositoryError("Could not save the Wrike Task Link", error);
-  const saved = data as Row;
+  let saved = data as Row;
+  const wrikePublishedDate = mappedWrikePublishedDate(indexed?.custom_fields);
+  if (wrikePublishedDate) {
+    const { data: dated, error: dateError } = await client.from("version_wrike_task_references").update({ wrike_published_date: wrikePublishedDate }).eq("id", saved.id).select("*").single();
+    if (dateError) throw repositoryError("Could not save the mapped Wrike publication date", dateError);
+    saved = dated as Row;
+  }
 
   return {
     id: saved.id as string,
@@ -650,6 +666,7 @@ export async function linkCourseVersionWrikeTask(
     assigneeNames: (saved.assignee_names as string[]) ?? [],
     dueDate: (saved.due_date as string) ?? null,
     updatedAt: saved.updated_at as string,
+    wrikePublishedDate: (saved.wrike_published_date as string) ?? null,
   };
 }
 
@@ -678,7 +695,7 @@ export async function verifyCourseVersionWrikeTask(
     throw new Error("This Wrike task is no longer accessible to the connected account.");
   }
   const task = result.data[0];
-  const { data: indexed } = await client.from("wrike_tasks").select("project_titles,assignee_names,due_date").eq("wrike_task_id", task.id).maybeSingle();
+  const { data: indexed } = await client.from("wrike_tasks").select("project_titles,assignee_names,due_date,custom_fields").eq("wrike_task_id", task.id).maybeSingle();
   const { data, error } = await client.rpc("verify_version_wrike_link", {
     p_reference_id: input.referenceId,
     p_task: { id: task.id, title: task.title, permalink: task.permalink ?? null, status: task.status ?? null, projectTitle: indexed?.project_titles?.[0] ?? null, assigneeNames: indexed?.assignee_names ?? [], dueDate: indexed?.due_date ?? null },
@@ -687,7 +704,13 @@ export async function verifyCourseVersionWrikeTask(
     p_actor_email: input.actorEmail,
   });
   if (error) throw repositoryError("Could not verify the Wrike Task Link", error);
-  const saved = data as Row;
+  let saved = data as Row;
+  const wrikePublishedDate = mappedWrikePublishedDate(indexed?.custom_fields);
+  if (wrikePublishedDate) {
+    const { data: dated, error: dateError } = await client.from("version_wrike_task_references").update({ wrike_published_date: wrikePublishedDate }).eq("id", saved.id).select("*").single();
+    if (dateError) throw repositoryError("Could not save the mapped Wrike publication date", dateError);
+    saved = dated as Row;
+  }
 
   return {
     id: saved.id as string,
@@ -700,6 +723,7 @@ export async function verifyCourseVersionWrikeTask(
     dueDate: (saved.due_date as string) ?? null,
     updatedAt: saved.updated_at as string,
     lastVerifiedAt: saved.last_verified_at as string,
+    wrikePublishedDate: (saved.wrike_published_date as string) ?? null,
   };
 }
 

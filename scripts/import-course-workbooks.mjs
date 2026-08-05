@@ -48,27 +48,27 @@ function projectionFor(course) {
   const lms = course.lms?.normalized ?? null;
   const metadata = course.projection;
   const verticals = metadata?.verticals?.length ? metadata.verticals : lms?.mappedVerticals ?? [];
-  const primaryVertical = verticals[0] ?? "Lexipol";
-  const published = metadata?.published ?? lms?.isPublished ?? false;
+  const primaryVertical = verticals[0] ?? "Unclassified";
+  const published = metadata?.published ?? lms?.isPublished ?? null;
   return {
     appId: `LMS-${course.courseId}`,
     courseCode: course.courseId,
-    title: metadata?.courseName ?? lms?.courseName ?? `LMS Course ${course.courseId}`,
+    title: metadata?.courseName ?? lms?.courseName,
     shortTitle: null,
-    description: metadata?.description ?? lms?.courseDescription ?? "",
-    learningAudience: "",
+    description: metadata?.description ?? lms?.courseDescription ?? null,
+    learningAudience: null,
     primaryVertical,
     secondaryVerticals: verticals.filter((value) => value !== primaryVertical),
-    primaryTopic: lms?.publicTopics?.[0] ?? lms?.privateTopics?.[0] ?? "",
+    primaryTopic: lms?.publicTopics?.[0] ?? lms?.privateTopics?.[0] ?? null,
     managementClassification: metadata ? "Lexipol managed" : lms?.isLexipol === true ? "Lexipol managed" : "Unclassified",
     monitoringEnabled: true,
     lifecycleStatus: published ? "Published" : "In Development",
     publicationStatus: published ? "Published" : course.lms ? "Inactive" : "Not in LMS",
     contentType: metadata?.contentType ?? lms?.courseType ?? "",
-    durationMinutes: metadata?.durationMinutes ?? lms?.durationMinutes ?? 0,
+    durationMinutes: metadata?.durationMinutes ?? lms?.durationMinutes ?? null,
     trainingCredits: metadata?.trainingCredits ?? lms?.trainingCredits ?? { rawDisplay: null, amount: null, unit: null },
     published,
-    authoringTool: metadata?.authoringTool ?? "",
+    authoringTool: metadata?.authoringTool ?? null,
     stateCode: null,
     owner: null,
     instructionalDesigner: null,
@@ -80,7 +80,7 @@ function projectionFor(course) {
     updateType: metadata?.updateType ?? null,
     contentUpdatedAt: isoDate(metadata?.updatedRawValue),
     contentNotes: metadata?.notes ?? null,
-    internalSummary: metadata?.notes || "Imported CourseTrack projection.",
+    internalSummary: metadata?.notes ?? "",
     projectionOrigin: course.metadata ? "master_import" : "lms_export",
     reconciliationStatus: course.metadata && course.lms
       ? "Matched between LMS and Content Metadata"
@@ -132,57 +132,58 @@ async function applyDataset(dataset) {
 
   const verticalRows = await allRows(client, "verticals", "id,slug");
   const verticalBySlug = new Map(verticalRows.map((row) => [String(row.slug).toUpperCase(), row.id]));
-  const fallbackVerticalId = verticalBySlug.get("LEXIPOL") ?? verticalRows[0]?.id;
+  const fallbackVerticalId = verticalBySlug.get("UNCLASSIFIED") ?? verticalBySlug.get("LEXIPOL") ?? verticalRows[0]?.id;
   if (!fallbackVerticalId) throw new Error("No CourseTrack verticals are configured.");
 
-  const existingCourses = await allRows(client, "courses", "id,app_id,lms_course_id,has_manual_overrides,updated_at");
+  const existingCourses = await allRows(client, "courses", "id,app_id,lms_course_id,course_code,title,short_title,description,learning_audience,primary_vertical_id,primary_topic,management_classification,monitoring_enabled,lifecycle_status,publication_status,delivery_format,duration_minutes,training_credits,is_published,authoring_tool,original_publish_date,last_major_revision_date,backend_link,frontend_link,content_update_type,content_updated_at,content_notes,internal_summary,has_manual_overrides,field_provenance,updated_at");
   const existingByLmsId = new Map(existingCourses.filter((row) => row.lms_course_id).map((row) => [String(row.lms_course_id), row]));
+  const keepOverride = (existing, key, sourceValue, column) =>
+    existing?.field_provenance?.[key] === "coursetrack" ? existing[column] : sourceValue;
   const courseRows = [];
   for (const course of dataset.courses) {
     const existing = existingByLmsId.get(course.courseId);
-    if (existing?.has_manual_overrides) continue;
     const value = projectionFor(course);
     courseRows.push({
       app_id: existing?.app_id ?? value.appId,
-      course_code: value.courseCode,
+      course_code: keepOverride(existing, "courseId", value.courseCode, "course_code"),
       lms_course_id: course.courseId,
-      title: value.title,
-      short_title: value.shortTitle,
-      description: value.description,
-      learning_audience: value.learningAudience,
-      primary_vertical_id: verticalBySlug.get(value.primaryVertical.toUpperCase()) ?? fallbackVerticalId,
-      primary_topic: value.primaryTopic,
-      lifecycle_status: value.lifecycleStatus,
-      publication_status: value.publicationStatus,
-      delivery_format: value.contentType,
-      duration_minutes: value.durationMinutes,
-      training_credits: jsonSafe(value.trainingCredits),
-      is_published: value.published,
-      authoring_tool: value.authoringTool,
-      original_publish_date: value.publishedDate,
-      last_major_revision_date: value.lastMajorRevisionDate,
-      backend_link: value.backendLink,
-      frontend_link: value.frontendLink,
-      content_update_type: value.updateType,
-      content_updated_at: value.contentUpdatedAt,
-      content_notes: value.contentNotes,
-      management_classification: value.managementClassification,
-      monitoring_enabled: value.monitoringEnabled,
+      title: keepOverride(existing, "courseName", value.title, "title"),
+      short_title: keepOverride(existing, "shortTitle", value.shortTitle, "short_title"),
+      description: keepOverride(existing, "description", value.description, "description"),
+      learning_audience: keepOverride(existing, "learningAudience", value.learningAudience, "learning_audience"),
+      primary_vertical_id: keepOverride(existing, "primaryVertical", verticalBySlug.get(value.primaryVertical.toUpperCase()) ?? fallbackVerticalId, "primary_vertical_id"),
+      primary_topic: keepOverride(existing, "primaryTopic", value.primaryTopic, "primary_topic"),
+      lifecycle_status: keepOverride(existing, "lifecycleStatus", value.lifecycleStatus, "lifecycle_status"),
+      publication_status: keepOverride(existing, "publicationStatus", value.publicationStatus, "publication_status"),
+      delivery_format: keepOverride(existing, "contentType", value.contentType, "delivery_format"),
+      duration_minutes: keepOverride(existing, "durationMinutes", value.durationMinutes, "duration_minutes"),
+      training_credits: jsonSafe(keepOverride(existing, "trainingCredits", value.trainingCredits, "training_credits")),
+      is_published: keepOverride(existing, "published", value.published, "is_published"),
+      authoring_tool: keepOverride(existing, "authoringTool", value.authoringTool, "authoring_tool"),
+      original_publish_date: keepOverride(existing, "publishedDate", value.publishedDate, "original_publish_date"),
+      last_major_revision_date: keepOverride(existing, "lastMajorRevisionDate", value.lastMajorRevisionDate, "last_major_revision_date"),
+      backend_link: keepOverride(existing, "backendLink", value.backendLink, "backend_link"),
+      frontend_link: keepOverride(existing, "frontendLink", value.frontendLink, "frontend_link"),
+      content_update_type: keepOverride(existing, "updateType", value.updateType, "content_update_type"),
+      content_updated_at: keepOverride(existing, "contentUpdatedAt", value.contentUpdatedAt, "content_updated_at"),
+      content_notes: keepOverride(existing, "notes", value.contentNotes, "content_notes"),
+      management_classification: keepOverride(existing, "managementClassification", value.managementClassification, "management_classification"),
+      monitoring_enabled: keepOverride(existing, "monitoringEnabled", value.monitoringEnabled, "monitoring_enabled"),
       reconciliation_status: value.reconciliationStatus,
       retrieval_status: value.retrievalStatus,
       last_retrieved_at: course.lms ? dataset.importedAt : null,
       source_system: value.projectionOrigin === "master_import" ? "LMS new list - master.xlsx" : "LMS workbook exports",
       data_source: "uploaded",
       provenance: "uploaded",
-      origin_provenance: value.projectionOrigin === "lms_export" ? "lms_api" : "uploaded",
+      origin_provenance: "uploaded",
       projection_origin: value.projectionOrigin,
-      has_manual_overrides: false,
+      has_manual_overrides: existing?.has_manual_overrides ?? false,
       source_difference_count: value.sourceDifferenceCount,
-      field_provenance: {},
+      field_provenance: existing?.field_provenance ?? {},
       health_status: "Needs Review",
       health_score: 0,
       metadata_completeness_score: calculateMetadataCompleteness(course.metadata),
-      internal_summary: value.internalSummary,
+      internal_summary: keepOverride(existing, "internalSummary", value.internalSummary, "internal_summary"),
       mapping_warnings: jsonSafe([...(course.lms?.warnings ?? []), ...(course.metadata?.mappingWarnings ?? [])]),
       import_validation_errors: jsonSafe(course.metadata?.validationErrors ?? []),
       source_payload: jsonSafe(course.metadata?.rawPayload ?? course.lms?.rawPayload ?? {}),
@@ -194,12 +195,12 @@ async function applyDataset(dataset) {
     if (error) throw new Error(`Could not upsert course projections: ${error.message}`);
   });
 
-  const persistedCourses = await allRows(client, "courses", "id,app_id,lms_course_id,has_manual_overrides");
+  const persistedCourses = await allRows(client, "courses", "id,app_id,lms_course_id,course_code,title,description,delivery_format,duration_minutes,training_credits,is_published,authoring_tool,original_publish_date,backend_link,frontend_link,content_update_type,content_updated_at,content_notes,has_manual_overrides,field_provenance");
   const persistedByLmsId = new Map(persistedCourses.filter((row) => row.lms_course_id).map((row) => [String(row.lms_course_id), row]));
 
   const importedCourseIds = dataset.courses
     .map((course) => persistedByLmsId.get(course.courseId))
-    .filter((course) => course && !course.has_manual_overrides)
+    .filter((course) => course && course.field_provenance?.secondaryVerticals !== "coursetrack")
     .map((course) => course.id);
   await batches(importedCourseIds, 500, async (courseIds) => {
     const { error } = await client.from("course_verticals").delete().in("course_id", courseIds).eq("relationship_type", "secondary");
@@ -207,7 +208,7 @@ async function applyDataset(dataset) {
   });
   const secondaryVerticalRows = dataset.courses.flatMap((course) => {
     const persisted = persistedByLmsId.get(course.courseId);
-    if (!persisted || persisted.has_manual_overrides) return [];
+    if (!persisted || persisted.field_provenance?.secondaryVerticals === "coursetrack") return [];
     const projection = projectionFor(course);
     return projection.secondaryVerticals.flatMap((vertical) => {
       const verticalId = verticalBySlug.get(vertical.toUpperCase());
@@ -246,6 +247,7 @@ async function applyDataset(dataset) {
     payload_hash: hash(course.lms.rawPayload),
     mapping_warnings: jsonSafe(course.lms.warnings),
     is_current: true,
+    source_transport: "uploaded",
   }));
   await batches(snapshots, 200, async (rows) => {
     const { error } = await client.from("lms_snapshots").insert(rows);
@@ -261,6 +263,8 @@ async function applyDataset(dataset) {
     confirmed_at: dataset.importedAt,
   }).select("id").single();
   if (importError) throw new Error(`Could not create the CourseTrack import run: ${importError.message}`);
+  const { error: retireMetadataError } = await client.from("content_metadata_records").update({ is_current: false }).eq("is_current", true);
+  if (retireMetadataError) throw new Error(`Could not retire prior metadata records: ${retireMetadataError.message}`);
   const metadataRows = dataset.courses.filter((course) => course.metadata).map((course, index) => ({
     import_run_id: importRun.id,
     row_number: index + 2,
@@ -272,6 +276,7 @@ async function applyDataset(dataset) {
     mapping_warnings: jsonSafe(course.metadata.mappingWarnings),
     validation_errors: jsonSafe(course.metadata.validationErrors),
     is_importable: course.metadata.validationErrors.length === 0,
+    is_current: true,
   }));
   await batches(metadataRows, 250, async (rows) => {
     const { error } = await client.from("content_metadata_records").insert(rows);
@@ -280,8 +285,16 @@ async function applyDataset(dataset) {
 
   const comparisonRows = dataset.courses.flatMap((course) => {
     const persisted = persistedByLmsId.get(course.courseId);
-    if (!persisted || persisted.has_manual_overrides) return [];
-    return course.comparisons.map((comparison) => ({
+    if (!persisted) return [];
+    const metadataOnly = course.metadata ? [
+      ["authoringTool", "Authoring Tool", course.metadata.authoringTool],
+      ["backendLink", "LMS Backend Link", course.metadata.backendLink],
+      ["frontendLink", "LMS Frontend Link", course.metadata.frontendLink],
+      ["updateType", "Update Type", course.metadata.updateType],
+      ["contentUpdatedAt", "Updated", isoDate(course.metadata.updatedRawValue)],
+      ["notes", "Notes", course.metadata.notes],
+    ].map(([fieldKey, fieldLabel, value]) => ({ fieldKey, fieldLabel, lmsRawValue: null, lmsNormalizedValue: null, contentMetadataRawValue: value, contentMetadataNormalizedValue: value, resolvedValue: value, selectedSource: "content_metadata", comparisonStatus: "Content Metadata only", resolutionReason: "This field is supplied by uploaded metadata.", fieldScope: "metadata_only" })) : [];
+    return [...course.comparisons.map((item) => ({ ...item, fieldScope: "shared" })), ...metadataOnly].map((comparison) => ({
       course_id: persisted.id,
       field_key: comparison.fieldKey,
       field_label: comparison.fieldLabel,
@@ -295,6 +308,7 @@ async function applyDataset(dataset) {
       resolution_reason: comparison.resolutionReason,
       last_compared_at: dataset.importedAt,
       is_comparable: true,
+      field_scope: comparison.fieldScope,
     }));
   });
   await batches(comparisonRows, 250, async (rows) => {
@@ -302,9 +316,16 @@ async function applyDataset(dataset) {
     if (error) throw new Error(`Could not upsert source comparisons: ${error.message}`);
   });
 
-  const existingAccreditations = await allRows(client, "accreditation_records", "course_id,source_fingerprint");
+  const existingAccreditations = await allRows(client, "accreditation_records", "id,course_id,organization,jurisdiction,approval_number,topic_number,source_topic_number,effective_date,expiration_date,source_fingerprint");
   const existingFingerprints = new Set(existingAccreditations.filter((row) => row.source_fingerprint).map((row) => `${row.course_id}:${row.source_fingerprint}`));
+  const accreditationSignature = (courseId, organization, jurisdiction, approvalNumber, topicNumber, effectiveDate, expirationDate) => JSON.stringify([courseId, organization ?? null, jurisdiction ?? null, approvalNumber ?? null, topicNumber ?? null, effectiveDate ?? null, expirationDate ?? null]);
+  const existingBySignature = new Map();
+  for (const row of existingAccreditations) {
+    const signature = accreditationSignature(row.course_id, row.organization, row.jurisdiction, row.approval_number, row.topic_number ?? row.source_topic_number, row.effective_date, row.expiration_date);
+    existingBySignature.set(signature, [...(existingBySignature.get(signature) ?? []), row]);
+  }
   const accreditationRows = [];
+  const accreditationBackfills = [];
   const riskWindowEnd = addDays(dataset.asOfDate, 90);
   for (const course of dataset.courses) {
     const persisted = persistedByLmsId.get(course.courseId);
@@ -312,24 +333,47 @@ async function applyDataset(dataset) {
     for (const item of course.lms.normalized.accreditations) {
       const fingerprint = hash([course.courseId, item.issuingBody, item.state, item.accreditationNumber, item.topicNumber, item.startDate, item.endDate]);
       if (existingFingerprints.has(`${persisted.id}:${fingerprint}`)) continue;
+      const exactMatches = existingBySignature.get(accreditationSignature(persisted.id, item.issuingBody, item.state, item.accreditationNumber, item.topicNumber, item.startDate, item.endDate)) ?? [];
+      const legacyMatches = item.state === null
+        ? existingBySignature.get(accreditationSignature(persisted.id, item.issuingBody, "National", item.accreditationNumber, item.topicNumber, item.startDate, item.endDate)) ?? []
+        : [];
+      const matches = [...new Map([...exactMatches, ...legacyMatches].map((row) => [row.id, row])).values()];
+      if (matches.length === 1 && !matches[0].source_fingerprint) {
+        accreditationBackfills.push({
+          id: matches[0].id, organization: item.issuingBody, jurisdiction: item.state,
+          source_fingerprint: fingerprint, source_topic_number: item.topicNumber, topic_number: item.topicNumber,
+          source_record_index: item.index, source_retrieval_run_id: retrievalRun.id, source_domain: "lms", source_transport: "uploaded",
+          source_system: "Workbook LMS export", data_source: "uploaded", provenance: "uploaded", origin_provenance: "uploaded",
+          source_payload: jsonSafe({ ...item.rawValues, topicNumber: item.topicNumber }),
+          source_normalized_payload: jsonSafe({ organization: item.issuingBody, jurisdiction: item.state, approvalNumber: item.accreditationNumber, topicNumber: item.topicNumber, effectiveDate: item.startDate, expirationDate: item.endDate }),
+          alignment_status: "In sync", retrieved_at: dataset.importedAt,
+        });
+        existingFingerprints.add(`${persisted.id}:${fingerprint}`);
+        continue;
+      }
       const expired = item.endDate && item.endDate < dataset.asOfDate;
       const soon = item.endDate && item.endDate >= dataset.asOfDate && item.endDate <= riskWindowEnd;
       accreditationRows.push({
         course_id: persisted.id,
         external_accreditation_id: `${course.courseId}:${item.index}`,
-        organization: item.issuingBody || "Unknown organization",
-        jurisdiction: item.state || "National",
+        organization: item.issuingBody,
+        jurisdiction: item.state,
         status: expired ? "Expired" : soon ? "Expiring Soon" : "Approved",
         approval_number: item.accreditationNumber,
         credit_hours: creditHours(course.lms.normalized.trainingCredits),
         effective_date: item.startDate,
         expiration_date: item.endDate,
         risk_reasons: [],
-        data_source: "lms_api",
+        topic_number: item.topicNumber,
+        data_source: "uploaded",
         source_system: "Workbook LMS export",
         source_payload: jsonSafe({ ...item.rawValues, topicNumber: item.topicNumber }),
-        provenance: "lms_api",
-        origin_provenance: "lms_api",
+        provenance: "uploaded",
+        origin_provenance: "uploaded",
+        source_domain: "lms",
+        source_transport: "uploaded",
+        source_normalized_payload: jsonSafe({ organization: item.issuingBody, jurisdiction: item.state, approvalNumber: item.accreditationNumber, topicNumber: item.topicNumber, effectiveDate: item.startDate, expirationDate: item.endDate }),
+        alignment_status: "In sync",
         retrieved_at: dataset.importedAt,
         source_fingerprint: fingerprint,
         source_topic_number: item.topicNumber,
@@ -338,15 +382,17 @@ async function applyDataset(dataset) {
       });
     }
   }
+  await batches(accreditationBackfills, 200, async (rows) => {
+    const { error } = await client.from("accreditation_records").upsert(rows, { onConflict: "id" });
+    if (error) throw new Error(`Could not backfill imported accreditation evidence: ${error.message}`);
+  });
   await batches(accreditationRows, 200, async (rows) => {
     const { error } = await client.from("accreditation_records").insert(rows);
     if (error) throw new Error(`Could not insert LMS accreditation records: ${error.message}`);
   });
 
-  for (const course of persistedCourses.filter((row) => row.has_manual_overrides)) {
-    const { error } = await client.rpc("refresh_course_comparisons", { p_course_id: course.id, p_edited_keys: [] });
-    if (error) throw new Error(`Could not refresh manual source comparisons: ${error.message}`);
-  }
+  const { error: refreshError } = await client.rpc("refresh_all_course_comparisons");
+  if (refreshError) throw new Error(`Could not refresh CourseTrack source comparisons: ${refreshError.message}`);
   const { error: runCompleteError } = await client.from("lms_retrieval_runs").update({
     completed_at: new Date().toISOString(),
     status: "Retrieved",
@@ -359,7 +405,16 @@ async function applyDataset(dataset) {
     completed_at: new Date().toISOString(),
   }).eq("id", importRun.id);
   if (importCompleteError) throw new Error(`Could not complete the CourseTrack import run: ${importCompleteError.message}`);
-  return { insertedCourseProjections: courseRows.length, secondaryVerticals: secondaryVerticalRows.length, snapshots: snapshots.length, metadataRecords: metadataRows.length, comparisons: comparisonRows.length, accreditationsAdded: accreditationRows.length };
+  const acceptance = {
+    courses: (await allRows(client, "courses", "id")).length,
+    currentLmsSnapshots: (await allRows(client, "lms_snapshots", "id,is_current")).filter((row) => row.is_current).length,
+    currentMetadataRecords: (await allRows(client, "content_metadata_records", "id,is_current")).filter((row) => row.is_current).length,
+    accreditationSources: (await allRows(client, "accreditation_records", "id,source_domain,source_transport,topic_number")).filter((row) => row.source_domain === "lms" && row.source_transport === "uploaded"),
+  };
+  if (acceptance.currentLmsSnapshots !== 18_406 || acceptance.currentMetadataRecords !== 1_952 || acceptance.accreditationSources.length < 19_571 || acceptance.accreditationSources.filter((row) => row.topic_number).length < 513 || acceptance.courses < 18_530) {
+    throw new Error(`Post-import acceptance failed: ${JSON.stringify({ ...acceptance, accreditationSources: acceptance.accreditationSources.length })}`);
+  }
+  return { insertedCourseProjections: courseRows.length, secondaryVerticals: secondaryVerticalRows.length, snapshots: snapshots.length, metadataRecords: metadataRows.length, comparisons: comparisonRows.length, accreditationsBackfilled: accreditationBackfills.length, accreditationsAdded: accreditationRows.length };
 }
 
 const dataset = await loadCourseWorkbookDataset(sourceDirectory, { importedAt, asOfDate });
