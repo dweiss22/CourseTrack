@@ -14,8 +14,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   }
   try {
     const { id } = await context.params;
-    const task = await moveRevampTask({ id, ...parsed.data, actor: auth.context });
-    return NextResponse.json({ task, ...mutationMetadata(auth.context.userId, task.updatedAt), message: `Revamp task moved to ${parsed.data.bucket}.` });
+    const result = await moveRevampTask({ id, ...parsed.data, actor: auth.context });
+    return NextResponse.json({ ...result, ...mutationMetadata(auth.context.userId, result.task.updatedAt), message: `Revamp task moved to ${parsed.data.bucket}.` });
   } catch (error) {
     return apiError(error);
   }

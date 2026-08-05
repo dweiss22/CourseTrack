@@ -39,18 +39,20 @@ import type {
   CourseFlag,
   CourseNote,
   CourseRelationship,
+  CourseProjectionUpdate,
   FieldComparison,
   VersionWrikeTaskReference,
   AccreditationHistoryGroup,
   TaskCalloutActor,
 } from "@/types/course";
-import { provenanceLabels } from "@/types/course";
-import type { CourseIndexEntry, WrikeTaskCandidate } from "@/db";
+import { managementClassifications, provenanceLabels, verticals } from "@/types/course";
+import type { WrikeTaskCandidate } from "@/db";
 import { StatusBadge } from "../status-badge";
 import { HealthAboutDialog } from "../health-about-dialog";
 import { WrikeTaskLinkControl } from "../wrike-task-link-control";
 import { accreditationDisplayLabel, accreditationRiskLabels, groupAccreditationRecords } from "@/lib/accreditation-grouping";
 import { statusesForKind, TASK_CALLOUT_KINDS, TASK_CALLOUT_PRIORITIES, taskCalloutDueState, taskCalloutStatusAction } from "@/lib/task-callouts";
+import { AsyncCourseSelect } from "../async-course-select";
 
 const tabs = [
   "Overview",
@@ -66,6 +68,24 @@ const tabs = [
 ] as const;
 
 type Tab = (typeof tabs)[number];
+type ProjectionForm = Omit<CourseProjectionUpdate, "expectedUpdatedAt">;
+const editableLifecycleStatuses: ProjectionForm["lifecycleStatus"][] = ["In Development", "Internal Review", "Published", "Under Maintenance", "Scheduled for Revamp", "Retired", "Archived"];
+const publicationStatuses: ProjectionForm["publicationStatus"][] = ["Unknown", "Not in LMS", "Draft", "Testing", "Published", "Hidden", "Inactive", "Retired", "Retrieval Error"];
+
+function projectionForm(course: Course): ProjectionForm {
+  return {
+    courseCode: course.courseCode, title: course.title, shortTitle: course.shortTitle ?? "", description: course.description,
+    learningAudience: course.learningAudience, primaryVertical: course.primaryVertical, secondaryVerticals: course.secondaryVerticals,
+    primaryTopic: course.primaryTopic, managementClassification: course.managementClassification, monitoringEnabled: course.monitoringEnabled,
+    lifecycleStatus: editableLifecycleStatuses.includes(course.lifecycleStatus as ProjectionForm["lifecycleStatus"]) ? course.lifecycleStatus as ProjectionForm["lifecycleStatus"] : "In Development",
+    publicationStatus: course.publicationStatus, contentType: course.deliveryFormat, durationMinutes: course.durationMinutes,
+    trainingCredits: course.trainingCredits, published: course.published ?? false, authoringTool: course.authoringTool,
+    stateCode: course.stateCode ?? "", owner: course.owner ?? "", instructionalDesigner: course.instructionalDesigner ?? "",
+    publishedDate: course.originalPublishDate ?? "", lastMajorRevisionDate: course.lastMajorRevisionDate ?? "", nextReviewDate: course.nextReviewDate ?? "",
+    backendLink: course.backendLink ?? "", frontendLink: course.frontendLink ?? "", updateType: course.updateType ?? "",
+    contentUpdatedAt: course.contentUpdatedAt ?? "", contentNotes: course.contentNotes ?? "", internalSummary: course.internalSummary,
+  };
+}
 type ResolutionAction =
   | "Use LMS value"
   | "Keep Content Team value"
@@ -78,7 +98,6 @@ export function CourseDetail({
   initialFavorite,
   canEditCourse,
   lmsConnected,
-  courseOptions,
   assignees,
 }: {
   course: Course;
@@ -87,7 +106,6 @@ export function CourseDetail({
   initialFavorite: boolean;
   canEditCourse: boolean;
   lmsConnected: boolean;
-  courseOptions: CourseIndexEntry[];
   assignees: TaskCalloutActor[];
 }) {
   const router = useRouter();
@@ -104,11 +122,9 @@ export function CourseDetail({
     "idle" | "running" | "success" | "error"
   >("idle");
 
-  const [form, setForm] = useState({
-    internalSummary: currentCourse.internalSummary,
-    owner: currentCourse.owner ?? "",
-    nextReviewDate: currentCourse.nextReviewDate ?? "",
-  });
+  const [form, setForm] = useState<ProjectionForm>(() => projectionForm(course));
+  const beginEditing = () => { setForm(projectionForm(currentCourse)); setEditing(true); };
+  const updateForm = <K extends keyof ProjectionForm>(key: K, value: ProjectionForm[K]) => setForm((current) => ({ ...current, [key]: value }));
 
   const toggleFavorite = async () => {
     const nextFavorite = !favorite;
@@ -148,25 +164,14 @@ export function CourseDetail({
       const response = await fetch(`/api/courses/${currentCourse.id}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          internalSummary: form.internalSummary,
-          owner: form.owner.trim() || null,
-          nextReviewDate: form.nextReviewDate || null,
-          expectedUpdatedAt: currentCourse.updatedAt,
-        }),
+        body: JSON.stringify({ ...form, expectedUpdatedAt: currentCourse.updatedAt }),
       });
       const result = (await response.json()) as {
         message?: string;
-        course?: Partial<Course>;
+        course?: Course;
       };
-      if (!response.ok) throw new Error(result.message);
-      setCurrentCourse((value) => ({
-        ...value,
-        internalSummary: form.internalSummary,
-        owner: form.owner.trim() || null,
-        nextReviewDate: form.nextReviewDate || null,
-        updatedAt: result.course?.updatedAt ?? value.updatedAt,
-      }));
+      if (!response.ok || !result.course) throw new Error(result.message || "The updated course was not returned.");
+      setCurrentCourse(result.course);
       setSaveState("saved");
       setMessage(
         result.message ??
@@ -226,9 +231,13 @@ export function CourseDetail({
       const result = (await response.json()) as {
         message?: string;
         comparison?: FieldComparison;
+        course?: Course;
       };
       if (!response.ok || !result.comparison) throw new Error(result.message);
       const resolvedComparison = result.comparison;
+      if (result.course) {
+        setCurrentCourse(result.course);
+      } else {
       setCurrentCourse((value) => {
         const fieldComparisons = value.fieldComparisons.map((comparison) =>
           comparison.fieldKey === fieldKey
@@ -249,6 +258,7 @@ export function CourseDetail({
           },
         };
       });
+      }
       setSaveState("saved");
       setMessage(
         result.message ??
@@ -323,7 +333,7 @@ export function CourseDetail({
                 <RefreshCw size={18} className={retrievalState === "running" ? "spin" : ""} />
               </button>
               {canEditCourse && (
-                <><button className="icon-action" onClick={() => setEditing(true)} aria-label="Edit CourseTrack fields" data-tooltip="Edit CourseTrack fields"><Pencil size={18} /></button><button className="icon-action" onClick={archiveCourse} aria-label="Archive course" data-tooltip="Archive course"><Archive size={18} /></button></>
+                <><button className="icon-action" onClick={beginEditing} aria-label="Edit CourseTrack fields" data-tooltip="Edit CourseTrack fields"><Pencil size={18} /></button><button className="icon-action" onClick={archiveCourse} aria-label="Archive course" data-tooltip="Archive course"><Archive size={18} /></button></>
               )}
             </div>
           </div>
@@ -379,6 +389,9 @@ export function CourseDetail({
             onClick={() => setActiveTab(tab)}
           >
             {tab}
+            {tab === "Source Comparison" && (
+              <span aria-label={`${currentCourse.sourceDifferenceCount} source differences`}>{currentCourse.sourceDifferenceCount}</span>
+            )}
             {tab === "Tasks & Callouts" && currentCourse.flags.filter((flag) => !flag.archivedAt).length > 0 && (
               <span>{currentCourse.flags.filter((flag) => !flag.archivedAt).length}</span>
             )}
@@ -390,8 +403,8 @@ export function CourseDetail({
         <section className="edit-panel">
           <div className="panel-heading">
             <div>
-              <h2>Edit internal CourseTrack metadata</h2>
-              <p>These changes remain in CourseTrack and do not update the LMS.</p>
+              <h2>Edit CourseTrack course fields</h2>
+              <p>The projection is editable; immutable LMS snapshots remain unchanged.</p>
             </div>
             <button
               className="icon-button"
@@ -401,46 +414,43 @@ export function CourseDetail({
               <X size={18} />
             </button>
           </div>
-          <form onSubmit={saveInternalMetadata} className="edit-form">
-            <label className="form-field form-field-wide">
-              <span>Internal summary</span>
-              <textarea
-                value={form.internalSummary}
-                onChange={(event) =>
-                  setForm((value) => ({
-                    ...value,
-                    internalSummary: event.target.value,
-                  }))
-                }
-                minLength={10}
-                maxLength={1200}
-                required
-              />
-              <small>CourseTrack source · visible to authorized internal users</small>
-            </label>
-            <label className="form-field">
-              <span>Course owner</span>
-              <input
-                value={form.owner}
-                onChange={(event) =>
-                  setForm((value) => ({ ...value, owner: event.target.value }))
-                }
-                placeholder="Assign an owner"
-              />
-            </label>
-            <label className="form-field">
-              <span>Next review date</span>
-              <input
-                type="date"
-                value={form.nextReviewDate}
-                onChange={(event) =>
-                  setForm((value) => ({
-                    ...value,
-                    nextReviewDate: event.target.value,
-                  }))
-                }
-              />
-            </label>
+          <form onSubmit={saveInternalMetadata} className="edit-form projection-edit-form">
+            <fieldset><legend>Identity</legend>
+              <label className="form-field"><span>Course code</span><input value={form.courseCode} onChange={(event) => updateForm("courseCode", event.target.value)} required /></label>
+              <label className="form-field"><span>Course name</span><input value={form.title} onChange={(event) => updateForm("title", event.target.value)} required /></label>
+              <label className="form-field"><span>Short title</span><input value={form.shortTitle} onChange={(event) => updateForm("shortTitle", event.target.value)} /></label>
+              <label className="form-field form-field-wide"><span>Description</span><textarea value={form.description} onChange={(event) => updateForm("description", event.target.value)} maxLength={5000} /></label>
+              <label className="form-field form-field-wide"><span>Learning audience</span><textarea value={form.learningAudience} onChange={(event) => updateForm("learningAudience", event.target.value)} maxLength={500} /></label>
+            </fieldset>
+            <fieldset><legend>Course metadata</legend>
+              <label className="form-field"><span>Content type</span><input value={form.contentType} onChange={(event) => updateForm("contentType", event.target.value)} /></label>
+              <label className="form-field"><span>Duration (minutes)</span><input type="number" min={0} value={form.durationMinutes} onChange={(event) => updateForm("durationMinutes", Number(event.target.value))} /></label>
+              <label className="form-field"><span>Training credit amount</span><input type="number" min={0} step="0.01" value={form.trainingCredits.amount ?? ""} onChange={(event) => updateForm("trainingCredits", { ...form.trainingCredits, amount: event.target.value === "" ? null : Number(event.target.value) })} /></label>
+              <label className="form-field"><span>Training credit unit</span><input value={form.trainingCredits.unit ?? ""} onChange={(event) => updateForm("trainingCredits", { ...form.trainingCredits, unit: event.target.value || null })} placeholder="hours or minutes" /></label>
+              <label className="form-field"><span>Publication status</span><select value={form.publicationStatus} onChange={(event) => updateForm("publicationStatus", event.target.value as ProjectionForm["publicationStatus"])}>{publicationStatuses.map((value) => <option key={value}>{value}</option>)}</select></label>
+              <label className="form-field checkbox-field"><input type="checkbox" checked={form.published} onChange={(event) => updateForm("published", event.target.checked)} /><span>Published in LMS</span></label>
+              <label className="form-field"><span>Publication date</span><input type="date" value={form.publishedDate} onChange={(event) => updateForm("publishedDate", event.target.value)} /></label>
+              <label className="form-field"><span>Authoring tool</span><input value={form.authoringTool} onChange={(event) => updateForm("authoringTool", event.target.value)} /></label>
+              <label className="form-field"><span>Content update type</span><input value={form.updateType} onChange={(event) => updateForm("updateType", event.target.value)} /></label>
+              <label className="form-field"><span>Content updated</span><input type="date" value={form.contentUpdatedAt} onChange={(event) => updateForm("contentUpdatedAt", event.target.value)} /></label>
+              <label className="form-field"><span>Backend URL</span><input type="url" value={form.backendLink} onChange={(event) => updateForm("backendLink", event.target.value)} /></label>
+              <label className="form-field"><span>Frontend URL</span><input type="url" value={form.frontendLink} onChange={(event) => updateForm("frontendLink", event.target.value)} /></label>
+              <label className="form-field form-field-wide"><span>Source notes</span><textarea value={form.contentNotes} onChange={(event) => updateForm("contentNotes", event.target.value)} maxLength={2000} /></label>
+            </fieldset>
+            <fieldset><legend>Classification and ownership</legend>
+              <label className="form-field"><span>Primary vertical</span><select value={form.primaryVertical} onChange={(event) => updateForm("primaryVertical", event.target.value as ProjectionForm["primaryVertical"])}>{verticals.map((value) => <option key={value}>{value}</option>)}</select></label>
+              <label className="form-field"><span>Secondary verticals</span><select multiple value={form.secondaryVerticals} onChange={(event) => updateForm("secondaryVerticals", Array.from(event.currentTarget.selectedOptions, (option) => option.value).filter((value) => value !== form.primaryVertical) as ProjectionForm["secondaryVerticals"])}>{verticals.filter((value) => value !== form.primaryVertical).map((value) => <option key={value}>{value}</option>)}</select></label>
+              <label className="form-field"><span>Primary topic</span><input value={form.primaryTopic} onChange={(event) => updateForm("primaryTopic", event.target.value)} /></label>
+              <label className="form-field"><span>Management classification</span><select value={form.managementClassification} onChange={(event) => updateForm("managementClassification", event.target.value as ProjectionForm["managementClassification"])}>{managementClassifications.map((value) => <option key={value}>{value}</option>)}</select></label>
+              <label className="form-field checkbox-field"><input type="checkbox" checked={form.monitoringEnabled} onChange={(event) => updateForm("monitoringEnabled", event.target.checked)} /><span>Monitoring enabled</span></label>
+              <label className="form-field"><span>Lifecycle</span><select value={form.lifecycleStatus} onChange={(event) => updateForm("lifecycleStatus", event.target.value as ProjectionForm["lifecycleStatus"])}>{editableLifecycleStatuses.map((value) => <option key={value}>{value}</option>)}</select></label>
+              <label className="form-field"><span>Owner</span><input value={form.owner} onChange={(event) => updateForm("owner", event.target.value)} /></label>
+              <label className="form-field"><span>Instructional designer</span><input value={form.instructionalDesigner} onChange={(event) => updateForm("instructionalDesigner", event.target.value)} /></label>
+              <label className="form-field"><span>State code</span><input value={form.stateCode} onChange={(event) => updateForm("stateCode", event.target.value)} /></label>
+              <label className="form-field"><span>Last major revision</span><input type="date" value={form.lastMajorRevisionDate} onChange={(event) => updateForm("lastMajorRevisionDate", event.target.value)} /></label>
+              <label className="form-field"><span>Next review date</span><input type="date" value={form.nextReviewDate} onChange={(event) => updateForm("nextReviewDate", event.target.value)} /></label>
+              <label className="form-field form-field-wide"><span>Internal summary</span><textarea value={form.internalSummary} onChange={(event) => updateForm("internalSummary", event.target.value)} minLength={1} maxLength={1200} required /><small>CourseTrack source · visible to authorized internal users</small></label>
+            </fieldset>
             <div className="form-actions">
               <button
                 type="button"
@@ -455,7 +465,7 @@ export function CourseDetail({
                 disabled={saveState === "saving"}
               >
                 <Save size={16} />
-                {saveState === "saving" ? "Saving…" : "Save internal metadata"}
+                {saveState === "saving" ? "Saving…" : "Save CourseTrack fields"}
               </button>
             </div>
           </form>
@@ -473,7 +483,6 @@ export function CourseDetail({
               resolving={saveState === "saving"}
               onResolve={resolveField}
               onCourseChange={setCurrentCourse}
-              courseOptions={courseOptions}
               canEdit={canEditCourse}
             />
           )}
@@ -617,14 +626,12 @@ function SourceComparisonTab({
   resolving,
   onResolve,
   onCourseChange,
-  courseOptions,
   canEdit,
 }: {
   course: Course;
   resolving: boolean;
   onResolve: (fieldKey: string, action: ResolutionAction) => void;
   onCourseChange: Dispatch<SetStateAction<Course>>;
-  courseOptions: CourseIndexEntry[];
   canEdit: boolean;
 }) {
   const sourceHistory = [...course.retrievalHistory, ...course.importHistory]
@@ -775,7 +782,7 @@ function SourceComparisonTab({
                 <small>{relationship.validationStatus}</small>
               </span>
             )) : <p>No relationships supplied.</p>}
-            {canEdit && <RelationshipEditor course={course} courseOptions={courseOptions} onCourseChange={onCourseChange} />}
+            {canEdit && <RelationshipEditor course={course} onCourseChange={onCourseChange} />}
           </div>
         </div>
       </article>
@@ -815,13 +822,12 @@ function SourceComparisonTab({
   );
 }
 
-function RelationshipEditor({ course, courseOptions, onCourseChange }: { course: Course; courseOptions: CourseIndexEntry[]; onCourseChange: Dispatch<SetStateAction<Course>> }) {
+function RelationshipEditor({ course, onCourseChange }: { course: Course; onCourseChange: Dispatch<SetStateAction<Course>> }) {
   const [relationship, setRelationship] = useState<"parent" | "child">("parent");
-  const [relatedCourseId, setRelatedCourseId] = useState(courseOptions[0]?.id ?? "");
   const [pending, setPending] = useState(false); const [error, setError] = useState("");
-  const add = async (event: FormEvent) => { event.preventDefault(); setPending(true); setError(""); try { const response = await fetch(`/api/courses/${course.id}/relationships`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ relationship, relatedCourseId }) }); const result = (await response.json()) as { relationship?: CourseRelationship; message?: string }; if (!response.ok || !result.relationship) throw new Error(result.message); const option = courseOptions.find((item) => item.id === relatedCourseId); onCourseChange((value) => ({ ...value, relationships: [...value.relationships, { ...result.relationship!, relatedCourseTitle: option?.title ?? null }] })); } catch (submitError) { setError(submitError instanceof Error ? submitError.message : "Relationship could not be assigned."); } finally { setPending(false); } };
+  const add = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const relatedCourseId = String(new FormData(event.currentTarget).get("relatedCourseId")); setPending(true); setError(""); try { const response = await fetch(`/api/courses/${course.id}/relationships`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ relationship, relatedCourseId }) }); const result = (await response.json()) as { relationship?: CourseRelationship; message?: string }; if (!response.ok || !result.relationship) throw new Error(result.message); onCourseChange((value) => ({ ...value, relationships: [...value.relationships, result.relationship!] })); } catch (submitError) { setError(submitError instanceof Error ? submitError.message : "Relationship could not be assigned."); } finally { setPending(false); } };
   const remove = async (id: string) => { setPending(true); setError(""); try { const response = await fetch(`/api/relationships/${id}`, { method: "DELETE" }); const result = (await response.json()) as { message?: string }; if (!response.ok) throw new Error(result.message); onCourseChange((value) => ({ ...value, relationships: value.relationships.filter((item) => item.id !== id) })); } catch (submitError) { setError(submitError instanceof Error ? submitError.message : "Relationship could not be removed."); } finally { setPending(false); } };
-  return <div className="relationship-editor"><div className="tag-list">{course.relationships.filter((item) => item.source === "CourseTrack").map((item) => <span className="tag-chip" key={item.id}>{item.relationship}: {item.relatedCourseTitle ?? item.relatedCourseId}<button aria-label={`Remove relationship to ${item.relatedCourseTitle ?? item.relatedCourseId}`} disabled={pending} onClick={() => remove(item.id)}><X size={11} /></button></span>)}</div><form className="taxonomy-add-form" onSubmit={add}><select value={relationship} onChange={(event) => setRelationship(event.target.value as "parent" | "child")}><option value="parent">Parent</option><option value="child">Child</option></select><select value={relatedCourseId} onChange={(event) => setRelatedCourseId(event.target.value)} required><option value="">Choose course</option>{courseOptions.map((option) => <option key={option.id} value={option.id}>{option.courseCode} — {option.title}</option>)}</select><button className="button button-secondary" disabled={pending || !relatedCourseId}>Add</button></form>{error && <p className="taxonomy-editor-error" role="alert">{error}</p>}</div>;
+  return <div className="relationship-editor"><div className="tag-list">{course.relationships.filter((item) => item.source === "CourseTrack").map((item) => <span className="tag-chip" key={item.id}>{item.relationship}: {item.relatedCourseTitle ?? item.relatedCourseId}<button aria-label={`Remove relationship to ${item.relatedCourseTitle ?? item.relatedCourseId}`} disabled={pending} onClick={() => remove(item.id)}><X size={11} /></button></span>)}</div><form className="relationship-add-form" onSubmit={add}><select value={relationship} onChange={(event) => setRelationship(event.target.value as "parent" | "child")}><option value="parent">Parent</option><option value="child">Child</option></select><AsyncCourseSelect name="relatedCourseId" label="Related course" /><button className="button button-secondary" disabled={pending}>Add</button></form>{error && <p className="taxonomy-editor-error" role="alert">{error}</p>}</div>;
 }
 
 function VersionsTab({
@@ -1520,17 +1526,15 @@ function NotesTab({ course, onCourseChange }: { course: Course; onCourseChange: 
 
 function FlagsTab({ course, onCourseChange, assignees }: { course: Course; onCourseChange: Dispatch<SetStateAction<Course>>; assignees: TaskCalloutActor[] }) {
   const [editing, setEditing] = useState<CourseFlag | "new" | null>(null); const [editorKind, setEditorKind] = useState<CourseFlag["recordKind"]>("Task"); const [pending, setPending] = useState(false); const [error, setError] = useState("");
-  const [showArchived, setShowArchived] = useState(false);
   const payload = (flag: CourseFlag, status = flag.status) => ({ recordKind: flag.recordKind, category: flag.category, title: flag.title, description: flag.description, priority: flag.priority, status, assigneeId: flag.assigneeId, dueDate: flag.dueDate, completionNotes: flag.completionNotes, expectedUpdatedAt: flag.updatedAt });
   const save = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = new FormData(event.currentTarget); const current = editing === "new" ? null : editing; setPending(true); setError(""); try { const response = await fetch(current ? `/api/flags/${current.id}` : `/api/courses/${course.id}/flags`, { method: current ? "PATCH" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ recordKind: String(form.get("recordKind")), category: String(form.get("category")), title: String(form.get("title")), description: String(form.get("description")), priority: String(form.get("priority")), status: String(form.get("status")), assigneeId: String(form.get("assigneeId")) || null, dueDate: String(form.get("dueDate")) || null, completionNotes: String(form.get("completionNotes")) || null, expectedUpdatedAt: current?.updatedAt }) }); const result = (await response.json()) as { flag?: CourseFlag; message?: string }; if (!response.ok || !result.flag) throw new Error(result.message); onCourseChange((value) => ({ ...value, flags: current ? value.flags.map((flag) => flag.id === current.id ? result.flag! : flag) : [result.flag!, ...value.flags] })); setEditing(null); } catch (submitError) { setError(submitError instanceof Error ? submitError.message : "Task or callout could not be saved."); } finally { setPending(false); } };
-  const archive = async (flag: CourseFlag) => { setPending(true); setError(""); try { const response = await fetch(`/api/flags/${flag.id}`, { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ expectedUpdatedAt: flag.updatedAt }) }); const result = (await response.json()) as { message?: string }; if (!response.ok) throw new Error(result.message); onCourseChange((value) => ({ ...value, flags: value.flags.map((item) => item.id === flag.id ? { ...item, archivedAt: new Date().toISOString() } : item) })); } catch (submitError) { setError(submitError instanceof Error ? submitError.message : "Task or callout could not be archived."); } finally { setPending(false); } };
+  const deleteFlag = async (flag: CourseFlag) => { if (!window.confirm(`Permanently delete “${flag.title}”? This cannot be undone.`)) return; setPending(true); setError(""); try { const response = await fetch(`/api/flags/${flag.id}`, { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ expectedUpdatedAt: flag.updatedAt }) }); const result = (await response.json()) as { message?: string }; if (!response.ok) throw new Error(result.message); onCourseChange((value) => ({ ...value, flags: value.flags.filter((item) => item.id !== flag.id) })); } catch (submitError) { setError(submitError instanceof Error ? submitError.message : "Task or callout could not be deleted."); } finally { setPending(false); } };
   const changeStatus = async (flag: CourseFlag) => { const action = taskCalloutStatusAction(flag); setPending(true); setError(""); try { const response = await fetch(`/api/flags/${flag.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(payload(flag, action.status)) }); const result = (await response.json()) as { flag?: CourseFlag; message?: string }; if (!response.ok || !result.flag) throw new Error(result.message); onCourseChange((value) => ({ ...value, flags: value.flags.map((item) => item.id === flag.id ? result.flag! : item) })); } catch (submitError) { setError(submitError instanceof Error ? submitError.message : "Status could not be changed."); } finally { setPending(false); } };
-  const restore = async (flag: CourseFlag) => { setPending(true); setError(""); try { const response = await fetch(`/api/flags/${flag.id}/restore`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ expectedUpdatedAt: flag.updatedAt }) }); const result = (await response.json()) as { message?: string }; if (!response.ok) throw new Error(result.message); window.location.reload(); } catch (submitError) { setError(submitError instanceof Error ? submitError.message : "Task or callout could not be restored."); } finally { setPending(false); } };
-  const visible = course.flags.filter((flag) => Boolean(flag.archivedAt) === showArchived);
-  return <article className="panel"><div className="panel-heading"><div><h2>Tasks & Callouts</h2><p>Assigned work and contextual follow-up records</p></div><div className="button-row"><button className="button button-secondary" onClick={() => setShowArchived((value) => !value)}>{showArchived ? "View active" : "View archived"}</button><button className="button button-primary" onClick={() => { setEditorKind("Task"); setEditing("new"); }}><ListTodo size={16} /> Create</button></div></div>
+  const visible = course.flags.filter((flag) => !flag.archivedAt);
+  return <article className="panel"><div className="panel-heading"><div><h2>Tasks & Callouts</h2><p>Assigned work and contextual follow-up records</p></div><div className="button-row"><button className="button button-primary" onClick={() => { setEditorKind("Task"); setEditing("new"); }}><ListTodo size={16} /> Create</button></div></div>
     {editing && <form className="workflow-form" onSubmit={save}><div className="form-grid"><label>Kind<select name="recordKind" value={editorKind} onChange={(event) => setEditorKind(event.target.value as CourseFlag["recordKind"])}>{TASK_CALLOUT_KINDS.map((value) => <option key={value}>{value}</option>)}</select></label><label>Category<input name="category" required defaultValue={editing === "new" ? "Content" : editing.category} /></label><label>Title<input name="title" minLength={3} required defaultValue={editing === "new" ? "" : editing.title} /></label><label>Priority<select name="priority" defaultValue={editing === "new" ? "Medium" : editing.priority}>{TASK_CALLOUT_PRIORITIES.map((value) => <option key={value}>{value}</option>)}</select></label><label>Status<select key={editorKind} name="status" defaultValue={editing !== "new" && statusesForKind(editorKind).includes(editing.status) ? editing.status : "Open"}>{statusesForKind(editorKind).map((value) => <option key={value}>{value}</option>)}</select></label><label>Assignee<select name="assigneeId" defaultValue={editing === "new" ? "" : editing.assigneeId ?? ""}><option value="">Unassigned</option>{assignees.map((person) => <option key={person.id} value={person.id}>{person.displayName}</option>)}</select></label><label>Due date<input name="dueDate" type="date" defaultValue={editing === "new" ? "" : editing.dueDate ?? ""} /></label><label className="form-span">Description<textarea name="description" maxLength={5000} defaultValue={editing === "new" ? "" : editing.description} /></label><label className="form-span">Completion or resolution notes<textarea name="completionNotes" maxLength={5000} defaultValue={editing === "new" ? "" : editing.completionNotes ?? ""} /></label></div><div className="button-row"><button type="button" className="button button-secondary" onClick={() => setEditing(null)}>Cancel</button><button className="button button-primary" disabled={pending}>{pending ? "Saving…" : "Save"}</button></div></form>}
     {error && <p className="taxonomy-editor-error" role="alert">{error}</p>}
-    {visible.length === 0 ? <div className="empty-state compact-empty"><ListTodo size={22} /><h3>No {showArchived ? "archived" : "active"} tasks or callouts</h3><p>Create a record or switch views.</p></div> : <div className="issue-list">{visible.map((flag) => { const action = taskCalloutStatusAction(flag); const due = taskCalloutDueState(flag); return <div key={flag.id}><span className={`priority-dot priority-${flag.priority.toLowerCase()}`} /><div><strong>{flag.title}</strong><small>{flag.recordKind} · {flag.category} · Due {flag.dueDate ?? "not set"}{due === "Overdue" ? " · Overdue" : ""}</small><small>Created by {flag.createdBy?.displayName ?? "Unknown"} · Updated by {flag.updatedBy?.displayName ?? "Unknown"} on {flag.updatedAt.slice(0, 10)}{flag.completedBy ? ` · Completed by ${flag.completedBy.displayName}` : ""}{flag.resolvedBy ? ` · Resolved by ${flag.resolvedBy.displayName}` : ""}</small></div><span>{flag.assignee?.displayName ?? "Unassigned"}</span><StatusBadge tone={flag.priority === "Critical" ? "danger" : flag.priority === "High" ? "warning" : "neutral"}>{flag.priority}</StatusBadge><StatusBadge>{flag.status}</StatusBadge><div className="table-actions">{showArchived ? <button disabled={pending} onClick={() => restore(flag)}>Restore</button> : <><button onClick={() => { setEditorKind(flag.recordKind); setEditing(flag); }}>Edit</button><button disabled={pending} onClick={() => changeStatus(flag)}>{action.label}</button><button disabled={pending} onClick={() => archive(flag)}>Archive</button></>}</div></div>; })}</div>}
+    {visible.length === 0 ? <div className="empty-state compact-empty"><ListTodo size={22} /><h3>No active tasks or callouts</h3><p>Create the first record.</p></div> : <div className="issue-list">{visible.map((flag) => { const action = taskCalloutStatusAction(flag); const due = taskCalloutDueState(flag); return <div key={flag.id}><span className={`priority-dot priority-${flag.priority.toLowerCase()}`} /><div><strong>{flag.title}</strong><small>{flag.recordKind} · {flag.category} · Due {flag.dueDate ?? "not set"}{due === "Overdue" ? " · Overdue" : ""}</small><small>Created by {flag.createdBy?.displayName ?? "Unknown"} · Updated by {flag.updatedBy?.displayName ?? "Unknown"} on {flag.updatedAt.slice(0, 10)}{flag.completedBy ? ` · Completed by ${flag.completedBy.displayName}` : ""}{flag.resolvedBy ? ` · Resolved by ${flag.resolvedBy.displayName}` : ""}</small></div><span>{flag.assignee?.displayName ?? "Unassigned"}</span><StatusBadge tone={flag.priority === "Critical" ? "danger" : flag.priority === "High" ? "warning" : "neutral"}>{flag.priority}</StatusBadge><StatusBadge>{flag.status}</StatusBadge><div className="table-actions"><button onClick={() => { setEditorKind(flag.recordKind); setEditing(flag); }}>Edit</button><button disabled={pending} onClick={() => changeStatus(flag)}>{action.label}</button><button disabled={pending} onClick={() => deleteFlag(flag)}>Delete</button></div></div>; })}</div>}
   </article>;
 }
 

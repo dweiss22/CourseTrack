@@ -176,7 +176,7 @@ export async function moveRevampTask(input: {
   targetIndex: number;
   expectedUpdatedAt: string;
   actor: Actor;
-}): Promise<RevampProposal> {
+}): Promise<{ task: RevampProposal; affectedColumns: Record<RevampBucket, string[]> }> {
   const client = database();
   const { data, error } = await client.rpc("move_revamp_task", {
     p_task_id: input.id,
@@ -187,7 +187,38 @@ export async function moveRevampTask(input: {
     p_actor_email: input.actor.email,
   });
   if (error) throw new Error(`Could not move the Revamp task: ${error.message}`);
-  return mapRevamp(data as Row);
+  const { data: ordering, error: orderingError } = await client
+    .from("revamp_proposals")
+    .select("id,bucket_key,sort_order")
+    .is("archived_at", null)
+    .in("bucket_key", ["Submitted", "Under Review", "Approved", "In Progress"])
+    .order("sort_order", { ascending: true });
+  if (orderingError) throw new Error(`Could not reconcile the Revamp board: ${orderingError.message}`);
+  const affectedColumns: Record<RevampBucket, string[]> = {
+    Submitted: [], "Under Review": [], Approved: [], "In Progress": [],
+  };
+  for (const row of ordering ?? []) {
+    const bucket = row.bucket_key as RevampBucket;
+    if (bucket in affectedColumns) affectedColumns[bucket].push(row.id as string);
+  }
+  return { task: mapRevamp(data as Row), affectedColumns };
+}
+
+export async function deleteWorkflowRecordPermanently(input: {
+  table: "revamp_proposals" | "course_flags";
+  id: string;
+  expectedUpdatedAt: string;
+  actor: Actor;
+}): Promise<boolean> {
+  const { data, error } = await database().rpc("delete_workflow_record_permanently", {
+    p_table_name: input.table,
+    p_record_id: input.id,
+    p_expected_updated_at: input.expectedUpdatedAt,
+    p_actor_id: input.actor.userId,
+    p_actor_email: input.actor.email,
+  });
+  if (error || data !== true) throw new Error(`Could not permanently delete the record: ${error?.message ?? "Database did not confirm deletion."}`);
+  return true;
 }
 
 export async function archiveWorkflowRecord(input: {

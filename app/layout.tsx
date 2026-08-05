@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { AppShell } from "@/components/app-shell";
-import { getCourseIndex, getEnvironmentSnapshotStatus } from "@/db";
+import { getEnvironmentSnapshotStatus } from "@/db";
 import { getAuthContext } from "@/lib/auth";
 import {
   environmentTitlePrefix,
@@ -63,17 +63,11 @@ export default async function RootLayout({
 }>) {
   const deploymentEnvironment = resolveDeploymentEnvironment();
   const authContext = await getAuthContext();
-  const [courseIndex, snapshotStatus] = authContext
-    ? await Promise.all([
-        getCourseIndex(),
-        deploymentEnvironment === "staging" ? getEnvironmentSnapshotStatus() : Promise.resolve(null),
-      ])
-    : [[], null];
+  const snapshotStatus = authContext && deploymentEnvironment === "staging" ? await getEnvironmentSnapshotStatus() : null;
   return (
     <html lang="en">
       <body>
         <AppShell
-          courseIndex={courseIndex}
           authContext={authContext}
           deploymentEnvironment={deploymentEnvironment}
           snapshotRefreshedAt={snapshotStatus?.refreshedAt ?? null}

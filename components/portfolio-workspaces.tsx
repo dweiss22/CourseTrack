@@ -9,6 +9,7 @@ import {
   Download,
   FileBarChart,
   Flag,
+  GripVertical,
   Link2,
   ListTodo,
   ShieldCheck,
@@ -38,7 +39,9 @@ import type {
 import { StatusBadge } from "./status-badge";
 import type { IntegrationMappingSummary } from "@/types/integrations";
 import type { CourseVersion, RetrievalRun } from "@/types/course";
+import { accreditationOptionalColumns, DEFAULT_ACCREDITATION_TABLE_PREFERENCES, DEFAULT_VERSIONS_TABLE_PREFERENCES, versionsOptionalColumns, type AccreditationTablePreferences, type VersionsTablePreferences } from "@/types/preferences";
 import type { WrikeTask } from "@/providers/wrike";
+import { AsyncCourseSelect } from "./async-course-select";
 
 function initialsFor(displayName: string): string {
   const parts = displayName.trim().split(/\s+/).filter(Boolean);
@@ -49,7 +52,7 @@ function initialsFor(displayName: string): string {
     .join("");
 }
 
-export function AccreditationWorkspace({ entries, courseOptions }: { entries: AccreditationBoardEntry[]; courseOptions: CourseIndexEntry[] }) {
+function AccreditationWorkspaceLegacy({ entries, courseOptions }: { entries: AccreditationBoardEntry[]; courseOptions: CourseIndexEntry[] }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [risk, setRisk] = useState(searchParams.get("risk") ?? "");
@@ -108,6 +111,88 @@ export function AccreditationWorkspace({ entries, courseOptions }: { entries: Ac
       <div className="filter-grid"><label>Course<input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Code or title" /></label><label>Risk<select value={risk} onChange={(event) => setRisk(event.target.value)}><option value="">All risk states</option>{Object.entries(accreditationRiskLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>Organization<select value={organization} onChange={(event) => setOrganization(event.target.value)}><option value="">All organizations</option>{organizations.map((value) => <option key={value}>{value}</option>)}</select></label><label>Jurisdiction<select value={jurisdiction} onChange={(event) => setJurisdiction(event.target.value)}><option value="">All jurisdictions</option>{jurisdictions.map((value) => <option key={value}>{value}</option>)}</select></label><label>Sort<select value={sort} onChange={(event) => setSort(event.target.value)}><option value="urgency">Urgency</option><option value="expiration">Expiration date</option></select></label></div>
       {activeFilters.length > 0 && <div className="filter-chips" aria-label="Active filters">{activeFilters.map(([label, value]) => <span key={label}>{label}: {value}</span>)}<button onClick={clearFilters}>Clear all</button></div>}
       {visible.length === 0 ? <div className="empty-state"><Award size={24} /><h3>No matching accreditation records</h3><p>Clear filters or add an application-owned record.</p></div> : <div className="table-scroll"><table className="data-table"><thead><tr><th>Course</th><th>Organization</th><th>Jurisdiction</th><th>Risk</th><th>History role</th><th>Effective</th><th>Expiration</th><th>Actions</th></tr></thead><tbody>{visible.map(({ entry, assessed: item }) => <tr key={entry.record.id}><td><Link className="table-link" href={`/courses/${entry.course.courseId}`}>{entry.course.courseTitle}</Link></td><td>{entry.record.organization}</td><td>{entry.record.jurisdiction}</td><td><StatusBadge>{accreditationRiskLabels[item.riskState]}</StatusBadge></td><td><StatusBadge tone={item.historyRole === "current" ? "success" : item.historyRole === "future" ? "info" : "neutral"}>{item.historyRole[0].toUpperCase() + item.historyRole.slice(1)}</StatusBadge></td><td>{entry.record.effectiveDate ?? "Undated"}</td><td>{entry.record.expirationDate ?? "Undated"}</td><td><div className="table-actions"><button onClick={() => setEditing(entry)}>Edit</button><button disabled={pending} onClick={() => archiveRecord(entry)}>Archive</button></div></td></tr>)}</tbody></table></div>}
+    </section>
+  </WorkspaceFrame>;
+}
+
+void AccreditationWorkspaceLegacy;
+
+const accreditationColumnLabels: Record<(typeof accreditationOptionalColumns)[number], string> = {
+  organization: "Organization", jurisdiction: "Jurisdiction", status: "Status", historyRole: "History Role",
+  effective: "Effective", expiration: "Expiration", source: "Source",
+};
+
+export function AccreditationWorkspace({ entries, initialPreferences }: { entries: AccreditationBoardEntry[]; initialPreferences: AccreditationTablePreferences }) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [risk, setRisk] = useState(searchParams.get("risk") ?? "");
+  const [organization, setOrganization] = useState(searchParams.get("organization") ?? "");
+  const [jurisdiction, setJurisdiction] = useState(searchParams.get("jurisdiction") ?? "");
+  const [query, setQuery] = useState(searchParams.get("course") ?? "");
+  const [sort, setSort] = useState(searchParams.get("sort") ?? "urgency");
+  const [editing, setEditing] = useState<AccreditationBoardEntry | "new" | null>(null);
+  const [expandedCourse, setExpandedCourse] = useState<string | null>(null);
+  const [visibleColumns, setVisibleColumns] = useState(initialPreferences.visibleColumns);
+  const [pending, setPending] = useState(false);
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (risk) params.set("risk", risk); if (organization) params.set("organization", organization); if (jurisdiction) params.set("jurisdiction", jurisdiction); if (query) params.set("course", query); if (sort !== "urgency") params.set("sort", sort);
+    router.replace(params.size ? `/accreditation?${params}` : "/accreditation", { scroll: false });
+  }, [jurisdiction, organization, query, risk, router, sort]);
+
+  const assessedCourses = useMemo(() => {
+    const byCourse = new Map<string, AccreditationBoardEntry[]>();
+    for (const entry of entries) byCourse.set(entry.course.courseId, [...(byCourse.get(entry.course.courseId) ?? []), entry]);
+    return Array.from(byCourse.entries()).map(([courseId, courseEntries]) => {
+      const groups = assessAccreditationHistory(courseEntries.map(({ record }) => record), { courseKey: courseId });
+      const currentRecords = groups.flatMap((group) => group.current ? [group.current] : []);
+      const isAtRisk = groups.some((group) => group.isAtRisk);
+      const riskState = groups.find((group) => group.isAtRisk)?.riskState ?? groups[0]?.riskState ?? "future";
+      const expiration = currentRecords.map((item) => item.record.expirationDate).filter((value): value is string => Boolean(value)).sort()[0] ?? null;
+      return { course: courseEntries[0].course, entries: courseEntries, groups, currentRecords, isAtRisk, riskState, expiration };
+    });
+  }, [entries]);
+
+  const organizations = Array.from(new Set(entries.map(({ record }) => record.organization))).sort();
+  const jurisdictions = Array.from(new Set(entries.map(({ record }) => record.jurisdiction))).sort();
+  const urgency: Record<string, number> = { expired: 0, expiring_soon: 1, active: 2, renewal_due: 3, conditional: 4, renewal_submitted: 5, undated: 6, future: 7, not_required: 8 };
+  const visible = assessedCourses.filter((item) =>
+    (!risk || item.groups.some((group) => group.riskState === risk))
+    && (!organization || item.groups.some((group) => group.organization === organization))
+    && (!jurisdiction || item.groups.some((group) => group.jurisdiction === jurisdiction))
+    && (!query || `${item.course.courseCode} ${item.course.courseTitle}`.toLowerCase().includes(query.toLowerCase())),
+  ).sort((a, b) => sort === "expiration" ? (a.expiration ?? "9999").localeCompare(b.expiration ?? "9999") : urgency[a.riskState] - urgency[b.riskState] || (a.expiration ?? "9999").localeCompare(b.expiration ?? "9999"));
+
+  const saveColumns = async (next: AccreditationTablePreferences["visibleColumns"]) => {
+    setVisibleColumns(next);
+    const response = await fetch("/api/preferences/accreditation", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ visibleColumns: next }) });
+    if (!response.ok) setMessage("Column preferences could not be saved.");
+  };
+  const show = (column: (typeof accreditationOptionalColumns)[number]) => visibleColumns.includes(column);
+  const clearFilters = () => { setRisk(""); setOrganization(""); setJurisdiction(""); setQuery(""); setSort("urgency"); };
+  const activeFilters = [["Risk", risk], ["Organization", organization], ["Jurisdiction", jurisdiction], ["Course", query]].filter(([, value]) => value);
+
+  const saveRecord = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault(); const form = new FormData(event.currentTarget); const current = editing === "new" ? null : editing; const courseId = String(form.get("courseId"));
+    const payload = { organization: String(form.get("organization")), jurisdiction: String(form.get("jurisdiction")), status: String(form.get("status")), approvalNumber: String(form.get("approvalNumber")) || null, creditHours: Number(form.get("creditHours")), effectiveDate: String(form.get("effectiveDate")) || null, expirationDate: String(form.get("expirationDate")) || null, expectedUpdatedAt: current?.record.updatedAt };
+    setPending(true); setMessage("");
+    try { const response = await fetch(current ? `/api/accreditations/${current.record.id}` : `/api/courses/${courseId}/accreditations`, { method: current ? "PATCH" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) }); const result = await response.json() as { message?: string }; if (!response.ok) throw new Error(result.message); setMessage(result.message ?? "Accreditation record saved."); setEditing(null); router.refresh(); } catch (error) { setMessage(error instanceof Error ? error.message : "Record could not be saved."); } finally { setPending(false); }
+  };
+  const archiveRecord = async (entry: AccreditationBoardEntry) => {
+    if (!window.confirm(`Archive ${entry.record.organization} accreditation record?`)) return; setPending(true);
+    try { const response = await fetch(`/api/accreditations/${entry.record.id}`, { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ expectedUpdatedAt: entry.record.updatedAt }) }); const result = await response.json() as { message?: string }; if (!response.ok) throw new Error(result.message); setMessage(result.message ?? "Record archived."); router.refresh(); } catch (error) { setMessage(error instanceof Error ? error.message : "Record could not be archived."); } finally { setPending(false); }
+  };
+
+  return <WorkspaceFrame eyebrow="Compliance workspace" title="Accreditation" description="One parent row per course with organization and jurisdiction history underneath." action={<button className="button button-primary" onClick={() => setEditing("new")}><Award size={16} /> Add record</button>}>
+    <MetricStrip metrics={[["History records", String(entries.length), "Current and historical rows"], ["At-risk courses", String(assessedCourses.filter((item) => item.isAtRisk).length), "Distinct courses requiring action"], ["Future records", String(assessedCourses.flatMap((item) => item.groups).filter((group) => group.summary.historyRole === "future").length), "Not yet effective"], ["Duplicate records", String(assessedCourses.flatMap((item) => item.groups).flatMap((group) => [group.summary, ...group.history]).filter((item) => item.historyRole === "duplicate").length), "Visible but excluded from risk"]]} />
+    {message && <div className="inline-alert" role="status"><ShieldCheck size={17} /><span>{message}</span></div>}
+    {editing && <form className="panel workflow-form" onSubmit={saveRecord}><div className="panel-heading"><div><h2>{editing === "new" ? "Add accreditation record" : "Edit accreditation record"}</h2><p>LMS imports are read-only; CourseTrack records remain editable.</p></div><button type="button" className="icon-action" aria-label="Cancel accreditation editing" onClick={() => setEditing(null)}><X size={18} /></button></div><div className="form-grid">{editing === "new" ? <AsyncCourseSelect /> : <label>Course<input disabled value={`${editing.course.courseCode} — ${editing.course.courseTitle}`} /><input type="hidden" name="courseId" value={editing.course.courseId} /></label>}<label>Organization<input name="organization" required minLength={2} defaultValue={editing === "new" ? "" : editing.record.organization} /></label><label>Jurisdiction<input name="jurisdiction" required defaultValue={editing === "new" ? "National" : editing.record.jurisdiction} /></label><label>Status<select name="status" defaultValue={editing === "new" ? "Approved" : editing.record.status}>{["Approved", "Approved with Conditions", "Renewal Due", "Renewal Submitted", "Expiring Soon", "Expired", "Not Required"].map((value) => <option key={value}>{value}</option>)}</select></label><label>Approval number<input name="approvalNumber" defaultValue={editing === "new" ? "" : editing.record.approvalNumber ?? ""} /></label><label>Credit hours<input name="creditHours" type="number" min={0} step="0.25" defaultValue={editing === "new" ? 0 : editing.record.creditHours} /></label><label>Effective date<input name="effectiveDate" type="date" defaultValue={editing === "new" ? "" : editing.record.effectiveDate ?? ""} /></label><label>Expiration date<input name="expirationDate" type="date" defaultValue={editing === "new" ? "" : editing.record.expirationDate ?? ""} /></label></div><div className="button-row"><button type="button" className="button button-secondary" onClick={() => setEditing(null)}>Cancel</button><button className="button button-primary" disabled={pending}>{pending ? "Saving…" : "Save record"}</button></div></form>}
+    <section className="panel accreditation-queue"><div className="panel-heading"><div><h2>Accreditation risk queue</h2><p>Only expired or expiring current groups without an effective replacement count as risk.</p></div><div className="column-chooser"><details><summary>Columns</summary><div>{accreditationOptionalColumns.map((column) => <label key={column}><input type="checkbox" checked={show(column)} onChange={() => void saveColumns(show(column) ? visibleColumns.filter((item) => item !== column) : [...visibleColumns, column])} />{accreditationColumnLabels[column]}</label>)}<div className="button-row"><button onClick={() => void saveColumns([...accreditationOptionalColumns])}>Show all</button><button onClick={() => void saveColumns([...DEFAULT_ACCREDITATION_TABLE_PREFERENCES.visibleColumns])}>Reset</button></div></div></details><StatusBadge tone="warning">{visible.filter((item) => item.isAtRisk).length} at-risk courses</StatusBadge></div></div>
+      <div className="filter-grid"><label>Course<input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Code or title" /></label><label>Risk<select value={risk} onChange={(event) => setRisk(event.target.value)}><option value="">All risk states</option>{Object.entries(accreditationRiskLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>Organization<select value={organization} onChange={(event) => setOrganization(event.target.value)}><option value="">All organizations</option>{organizations.map((value) => <option key={value}>{value}</option>)}</select></label><label>Jurisdiction<select value={jurisdiction} onChange={(event) => setJurisdiction(event.target.value)}><option value="">All jurisdictions</option>{jurisdictions.map((value) => <option key={value}>{value}</option>)}</select></label><label>Sort<select value={sort} onChange={(event) => setSort(event.target.value)}><option value="urgency">Urgency</option><option value="expiration">Expiration date</option></select></label></div>
+      {activeFilters.length > 0 && <div className="filter-chips" aria-label="Active filters">{activeFilters.map(([label, value]) => <span key={label}>{label}: {value}</span>)}<button onClick={clearFilters}>Clear all</button></div>}
+      {visible.length === 0 ? <div className="empty-state"><Award size={24} /><h3>No matching courses</h3><p>Clear filters or add a record.</p></div> : <div className="table-scroll"><table className="data-table accreditation-table"><thead><tr><th>Course</th><th>Risk</th>{show("organization") && <th>Organization</th>}{show("jurisdiction") && <th>Jurisdiction</th>}{show("status") && <th>Status</th>}{show("historyRole") && <th>History Role</th>}{show("effective") && <th>Effective</th>}{show("expiration") && <th>Expiration</th>}{show("source") && <th>Source</th>}<th className="actions-column">Actions</th></tr></thead><tbody>{visible.flatMap((item) => { const open = expandedCourse === item.course.courseId; const current = item.currentRecords; const colSpan = 3 + visibleColumns.length; return [<tr key={item.course.courseId}><td><Link className="table-link" href={`/courses/${item.course.courseId}`}>{item.course.courseTitle}</Link></td><td><StatusBadge tone={item.isAtRisk ? "danger" : "success"}>{item.isAtRisk ? accreditationRiskLabels[item.riskState] : "Current"}</StatusBadge></td>{show("organization") && <td>{item.groups.map((group) => group.organization).join(", ")}</td>}{show("jurisdiction") && <td>{item.groups.map((group) => group.jurisdiction).join(", ")}</td>}{show("status") && <td>{current.map((record) => record.record.status).join(", ") || "Future only"}</td>}{show("historyRole") && <td>{item.groups.length} group{item.groups.length === 1 ? "" : "s"}</td>}{show("effective") && <td>{current.map((record) => record.record.effectiveDate ?? "Undated").join(", ") || "Not effective"}</td>}{show("expiration") && <td>{item.expiration ?? "Undated"}</td>}{show("source") && <td>{Array.from(new Set(item.entries.map((entry) => entry.record.source))).join(", ")}</td>}<td><button aria-expanded={open} onClick={() => setExpandedCourse(open ? null : item.course.courseId)}>{open ? "Hide" : "Review"}</button></td></tr>, <tr key={`${item.course.courseId}-details`} className={`accreditation-details-row ${open ? "is-open" : ""}`}><td colSpan={colSpan}>{open && <div className="accreditation-inline-history">{item.groups.map((group) => <section key={group.key}><h3>{group.organization} · {group.jurisdiction}</h3><table><thead><tr><th>Status</th><th>History role</th><th>Effective</th><th>Expiration</th><th>Source</th><th>Actions</th></tr></thead><tbody>{[group.summary, ...group.history].map((assessed) => { const entry = item.entries.find(({ record }) => record.id === assessed.record.id)!; return <tr key={assessed.record.id}><td>{assessed.record.status}</td><td>{assessed.historyRole}</td><td>{assessed.record.effectiveDate ?? "Undated"}</td><td>{assessed.record.expirationDate ?? "Undated"}</td><td>{assessed.record.source}</td><td>{assessed.record.source !== "lms_api" ? <div className="table-actions"><button onClick={() => setEditing(entry)}>Edit</button><button disabled={pending} onClick={() => archiveRecord(entry)}>Archive</button></div> : <StatusBadge tone="neutral">Read-only</StatusBadge>}</td></tr>; })}</tbody></table></section>)}</div>}</td></tr>]; })}</tbody></table></div>}
     </section>
   </WorkspaceFrame>;
 }
@@ -338,16 +423,24 @@ function VersionWrikeSummary({
 
 void VersionsWorkspaceLegacy;
 
-export function VersionsWorkspace({ entries }: { entries: VersionBoardEntry[] }) {
+const versionsColumnLabels: Record<(typeof versionsOptionalColumns)[number], string> = { status: "Status", published: "Published", type: "Type", authoring: "Authoring", standard: "Standard" };
+
+export function VersionsWorkspace({ entries, initialPreferences }: { entries: VersionBoardEntry[]; initialPreferences: VersionsTablePreferences }) {
   const router = useRouter();
   const versions = [...entries].sort((a, b) =>
     b.version.publicationDate.localeCompare(a.version.publicationDate) || b.version.id.localeCompare(a.version.id),
   );
-  const courses = Array.from(new Map(entries.map(({ course }) => [course.courseId, course])).values());
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editing, setEditing] = useState<VersionBoardEntry | "new" | null>(null);
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState("");
+  const [visibleColumns, setVisibleColumns] = useState(initialPreferences.visibleColumns);
+  const show = (column: (typeof versionsOptionalColumns)[number]) => visibleColumns.includes(column);
+  const saveColumns = async (next: VersionsTablePreferences["visibleColumns"]) => {
+    setVisibleColumns(next);
+    const response = await fetch("/api/preferences/versions", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ visibleColumns: next }) });
+    if (!response.ok) setMessage("Column preferences could not be saved.");
+  };
 
   const saveVersion = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -397,7 +490,7 @@ export function VersionsWorkspace({ entries }: { entries: VersionBoardEntry[] })
     <form className="panel workflow-form" onSubmit={saveVersion}>
       <div className="panel-heading"><div><h2>{editing === "new" ? "Create version" : "Edit version"}</h2><p>CourseTrack validates every required field.</p></div><button type="button" className="icon-action" aria-label="Cancel version editing" onClick={() => setEditing(null)}><X size={18} /></button></div>
       <div className="form-grid">
-        <label>Course<select name="courseId" disabled={editing !== "new"} defaultValue={editing === "new" ? courses[0]?.courseId : editing.course.courseId}>{courses.map((course) => <option key={course.courseId} value={course.courseId}>{course.courseCode} — {course.courseTitle}</option>)}</select></label>
+        {editing === "new" ? <AsyncCourseSelect /> : <label>Course<input disabled value={`${editing.course.courseCode} — ${editing.course.courseTitle}`} /><input type="hidden" name="courseId" value={editing.course.courseId} /></label>}
         <label>Version<input name="versionNumber" required defaultValue={editing === "new" ? "" : editing.version.versionNumber} /></label>
         <label>Type<select name="versionType" defaultValue={editing === "new" ? "Minor Revision" : editing.version.versionType}>{["Initial Release", "Minor Revision", "Major Revision", "Technical Update", "Accessibility Update", "Legal Update", "Accreditation Update"].map((value) => <option key={value}>{value}</option>)}</select></label>
         <label>Publication date<input name="publicationDate" type="date" required defaultValue={editing === "new" ? "" : editing.version.publicationDate} /></label>
@@ -413,18 +506,18 @@ export function VersionsWorkspace({ entries }: { entries: VersionBoardEntry[] })
 
   return (
     <WorkspaceFrame eyebrow="Lifecycle workspace" title="Versions" description="Create and maintain authoritative course-version history inside CourseTrack."
-      action={<button className="button button-primary" disabled={courses.length === 0} onClick={() => setEditing("new")}>New version</button>}>
+      action={<button className="button button-primary" onClick={() => setEditing("new")}>New version</button>}>
       <section className="version-governance-banner"><ShieldCheck size={22} /><div><strong>One current version per course</strong><span>Changing the current version supersedes the previous current record. History is archived, never deleted.</span></div></section>
       <MetricStrip metrics={[["Version records", String(versions.length), "Active historical records"], ["Current versions", String(versions.filter(({ version }) => version.isCurrent).length), "One per course"], ["Drafts", String(versions.filter(({ version }) => version.versionStatus === "Draft").length), "Not published"], ["Published", String(versions.filter(({ version }) => version.versionStatus === "Published").length), "Published records"]]} />
       {message && <div className="inline-alert" role="status"><ShieldCheck size={17} /><span>{message}</span></div>}
       {editor}
       <section className="panel versions-panel">
-        <div className="panel-heading"><div><h2>Version history</h2><p>Newest publication records first</p></div></div>
+        <div className="panel-heading"><div><h2>Version history</h2><p>Newest publication records first</p></div><details className="column-chooser"><summary>Columns</summary><div>{versionsOptionalColumns.map((column) => <label key={column}><input type="checkbox" checked={show(column)} onChange={() => void saveColumns(show(column) ? visibleColumns.filter((item) => item !== column) : [...visibleColumns, column])} />{versionsColumnLabels[column]}</label>)}<div className="button-row"><button onClick={() => void saveColumns([...versionsOptionalColumns])}>Show all</button><button onClick={() => void saveColumns([...DEFAULT_VERSIONS_TABLE_PREFERENCES.visibleColumns])}>Reset</button></div></div></details></div>
         {versions.length === 0 ? <div className="empty-state"><BookOpen size={26} /><h3>No version records</h3><p>Create the first version for a course.</p></div> : <>
-          <table className="data-table versions-table"><thead><tr><th>Course</th><th>Version</th><th>Status</th><th>Published</th><th className="version-secondary">Type</th><th className="version-secondary">Authoring</th><th className="version-secondary">Standard</th><th>Actions</th></tr></thead><tbody>{versions.map((entry) => { const { course, version } = entry; const open = expandedId === version.id; return [
-            <tr key={`${version.id}-main`}><td><Link href={`/courses/${course.courseId}`} className="table-link">{course.courseTitle}</Link></td><td className="mono-cell">v{version.versionNumber}</td><td>{version.isCurrent ? <StatusBadge tone="success">Current</StatusBadge> : <StatusBadge>{version.versionStatus}</StatusBadge>}</td><td>{version.publicationDate}</td><td className="version-secondary">{version.versionType}</td><td className="version-secondary">{version.authoringTool || "Not set"}</td><td className="version-secondary">{version.packageStandard || "Not set"}</td><td><div className="table-actions"><button aria-expanded={open} aria-controls={`version-details-${version.id}`} onClick={() => setExpandedId(open ? null : version.id)}>Details</button><button onClick={() => setEditing(entry)}>Edit</button><button disabled={pending || version.isCurrent} onClick={() => archiveVersion(entry)}>Archive</button></div></td></tr>,
-            <tr key={`${version.id}-details`} id={`version-details-${version.id}`} className={`version-details-row ${open ? "is-open" : ""}`}><td colSpan={8}><dl><div><dt>Type</dt><dd>{version.versionType}</dd></div><div><dt>Authoring tool</dt><dd>{version.authoringTool || "Not set"}</dd></div><div><dt>Package standard</dt><dd>{version.packageStandard || "Not set"}</dd></div><div><dt>Release notes</dt><dd>{version.releaseNotes || "None"}</dd></div></dl></td></tr>,
-          ]; })}</tbody></table>
+          <div className="table-scroll versions-table-scroll"><table className="data-table versions-table"><thead><tr><th>Course</th><th>Version</th>{show("status") && <th>Status</th>}{show("published") && <th>Published</th>}{show("type") && <th>Type</th>}{show("authoring") && <th>Authoring</th>}{show("standard") && <th>Standard</th>}<th className="actions-column">Actions</th></tr></thead><tbody>{versions.map((entry) => { const { course, version } = entry; const open = expandedId === version.id; return [
+            <tr key={`${version.id}-main`}><td><Link href={`/courses/${course.courseId}`} className="table-link">{course.courseTitle}</Link></td><td className="mono-cell">v{version.versionNumber}</td>{show("status") && <td>{version.isCurrent ? <StatusBadge tone="success">Current</StatusBadge> : <StatusBadge>{version.versionStatus}</StatusBadge>}</td>}{show("published") && <td>{version.publicationDate}</td>}{show("type") && <td>{version.versionType}</td>}{show("authoring") && <td>{version.authoringTool || "Not set"}</td>}{show("standard") && <td>{version.packageStandard || "Not set"}</td>}<td><div className="table-actions"><button aria-expanded={open} aria-controls={`version-details-${version.id}`} onClick={() => setExpandedId(open ? null : version.id)}>Details</button><button onClick={() => setEditing(entry)}>Edit</button><button disabled={pending || version.isCurrent} onClick={() => archiveVersion(entry)}>Archive</button></div></td></tr>,
+            <tr key={`${version.id}-details`} id={`version-details-${version.id}`} className={`version-details-row ${open ? "is-open" : ""}`}><td colSpan={3 + visibleColumns.length}><dl><div><dt>Type</dt><dd>{version.versionType}</dd></div><div><dt>Authoring tool</dt><dd>{version.authoringTool || "Not set"}</dd></div><div><dt>Package standard</dt><dd>{version.packageStandard || "Not set"}</dd></div><div><dt>Release notes</dt><dd>{version.releaseNotes || "None"}</dd></div></dl></td></tr>,
+          ]; })}</tbody></table></div>
           <div className="version-card-list">{versions.map((entry) => <article className="version-card" key={entry.version.id}><div><Link href={`/courses/${entry.course.courseId}`}>{entry.course.courseTitle}</Link>{entry.version.isCurrent ? <StatusBadge tone="success">Current</StatusBadge> : <StatusBadge>{entry.version.versionStatus}</StatusBadge>}</div><strong>v{entry.version.versionNumber}</strong><span>{entry.version.publicationDate}</span><dl><div><dt>Type</dt><dd>{entry.version.versionType}</dd></div><div><dt>Authoring</dt><dd>{entry.version.authoringTool || "Not set"}</dd></div><div><dt>Standard</dt><dd>{entry.version.packageStandard || "Not set"}</dd></div><div><dt>Release notes</dt><dd>{entry.version.releaseNotes || "None"}</dd></div></dl><div className="table-actions"><button onClick={() => setEditing(entry)}>Edit</button><button disabled={pending || entry.version.isCurrent} onClick={() => archiveVersion(entry)}>Archive</button></div></article>)}</div>
         </>}
       </section>
@@ -482,16 +575,14 @@ const revampColumns = ["Submitted", "Under Review", "Approved", "In Progress"] a
 
 export function RevampWorkspace({
   entries,
-  courseOptions,
   canApprove,
 }: {
   entries: RevampBoardEntry[];
-  courseOptions: CourseIndexEntry[];
   canApprove: boolean;
 }) {
   const [tasks, setTasks] = useState(entries);
-  const [view, setView] = useState<"board" | "archived">("board");
   const [draggedId, setDraggedId] = useState<string | null>(null);
+  const [keyboardGrabbedId, setKeyboardGrabbedId] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [editorOpen, setEditorOpen] = useState(false);
@@ -518,9 +609,19 @@ export function RevampWorkspace({
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ bucket, targetIndex: bounded, expectedUpdatedAt: moving.proposal.updatedAt }),
       });
-      const result = (await response.json()) as { message?: string; task?: { updatedAt?: string } };
-      if (!response.ok) throw new Error(result.message);
-      if (result.task?.updatedAt) setTasks((current) => current.map((entry) => entry.proposal.id === taskId ? { ...entry, proposal: { ...entry.proposal, updatedAt: result.task?.updatedAt } } : entry));
+      const result = (await response.json()) as { message?: string; task?: RevampBoardEntry["proposal"]; affectedColumns?: Record<(typeof revampColumns)[number], string[]> };
+      if (!response.ok || !result.task || !result.affectedColumns) throw new Error(result.message || "The server did not return authoritative board ordering.");
+      setTasks((current) => {
+        const byId = new Map(current.map((entry) => [entry.proposal.id, entry]));
+        const movedEntry = byId.get(taskId);
+        if (movedEntry) byId.set(taskId, { ...movedEntry, proposal: result.task! });
+        const orderedEntries = revampColumns.flatMap((column) => result.affectedColumns![column].flatMap((id, index) => {
+          const entry = byId.get(id);
+          return entry ? [{ ...entry, proposal: { ...entry.proposal, bucket: column, status: column, sortOrder: index } }] : [];
+        }));
+        const activeIds = new Set(orderedEntries.map((entry) => entry.proposal.id));
+        return [...current.filter((entry) => !activeIds.has(entry.proposal.id) && (entry.proposal.archivedAt || !entry.proposal.bucket)), ...orderedEntries];
+      });
       setMessage(result.message ?? `Task moved to ${bucket}.`);
     } catch (error) {
       setTasks(original);
@@ -550,27 +651,34 @@ export function RevampWorkspace({
     try { const response = await fetch(`/api/revamp-tasks/${proposal.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) }); const result = (await response.json()) as { task?: RevampBoardEntry["proposal"]; message?: string }; if (!response.ok || !result.task) throw new Error(result.message); setTasks((current) => current.map((entry) => entry.proposal.id === proposal.id ? { ...entry, proposal: result.task! } : entry)); setEditingTask(null); setMessage(result.message ?? "Revamp task updated."); } catch (error) { setMessage(error instanceof Error ? error.message : "Task could not be updated."); } finally { setPendingId(null); }
   };
 
-  const archiveTask = async (entry: RevampBoardEntry) => {
-    if (!window.confirm(`Archive ${entry.proposal.title}?`)) return; setPendingId(entry.proposal.id); setMessage("");
-    try { const response = await fetch(`/api/revamp-tasks/${entry.proposal.id}`, { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ expectedUpdatedAt: entry.proposal.updatedAt }) }); const result = (await response.json()) as { message?: string }; if (!response.ok) throw new Error(result.message); setTasks((current) => current.map((item) => item.proposal.id === entry.proposal.id ? { ...item, proposal: { ...item.proposal, archivedAt: new Date().toISOString(), bucket: null } } : item)); setMessage(result.message ?? "Revamp task archived."); } catch (error) { setMessage(error instanceof Error ? error.message : "Task could not be archived."); } finally { setPendingId(null); }
+  const deleteTask = async (entry: RevampBoardEntry) => {
+    if (!window.confirm(`Permanently delete “${entry.proposal.title}”? This cannot be undone.`)) return; setPendingId(entry.proposal.id); setMessage("");
+    try { const response = await fetch(`/api/revamp-tasks/${entry.proposal.id}`, { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ expectedUpdatedAt: entry.proposal.updatedAt }) }); const result = (await response.json()) as { message?: string }; if (!response.ok) throw new Error(result.message); setTasks((current) => current.filter((item) => item.proposal.id !== entry.proposal.id)); setEditingTask(null); setMessage(result.message ?? "Revamp task permanently deleted."); } catch (error) { setMessage(error instanceof Error ? error.message : "Task could not be deleted."); } finally { setPendingId(null); }
+  };
+
+  const handleKeyboardMove = (event: React.KeyboardEvent<HTMLButtonElement>, entry: RevampBoardEntry, column: (typeof revampColumns)[number], index: number) => {
+    if (event.key === " " || event.key === "Enter") { event.preventDefault(); setKeyboardGrabbedId((value) => value === entry.proposal.id ? null : entry.proposal.id); return; }
+    if (keyboardGrabbedId !== entry.proposal.id) return;
+    const columnIndex = revampColumns.indexOf(column);
+    if (event.key === "Escape") { event.preventDefault(); setKeyboardGrabbedId(null); return; }
+    if (event.key === "ArrowUp" && index > 0) { event.preventDefault(); void moveTask(entry.proposal.id, column, index - 1); }
+    if (event.key === "ArrowDown") { event.preventDefault(); void moveTask(entry.proposal.id, column, index + 1); }
+    if (event.key === "ArrowLeft" && columnIndex > 0) { event.preventDefault(); const target = revampColumns[columnIndex - 1]; void moveTask(entry.proposal.id, target, ordered(target).length); }
+    if (event.key === "ArrowRight" && columnIndex < revampColumns.length - 1) { event.preventDefault(); const target = revampColumns[columnIndex + 1]; void moveTask(entry.proposal.id, target, ordered(target).length); }
   };
 
   const active = tasks.filter(({ proposal }) => proposal.bucket && !proposal.archivedAt);
-  const archived = tasks.filter(({ proposal }) => proposal.archivedAt || ["Deferred", "Completed"].includes(proposal.status));
   const average = active.length ? Math.round(active.reduce((sum, { proposal }) => sum + proposal.score, 0) / active.length) : 0;
   return (
     <WorkspaceFrame eyebrow="Portfolio planning" title="Revamp Planning" description="Prioritize modernization work without changing source records."
-      action={<button className="button button-primary" disabled={courseOptions.length === 0} onClick={() => setEditorOpen(true)}><Sparkles size={16} /> New task</button>}>
+      action={<button className="button button-primary" onClick={() => setEditorOpen(true)}><Sparkles size={16} /> New task</button>}>
       <MetricStrip metrics={[["Active tasks", String(active.length), "Across four workflow buckets"], ["Awaiting review", String(active.filter(({ proposal }) => ["Submitted", "Under Review"].includes(proposal.bucket ?? "")).length), "Decision required"], ["Approved", String(active.filter(({ proposal }) => proposal.bucket === "Approved").length), "Administrator-approved"], ["Average score", String(average), active.length ? "Weighted priority" : "No active tasks"]]} />
-      {message && <div className="inline-alert" role="status"><ShieldCheck size={17} /><span>{message}</span></div>}
-      <div className="segmented-control" aria-label="Revamp views"><button className={view === "board" ? "active" : ""} onClick={() => setView("board")}>Active board</button><button className={view === "archived" ? "active" : ""} onClick={() => setView("archived")}>Archived ({archived.length})</button></div>
-      {active.length > 0 && <label className="manage-task-select">Manage task<select aria-label="Choose a Revamp task to edit" value={editingTask?.proposal.id ?? ""} onChange={(event) => setEditingTask(tasks.find(({ proposal }) => proposal.id === event.target.value) ?? null)}><option value="">Choose a task</option>{active.map((entry) => <option key={entry.proposal.id} value={entry.proposal.id}>{entry.proposal.title}</option>)}</select></label>}
+      {message && <div className="inline-alert" role="status" aria-live="assertive"><ShieldCheck size={17} /><span>{message}</span></div>}
       {editorOpen && <form className="panel workflow-form" onSubmit={saveTask}><div className="panel-heading"><div><h2>Create Revamp task</h2><p>Drafts are intentionally kept off the active board.</p></div><button type="button" className="icon-action" aria-label="Cancel task creation" onClick={() => setEditorOpen(false)}><X size={18} /></button></div><div className="form-grid">
-        <label>Course<select name="courseId" required>{courseOptions.map((course) => <option key={course.id} value={course.id}>{course.courseCode} — {course.title}</option>)}</select></label><label>Title<input name="title" minLength={3} maxLength={180} required /></label><label>Bucket<select name="bucket">{revampColumns.map((bucket) => <option key={bucket} disabled={bucket === "Approved" && !canApprove}>{bucket}</option>)}</select></label><label>Priority<select name="priority">{["Critical", "High", "Medium", "Low", "Monitor Only"].map((value) => <option key={value}>{value}</option>)}</select></label><label>Score<input name="score" type="number" min={0} max={100} defaultValue={50} required /></label><label>Target publication<input name="targetPublicationDate" type="date" /></label><label className="form-span">Business justification<textarea name="businessJustification" minLength={10} maxLength={2000} required /></label>
+        <AsyncCourseSelect /><label>Title<input name="title" minLength={3} maxLength={180} required /></label><input name="bucket" type="hidden" value="Submitted" /><label>Priority<select name="priority">{["Critical", "High", "Medium", "Low", "Monitor Only"].map((value) => <option key={value}>{value}</option>)}</select></label><label>Score<input name="score" type="number" min={0} max={100} defaultValue={50} required /></label><label>Target publication<input name="targetPublicationDate" type="date" /></label><label className="form-span">Business justification<textarea name="businessJustification" minLength={10} maxLength={2000} required /></label>
       </div><div className="button-row"><button type="button" className="button button-secondary" onClick={() => setEditorOpen(false)}>Cancel</button><button className="button button-primary" disabled={pendingId === "new"}>{pendingId === "new" ? "Saving…" : "Create task"}</button></div></form>}
-      {editingTask && <form className="panel workflow-form" onSubmit={updateTask}><div className="panel-heading"><div><h2>Edit Revamp task</h2><p>Board position is changed with the move controls.</p></div><button type="button" className="icon-action" aria-label="Cancel task editing" onClick={() => setEditingTask(null)}><X size={18} /></button></div><div className="form-grid"><label>Title<input name="title" required minLength={3} defaultValue={editingTask.proposal.title} /></label><label>Priority<select name="priority" defaultValue={editingTask.proposal.priority}>{["Critical", "High", "Medium", "Low", "Monitor Only"].map((value) => <option key={value}>{value}</option>)}</select></label><label>Score<input name="score" type="number" min={0} max={100} defaultValue={editingTask.proposal.score} /></label><label>Target publication<input name="targetPublicationDate" type="date" defaultValue={editingTask.proposal.targetPublicationDate ?? ""} /></label><label className="form-span">Business justification<textarea name="businessJustification" required minLength={10} defaultValue={editingTask.proposal.businessJustification} /></label></div><div className="button-row"><button type="button" className="button button-secondary" onClick={() => setEditingTask(null)}>Cancel</button><button className="button button-primary" disabled={pendingId === editingTask.proposal.id}>{pendingId === editingTask.proposal.id ? "Saving…" : "Save task"}</button></div></form>}
-      {editingTask && <button className="button button-danger-ghost" disabled={pendingId === editingTask.proposal.id} onClick={() => archiveTask(editingTask)}>Archive selected task</button>}
-      {view === "board" ? <section className="kanban-board" aria-label="Revamp task board">{revampColumns.map((column, columnIndex) => { const items = ordered(column); return <div className="kanban-column" key={column} onDragOver={(event) => event.preventDefault()} onDrop={() => draggedId && moveTask(draggedId, column, items.length)}><div className="kanban-heading"><strong>{column}</strong><span>{items.length}</span></div>{items.length === 0 ? <div className="kanban-empty">No tasks in this stage.</div> : items.map(({ course, proposal }, index) => <article className="kanban-card" key={proposal.id} draggable onDragStart={() => setDraggedId(proposal.id)} onDragEnd={() => setDraggedId(null)} aria-busy={pendingId === proposal.id}><div><StatusBadge tone={["Critical", "High"].includes(proposal.priority) ? "warning" : "neutral"}>{proposal.priority}</StatusBadge><span>Score {proposal.score}</span></div><Link href={`/courses/${course.courseId}`}><strong>{proposal.title}</strong></Link><p>{course.courseTitle}</p><small>Target {proposal.targetPublicationDate ?? "not scheduled"}</small><div className="kanban-controls"><button aria-label={`Move ${proposal.title} left`} disabled={columnIndex === 0 || pendingId === proposal.id} onClick={() => moveTask(proposal.id, revampColumns[columnIndex - 1], ordered(revampColumns[columnIndex - 1]).length)}>←</button><select aria-label={`Move ${proposal.title} to another stage`} value={column} disabled={pendingId === proposal.id} onChange={(event) => moveTask(proposal.id, event.target.value as (typeof revampColumns)[number], ordered(event.target.value as (typeof revampColumns)[number]).length)}>{revampColumns.map((bucket) => <option key={bucket} disabled={bucket === "Approved" && !canApprove}>{bucket}</option>)}</select><button aria-label={`Move ${proposal.title} right`} disabled={columnIndex === revampColumns.length - 1 || (revampColumns[columnIndex + 1] === "Approved" && !canApprove) || pendingId === proposal.id} onClick={() => moveTask(proposal.id, revampColumns[columnIndex + 1], ordered(revampColumns[columnIndex + 1]).length)}>→</button><button aria-label={`Move ${proposal.title} up`} disabled={index === 0 || pendingId === proposal.id} onClick={() => moveTask(proposal.id, column, index - 1)}>↑</button><button aria-label={`Move ${proposal.title} down`} disabled={index === items.length - 1 || pendingId === proposal.id} onClick={() => moveTask(proposal.id, column, index + 1)}>↓</button></div></article>)}</div>; })}</section> : <section className="panel"><div className="panel-heading"><div><h2>Archived Revamp work</h2><p>Deferred, completed, and archived tasks remain available for history.</p></div></div>{archived.length === 0 ? <div className="empty-state"><Sparkles size={24} /><h3>No archived tasks</h3><p>Archived work will appear here.</p></div> : <div className="record-list">{archived.map(({ course, proposal }) => <article key={proposal.id}><div><strong>{proposal.title}</strong><StatusBadge>{proposal.status}</StatusBadge></div><p>{course.courseTitle}</p></article>)}</div>}</section>}
+      {editingTask && <form className="panel workflow-form" onSubmit={updateTask}><div className="panel-heading"><div><h2>Edit Revamp task</h2><p>Use the card drag handle to change board position.</p></div><button type="button" className="icon-action" aria-label="Cancel task editing" onClick={() => setEditingTask(null)}><X size={18} /></button></div><div className="form-grid"><label>Title<input name="title" required minLength={3} defaultValue={editingTask.proposal.title} /></label><label>Priority<select name="priority" defaultValue={editingTask.proposal.priority}>{["Critical", "High", "Medium", "Low", "Monitor Only"].map((value) => <option key={value}>{value}</option>)}</select></label><label>Score<input name="score" type="number" min={0} max={100} defaultValue={editingTask.proposal.score} /></label><label>Target publication<input name="targetPublicationDate" type="date" defaultValue={editingTask.proposal.targetPublicationDate ?? ""} /></label><label className="form-span">Business justification<textarea name="businessJustification" required minLength={10} defaultValue={editingTask.proposal.businessJustification} /></label></div><div className="button-row"><button type="button" className="button button-secondary" onClick={() => setEditingTask(null)}>Cancel</button><button className="button button-primary" disabled={pendingId === editingTask.proposal.id}>{pendingId === editingTask.proposal.id ? "Saving…" : "Save task"}</button></div></form>}
+      <section className="kanban-board" aria-label="Revamp task board">{revampColumns.map((column) => { const items = ordered(column); return <div className="kanban-column" key={column} onDragOver={(event) => event.preventDefault()} onDrop={() => draggedId && moveTask(draggedId, column, items.length)}><div className="kanban-heading"><strong>{column}</strong><span>{items.length}</span></div>{items.length === 0 ? <div className="kanban-empty">No tasks in this stage.</div> : items.map((entry, index) => { const { course, proposal } = entry; return <article className="kanban-card" key={proposal.id} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.stopPropagation(); if (draggedId) void moveTask(draggedId, column, index); }} aria-busy={pendingId === proposal.id}><div className="kanban-card-heading"><button type="button" className={`drag-handle ${keyboardGrabbedId === proposal.id ? "is-grabbed" : ""}`} draggable onDragStart={() => setDraggedId(proposal.id)} onDragEnd={() => setDraggedId(null)} onKeyDown={(event) => handleKeyboardMove(event, entry, column, index)} aria-label={`Move ${proposal.title}. Press Space, then arrow keys.`} aria-pressed={keyboardGrabbedId === proposal.id}><GripVertical size={16} /></button><StatusBadge tone={["Critical", "High"].includes(proposal.priority) ? "warning" : "neutral"}>{proposal.priority}</StatusBadge><span>Score {proposal.score}</span></div><Link href={`/courses/${course.courseId}`}><strong>{proposal.title}</strong></Link><p>{course.courseTitle}</p><small>Target {proposal.targetPublicationDate ?? "not scheduled"}</small><div className="table-actions"><button onClick={() => setEditingTask(entry)}>Edit</button><button disabled={pendingId === proposal.id} onClick={() => deleteTask(entry)}>Delete</button></div></article>; })}</div>; })}</section>
     </WorkspaceFrame>
   );
 }
@@ -1074,11 +1182,9 @@ export function ProfileWorkspace({ authContext }: { authContext: AuthContext }) 
 export function TopicsTagsWorkspace({
   topics,
   tags,
-  courseIndex,
 }: {
   topics: TaxonomySummary[];
   tags: TaxonomySummary[];
-  courseIndex: CourseIndexEntry[];
 }) {
   const [kind, setKind] = useState<"topic" | "tag">("topic");
   const [topicItems, setTopicItems] = useState(topics);
@@ -1089,6 +1195,7 @@ export function TopicsTagsWorkspace({
   const [assignedCourses, setAssignedCourses] = useState<TaxonomyCourseEntry[]>([]);
   const [loadingCourses, setLoadingCourses] = useState(false);
   const [courseSearch, setCourseSearch] = useState("");
+  const [courseMatches, setCourseMatches] = useState<CourseIndexEntry[]>([]);
   const [checkedCourseIds, setCheckedCourseIds] = useState<Set<string>>(new Set());
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState("");
@@ -1127,14 +1234,17 @@ export function TopicsTagsWorkspace({
   };
 
   const assignedCourseIds = new Set(assignedCourses.map((entry) => entry.courseId));
-  const pickerCourses = courseIndex
+  const pickerCourses = courseMatches
     .filter((course) => !assignedCourseIds.has(course.id))
-    .filter(
-      (course) =>
-        !courseSearch ||
-        `${course.title} ${course.courseCode}`.toLowerCase().includes(courseSearch.toLowerCase()),
-    )
     .slice(0, 50);
+
+  useEffect(() => {
+    const query = courseSearch.trim();
+    if (query.length < 2) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => fetch(`/api/courses/search?q=${encodeURIComponent(query)}`, { signal: controller.signal }).then((response) => response.json()).then((result: { items?: CourseIndexEntry[] }) => setCourseMatches(result.items ?? [])).catch((error) => { if (error?.name !== "AbortError") setCourseMatches([]); }), 200);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [courseSearch]);
 
   const toggleCourse = (id: string) => {
     setCheckedCourseIds((prev) => {
@@ -1304,7 +1414,7 @@ export function TopicsTagsWorkspace({
               type="text"
               placeholder="Search courses by title or code…"
               value={courseSearch}
-              onChange={(event) => setCourseSearch(event.target.value)}
+              onChange={(event) => { setCourseSearch(event.target.value); if (event.target.value.trim().length < 2) setCourseMatches([]); }}
             />
             <ul className="taxonomy-course-picker-list">
               {pickerCourses.map((course) => (

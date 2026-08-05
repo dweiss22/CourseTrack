@@ -1,8 +1,22 @@
 import { NextResponse } from "next/server";
-import { createCourseProjection } from "@/db";
+import { createCourseProjection, getCourseLibraryPage } from "@/db";
 import { apiError, validationError } from "@/lib/api-response";
-import { requireApiRole } from "@/lib/auth";
+import { requireApiRole, requireApiUser } from "@/lib/auth";
 import { courseCreateSchema } from "@/lib/workflow-validation";
+
+export async function GET(request: Request) {
+  const auth = await requireApiUser();
+  if ("error" in auth) return auth.error;
+  const params = new URL(request.url).searchParams;
+  try {
+    return NextResponse.json(await getCourseLibraryPage({
+      page: Number(params.get("page") ?? 1), pageSize: Number(params.get("pageSize") ?? 25),
+      search: params.get("search") ?? "", vertical: params.get("vertical") ?? "", lifecycle: params.get("lifecycle") ?? "",
+      health: params.get("health") ?? "", classification: params.get("classification") ?? "Included portfolio", workQueue: params.get("workQueue") ?? "",
+      sort: params.get("sort") ?? "title", descending: params.get("descending") === "true",
+    }));
+  } catch (error) { return apiError(error); }
+}
 
 export async function POST(request: Request) {
   const auth = await requireApiRole("super_admin", "admin", "content");

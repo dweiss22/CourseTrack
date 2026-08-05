@@ -1,22 +1,12 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import { requireApiRole, requireApiUser } from "@/lib/auth";
 import {
   getCourseRecord,
   setCourseArchived,
-  updateInternalCourseMetadata,
+  updateCourseProjection,
 } from "@/db";
 import { apiError, validationError } from "@/lib/api-response";
-
-const updateSchema = z.object({
-  internalSummary: z.string().trim().min(10).max(1_200),
-  owner: z.string().trim().min(2).max(120).nullable(),
-  nextReviewDate: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .nullable(),
-  expectedUpdatedAt: z.string().datetime(),
-}).strict();
+import { courseProjectionUpdateSchema } from "@/lib/workflow-validation";
 
 export async function GET(
   _request: Request,
@@ -61,12 +51,19 @@ export async function PATCH(
     return NextResponse.json({ message: "Course not found." }, { status: 404 });
   }
 
-  const parsed = updateSchema.safeParse(await request.json().catch(() => ({})));
+  const parsed = courseProjectionUpdateSchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) {
-    return validationError("Review the internal metadata fields.", parsed.error.issues);
+    return validationError("Review the CourseTrack fields.", parsed.error.issues);
   }
   try {
-    const updatedAt = await updateInternalCourseMetadata({ courseId: id, actorId: actor.context.userId, actorEmail: actor.context.email, ...parsed.data });
-    return NextResponse.json({ saved: true, course: { ...course, ...parsed.data, updatedAt }, audit: { actorId: actor.context.userId, updatedAt }, message: "Internal CourseTrack metadata saved. Source records were not changed." });
+    const mutation = await updateCourseProjection({ courseId: id, actorId: actor.context.userId, actorEmail: actor.context.email, payload: parsed.data });
+    const updated = await getCourseRecord(id);
+    return NextResponse.json({
+      saved: true,
+      course: updated,
+      sourceDifferenceCount: mutation.sourceDifferenceCount,
+      audit: { actorId: actor.context.userId, updatedAt: mutation.updatedAt },
+      message: "CourseTrack fields saved. Immutable LMS and uploaded source records were not changed.",
+    });
   } catch (error) { return apiError(error); }
 }

@@ -67,17 +67,24 @@ export const DEFAULT_VERTICAL_CODES = [
 ] as const;
 
 export const DEFAULT_LMS_SITE_ALIASES: Record<string, string> = {
+  policeone_academy: "P1A",
   ems1_academy: "EMS1",
   firerescue1_academy: "FR1A",
+  correctionsone_academy: "C1A",
+  local_government_university: "LGU",
+  lexipol_academy: "Lexipol",
+  cordico_and_wellness_training: "Wellness",
+  cordico_c1a_academy: "C1A",
+  cordico_p1a_academy: "P1A",
 };
 
 export const DEFAULT_REQUIRED_METADATA_FIELDS = REQUIRED_HEALTH_METADATA_KEYS;
 export const REQUIRED_CONTENT_METADATA_MAPPINGS = UPLOADED_MAPPING_REGISTRY.filter((mapping) => mapping.required);
 
 const LMS_ALIASES = {
-  courseId: ["Course ID", "Course Id", "LMS Course ID", "LMS ID"],
-  courseType: ["Course Type"],
-  courseName: ["Course Name"],
+  courseId: ["Course ID", "Course Id", "LMS Course ID", "LMS ID", "id"],
+  courseType: ["Course Type", "content_type"],
+  courseName: ["Course Name", "name"],
   duration: ["Duration"],
   courseDescription: ["Course Description"],
   publicTopics: ["Public Topics"],
@@ -92,7 +99,7 @@ const LMS_ALIASES = {
   ],
   hiddenOrganizations: ["Hidden in Organizations"],
   authorStatus: ["Author Status"],
-  isPublished: ["Is published", "Is Published"],
+  isPublished: ["Is published", "Is Published", "published"],
   hasTopics: ["Has topics", "Has Topics"],
   isLexipol: ["Is Lexipol"],
   generateCertificate: ["Generate Certificate"],
@@ -102,13 +109,13 @@ const LMS_ALIASES = {
   createdDate: ["Created Date"],
   lastRevisionDate: ["Last Revision Date"],
   accreditationState: ["Course Accreditation State"],
-  trainingCredits: ["Training Credits"],
-  issuingBody: ["Issuing Body"],
-  state: ["State"],
-  accreditationNumber: ["Accreditation Number"],
-  topicNumber: ["Topic Number"],
-  accreditationStartDate: ["Accreditation Start Date"],
-  accreditationEndDate: ["Accreditation End Date"],
+  trainingCredits: ["Training Credits", "training_credits"],
+  issuingBody: ["Issuing Body", "issuing_body"],
+  state: ["State", "state"],
+  accreditationNumber: ["Accreditation Number", "accreditation_number"],
+  topicNumber: ["Topic Number", "topic_number"],
+  accreditationStartDate: ["Accreditation Start Date", "start_date"],
+  accreditationEndDate: ["Accreditation End Date", "end_date"],
 } as const;
 
 const CONTENT_ALIASES = {
@@ -540,7 +547,8 @@ export function parseContentMetadataRow(
     if (result.error) errors.push(result.error);
   }
   const verticalCodes = options.verticalCodes ?? DEFAULT_VERTICAL_CODES;
-  const sourceVerticals = splitVerticalValues(sourceValue(row, CONTENT_ALIASES.verticals));
+  const sourceVerticals = splitVerticalValues(sourceValue(row, CONTENT_ALIASES.verticals))
+    .map((vertical) => vertical.toUpperCase() === "EMS1A" ? "EMS1" : vertical);
   const validVerticals = sourceVerticals.filter((vertical) => verticalCodes.includes(vertical));
   for (const vertical of sourceVerticals.filter((value) => !verticalCodes.includes(value))) {
     warnings.push(`Unknown Content Metadata vertical "${vertical}" requires mapping.`);
@@ -722,12 +730,33 @@ export function parseTopicsMatrix(
 
 const COMPARISON_FIELDS = [
   { key: "courseName", label: "Course Name", lms: "courseName", metadata: "courseName" },
+  { key: "contentType", label: "Content Type", lms: "courseType", metadata: "contentType" },
   { key: "durationMinutes", label: "Duration", lms: "durationMinutes", metadata: "durationMinutes" },
   { key: "trainingCredits", label: "Training Credits", lms: "trainingCredits", metadata: "trainingCredits" },
   { key: "published", label: "Published", lms: "isPublished", metadata: "published" },
   { key: "description", label: "Description", lms: "courseDescription", metadata: "description" },
   { key: "publishedDate", label: "Published Date", lms: "publishedDate", metadata: "publishedDate" },
 ] as const;
+
+const LMS_COMPARISON_ALIASES = {
+  courseName: LMS_ALIASES.courseName,
+  contentType: LMS_ALIASES.courseType,
+  durationMinutes: LMS_ALIASES.duration,
+  trainingCredits: LMS_ALIASES.trainingCredits,
+  published: LMS_ALIASES.isPublished,
+  description: LMS_ALIASES.courseDescription,
+  publishedDate: LMS_ALIASES.publishedDate,
+} as const;
+
+const CONTENT_COMPARISON_ALIASES = {
+  courseName: CONTENT_ALIASES.courseName,
+  contentType: CONTENT_ALIASES.contentType,
+  durationMinutes: CONTENT_ALIASES.durationMinutes,
+  trainingCredits: CONTENT_ALIASES.trainingCredits,
+  published: CONTENT_ALIASES.published,
+  description: CONTENT_ALIASES.description,
+  publishedDate: CONTENT_ALIASES.publishedDate,
+} as const;
 
 function comparable(value: unknown): string {
   if (value === null || value === undefined) return "";
@@ -763,12 +792,8 @@ export function reconcileCourseSources(
   return COMPARISON_FIELDS.map((field): ParsedFieldComparison => {
     const lmsValue = lmsRecord?.normalized[field.lms] ?? null;
     const metadataValue = metadataRecord?.[field.metadata] ?? null;
-    const lmsRaw = lmsRecord
-      ? rawForComparison(lmsRecord.rawPayload, field.key === "published" ? LMS_ALIASES.isPublished : field.key === "description" ? LMS_ALIASES.courseDescription : field.key === "durationMinutes" ? LMS_ALIASES.duration : field.key === "courseName" ? LMS_ALIASES.courseName : field.key === "publishedDate" ? LMS_ALIASES.publishedDate : LMS_ALIASES.trainingCredits)
-      : null;
-    const metadataRaw = metadataRecord
-      ? rawForComparison(metadataRecord.rawPayload, field.key === "published" ? CONTENT_ALIASES.published : field.key === "description" ? CONTENT_ALIASES.description : field.key === "durationMinutes" ? CONTENT_ALIASES.durationMinutes : field.key === "courseName" ? CONTENT_ALIASES.courseName : field.key === "publishedDate" ? CONTENT_ALIASES.publishedDate : CONTENT_ALIASES.trainingCredits)
-      : null;
+    const lmsRaw = lmsRecord ? rawForComparison(lmsRecord.rawPayload, LMS_COMPARISON_ALIASES[field.key]) : null;
+    const metadataRaw = metadataRecord ? rawForComparison(metadataRecord.rawPayload, CONTENT_COMPARISON_ALIASES[field.key]) : null;
     const lmsMissing = isBlank(lmsValue) || (typeof lmsValue === "object" && comparable(lmsValue) === comparable({ rawDisplay: null, amount: null, unit: null }));
     const metadataMissing = isBlank(metadataValue) || (typeof metadataValue === "object" && comparable(metadataValue) === comparable({ rawDisplay: null, amount: null, unit: null }));
     const previous = previousComparisons.find((comparison) => comparison.fieldKey === field.key);

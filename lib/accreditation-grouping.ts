@@ -91,7 +91,7 @@ export function riskStateForRecord(
 }
 
 export function isAccreditationRiskState(state: AccreditationRiskState): boolean {
-  return !["active", "future", "not_required"].includes(state);
+  return state === "expired" || state === "expiring_soon";
 }
 
 export function assessAccreditationHistory(
