@@ -86,6 +86,7 @@ test("dashboard aggregation stays server-side and returns bounded queues", async
   ]);
   assert.match(page, /getDashboardSnapshot/);
   assert.doesNotMatch(page, /getPortfolioSummaries/);
+  assert.match(await read("db/course-repository.ts"), /error\?\.code === "PGRST202"[\s\S]*fetchLegacyDashboardSnapshot/);
   assert.match(dashboard, /snapshot\.reviewQueue/);
   assert.match(dashboard, /snapshot\.riskQueue/);
   assert.doesNotMatch(dashboard, /courses:\s*DashboardCourse\[\]/);
