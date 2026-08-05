@@ -1,10 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { assertCourseWorkbookBaseline, loadCourseWorkbookDataset } from "../scripts/course-workbook-loader.mjs";
 
-test("committed LMS and CourseTrack workbooks reproduce the accepted import baseline", async () => {
-  const dataset = await loadCourseWorkbookDataset(path.resolve("Files"), { asOfDate: "2026-08-04", importedAt: "2026-08-04T12:00:00.000Z" });
+const workbookDirectory = path.resolve("Files");
+const workbookTestOptions = existsSync(workbookDirectory)
+  ? {}
+  : { skip: "Source workbooks are not committed; run this acceptance test in an environment with Files/." };
+
+test("LMS and CourseTrack workbooks reproduce the accepted import baseline", workbookTestOptions, async () => {
+  const dataset = await loadCourseWorkbookDataset(workbookDirectory, { asOfDate: "2026-08-04", importedAt: "2026-08-04T12:00:00.000Z" });
   assert.doesNotThrow(() => assertCourseWorkbookBaseline(dataset));
   assert.deepEqual(dataset.summary, {
     lmsCourses: 18_406,
