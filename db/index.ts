@@ -78,6 +78,7 @@ export { getIntegrationMappingSummary } from "@/db/integration-repository";
 import type { ApplicationRole } from "@/lib/auth";
 export {
   archiveWorkflowRecord,
+  deleteWorkflowRecordPermanently,
   assignCourseRelationship,
   createRevampTask,
   createCourseProjection,
@@ -94,7 +95,7 @@ export {
   setFavorite,
   updateRevampTask,
 } from "@/db/workflow-repository";
-import type { Course, RetrievalRun } from "@/types/course";
+import type { Course, CourseProjectionUpdate, RetrievalRun } from "@/types/course";
 
 type DatabaseStatus = {
   available: boolean;
@@ -192,6 +193,44 @@ export async function getPortfolioCourses(): Promise<Course[]> {
 // from getPortfolioCourses.
 export async function getPortfolioSummaries(): Promise<PortfolioSummary[]> {
   return fetchPortfolioSummaries(requireDatabaseClient());
+}
+
+export interface CourseLibraryPageQuery {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  vertical?: string;
+  lifecycle?: string;
+  health?: string;
+  classification?: string;
+  workQueue?: string;
+  sort?: string;
+  descending?: boolean;
+}
+
+export async function getCourseLibraryPage(input: CourseLibraryPageQuery = {}): Promise<{ items: PortfolioSummary[]; total: number; page: number; pageSize: number }> {
+  const page = Math.max(1, Math.trunc(input.page ?? 1));
+  const pageSize = Math.min(100, Math.max(10, Math.trunc(input.pageSize ?? 25)));
+  const search = input.search?.trim().toLowerCase() ?? "";
+  const items = (await fetchPortfolioSummaries(requireDatabaseClient())).filter((course) => {
+    const searchable = [course.title, course.shortTitle, course.courseCode, course.lmsCourseId ?? "", course.description, course.primaryTopic, course.tags.join(" "), course.topicAssignments.map((item) => item.topic).join(" "), course.owner ?? ""].join(" ").toLowerCase();
+    return (!search || searchable.includes(search))
+      && (!input.vertical || input.vertical === "All verticals" || course.primaryVertical === input.vertical)
+      && (!input.lifecycle || input.lifecycle === "All statuses" || course.lifecycleStatus === input.lifecycle)
+      && (!input.health || input.health === "All health levels" || course.healthStatus === input.health)
+      && (!input.classification || input.classification === "All classifications" || (input.classification === "Included portfolio" ? course.managementClassification !== "Non-Lexipol excluded" : course.managementClassification === input.classification))
+      && (!input.workQueue || input.workQueue === "All queues"
+        || (input.workQueue === "Missing Content Metadata" && course.hasLmsSnapshot && !course.hasContentMetadata)
+        || (input.workQueue === "Missing from LMS" && !course.hasLmsSnapshot && course.hasContentMetadata)
+        || (input.workQueue === "Field conflicts" && course.conflictCount > 0)
+        || (input.workQueue === "Mapping required" && course.reconciliationStatus === "Mapping required")
+        || (input.workQueue === "Invalid import records" && course.importValidationErrorCount > 0)
+        || (input.workQueue === "Stale LMS data" && ["Stale Data", "Retrieval Failed"].includes(course.retrievalStatus)));
+  });
+  const sort = input.sort && input.sort in (items[0] ?? {}) ? input.sort as keyof PortfolioSummary : "title";
+  items.sort((a, b) => String(a[sort] ?? "").localeCompare(String(b[sort] ?? ""), undefined, { numeric: true }) * (input.descending ? -1 : 1));
+  const from = (page - 1) * pageSize;
+  return { items: items.slice(from, from + pageSize), total: items.length, page, pageSize };
 }
 
 export const getCourseRecord = cache(async (courseId: string): Promise<Course | undefined> => {
@@ -300,6 +339,22 @@ export async function getCourseIndex(): Promise<CourseIndexEntry[]> {
   return entries;
 }
 
+export async function searchCourseIndex(search: string, limit = 12): Promise<CourseIndexEntry[]> {
+  const query = search.trim();
+  if (query.length < 2) return [];
+  const client = requireDatabaseClient();
+  const safeQuery = query.replace(/[%,_().]/g, " ").replace(/\s+/g, " ").trim();
+  if (safeQuery.length < 2) return [];
+  const pattern = `%${safeQuery}%`;
+  const { data, error } = await client.from("courses").select("app_id,title,course_code,primary_vertical_id").is("archived_at", null).or(`title.ilike.${pattern},course_code.ilike.${pattern},lms_course_id.ilike.${pattern}`).order("title").limit(Math.min(25, Math.max(1, limit)));
+  if (error) throw databaseError("Could not search the course index", error);
+  const verticalIds = [...new Set((data ?? []).map((row) => row.primary_vertical_id as string))];
+  const { data: verticalRows, error: verticalError } = verticalIds.length ? await client.from("verticals").select("id,slug").in("id", verticalIds) : { data: [], error: null };
+  if (verticalError) throw databaseError("Could not resolve course-search verticals", verticalError);
+  const verticalById = new Map((verticalRows ?? []).map((row) => [row.id as string, row.slug as string]));
+  return (data ?? []).map((row) => ({ id: row.app_id as string, title: row.title as string, courseCode: row.course_code as string, primaryVertical: verticalById.get(row.primary_vertical_id as string) ?? "" }));
+}
+
 export async function getAccreditationBoard(): Promise<AccreditationBoardEntry[]> {
   return fetchAccreditationBoard(requireDatabaseClient());
 }
@@ -321,36 +376,35 @@ export async function getReportMetrics(): Promise<PortfolioReportMetrics> {
   return fetchReportMetrics(requireDatabaseClient(), reviewDueBy);
 }
 
-export async function updateInternalCourseMetadata(input: {
+export async function updateCourseProjection(input: {
   courseId: string;
   actorId: string;
   actorEmail: string;
-  internalSummary: string;
-  owner: string | null;
-  nextReviewDate: string | null;
-  expectedUpdatedAt: string;
-}): Promise<string> {
+  payload: CourseProjectionUpdate;
+}): Promise<{ updatedAt: string; sourceDifferenceCount: number }> {
   const client = requireDatabaseClient();
 
   const { data, error } = await client.rpc(
-    "update_course_projection",
+    "update_course_projection_v2",
     {
       p_app_id: input.courseId,
       p_actor_id: input.actorId,
       p_actor_email: input.actorEmail,
-      p_internal_summary: input.internalSummary,
-      p_owner_name: input.owner,
-      p_next_review_date: input.nextReviewDate,
-      p_expected_updated_at: input.expectedUpdatedAt,
+      p_payload: { ...input.payload, expectedUpdatedAt: undefined },
+      p_expected_updated_at: input.payload.expectedUpdatedAt,
     },
   );
   if (error) {
     throw databaseError(
-      "Could not save internal CourseTrack metadata",
+      "Could not save the CourseTrack projection",
       error,
     );
   }
-  return (data as { updated_at?: string } | null)?.updated_at ?? input.expectedUpdatedAt;
+  const result = data as { updatedAt?: string; sourceDifferenceCount?: number } | null;
+  return {
+    updatedAt: result?.updatedAt ?? input.payload.expectedUpdatedAt,
+    sourceDifferenceCount: Number(result?.sourceDifferenceCount ?? 0),
+  };
 }
 
 export async function persistFieldResolution(input: {

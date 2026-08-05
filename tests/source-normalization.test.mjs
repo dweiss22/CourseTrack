@@ -69,7 +69,7 @@ function metadataRow(overrides = {}) {
   return {
     "Course Id": 102319414,
     "Course Name": "Acute Spinal Injuries (BLS)",
-    "Content Type": "Single Video Course",
+    "Content Type": "Online Course",
     "Duration (min)": 90,
     "Training Credits": "90 minutes",
     Published: "Yes",
@@ -221,7 +221,7 @@ test("ID-based source reconciliation distinguishes matches, one-sided records, a
   const matchedLms = parseLmsRow(lmsRow());
   const matchedMetadata = parseContentMetadataRow(metadataRow());
   const matched = reconcileCourseSources(matchedLms, matchedMetadata);
-  assert.equal(matched.length, 6);
+  assert.equal(matched.length, 7);
   assert.ok(matched.every((comparison) => comparison.comparisonStatus === "Match"));
 
   assert.ok(reconcileCourseSources(matchedLms, null).every((comparison) => comparison.comparisonStatus === "LMS only"));
@@ -242,7 +242,11 @@ test("ID-based source reconciliation distinguishes matches, one-sided records, a
     conflicts.filter((comparison) => comparison.comparisonStatus === "Conflict").map((comparison) => comparison.fieldKey),
     ["courseName", "durationMinutes", "trainingCredits", "published", "description", "publishedDate"],
   );
-  assert.ok(conflicts.every((comparison) => comparison.resolvedValue === null));
+  assert.ok(
+    conflicts
+      .filter((comparison) => comparison.comparisonStatus === "Conflict")
+      .every((comparison) => comparison.resolvedValue === null),
+  );
 
   const preview = previewContentMetadataImport(
     [matchedLms],

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { managementClassifications, verticals } from "@/types/course";
 
 export const optionalDate = z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.null()]);
 
@@ -80,6 +81,53 @@ export const courseCreateSchema = z.object({
   lifecycleStatus: z.enum(["Published", "Under Maintenance", "Internal Review", "In Development", "Scheduled for Revamp", "Retired", "Archived"]),
   publicationStatus: z.string().trim().min(2).max(80),
 }).strict();
+
+const optionalFormDate = z.union([z.literal(""), z.string().regex(/^\d{4}-\d{2}-\d{2}$/)]);
+const optionalHttpUrl = z.union([
+  z.literal(""),
+  z.string().url().refine((value) => value.startsWith("http://") || value.startsWith("https://"), "Use an HTTP or HTTPS URL."),
+]);
+
+export const courseProjectionUpdateSchema = z.object({
+  courseCode: z.string().trim().min(2).max(64),
+  title: z.string().trim().min(1).max(240),
+  shortTitle: z.string().trim().max(120),
+  description: z.string().trim().max(5_000),
+  learningAudience: z.string().trim().max(500),
+  primaryVertical: z.enum(verticals),
+  secondaryVerticals: z.array(z.enum(verticals)).max(verticals.length),
+  primaryTopic: z.string().trim().max(180),
+  managementClassification: z.enum(managementClassifications),
+  monitoringEnabled: z.boolean(),
+  lifecycleStatus: z.enum(["Published", "Under Maintenance", "Internal Review", "In Development", "Scheduled for Revamp", "Retired", "Archived"]),
+  publicationStatus: z.enum(["Unknown", "Not in LMS", "Draft", "Testing", "Published", "Hidden", "Inactive", "Retired", "Retrieval Error"]),
+  contentType: z.string().trim().max(120),
+  durationMinutes: z.number().int().min(0).max(100_000),
+  trainingCredits: z.object({
+    rawDisplay: z.string().trim().max(120).nullable(),
+    amount: z.number().min(0).max(100_000).nullable(),
+    unit: z.string().trim().max(40).nullable(),
+  }).strict(),
+  published: z.boolean(),
+  authoringTool: z.string().trim().max(120),
+  stateCode: z.string().trim().max(40),
+  owner: z.string().trim().max(120),
+  instructionalDesigner: z.string().trim().max(120),
+  publishedDate: optionalFormDate,
+  lastMajorRevisionDate: optionalFormDate,
+  nextReviewDate: optionalFormDate,
+  backendLink: optionalHttpUrl,
+  frontendLink: optionalHttpUrl,
+  updateType: z.string().trim().max(120),
+  contentUpdatedAt: optionalFormDate,
+  contentNotes: z.string().trim().max(2_000),
+  internalSummary: z.string().trim().min(1).max(1_200),
+  expectedUpdatedAt: z.string().datetime(),
+}).strict().superRefine((value, context) => {
+  if (value.secondaryVerticals.includes(value.primaryVertical)) {
+    context.addIssue({ code: "custom", path: ["secondaryVerticals"], message: "Primary vertical cannot also be secondary." });
+  }
+});
 
 export const relationshipSchema = z.object({
   relationship: z.enum(["parent", "child"]),

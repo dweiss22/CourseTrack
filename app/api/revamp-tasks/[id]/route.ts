@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireApiRole } from "@/lib/auth";
 import { apiError, mutationMetadata, validationError } from "@/lib/api-response";
 import { revampTaskSchema } from "@/lib/workflow-validation";
-import { archiveWorkflowRecord, updateRevampTask } from "@/db";
+import { deleteWorkflowRecordPermanently, updateRevampTask } from "@/db";
 
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
   const auth = await requireApiRole("super_admin", "admin", "content");
@@ -25,8 +25,8 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
   if (typeof body.expectedUpdatedAt !== "string") return validationError("A concurrency token is required.");
   try {
     const { id } = await context.params;
-    await archiveWorkflowRecord({ table: "revamp_proposals", id, expectedUpdatedAt: typeof body.expectedUpdatedAt === "string" ? body.expectedUpdatedAt : undefined, actor: auth.context });
-    return NextResponse.json({ archived: true, message: "Revamp task archived." });
+    await deleteWorkflowRecordPermanently({ table: "revamp_proposals", id, expectedUpdatedAt: body.expectedUpdatedAt, actor: auth.context });
+    return NextResponse.json({ deleted: true, message: "Revamp task permanently deleted. An audit snapshot was retained." });
   } catch (error) {
     return apiError(error);
   }

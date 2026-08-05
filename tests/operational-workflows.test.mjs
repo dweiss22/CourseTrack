@@ -25,6 +25,23 @@ test("the course health trigger casts PostgreSQL bigint counts to the score func
   );
 });
 
+test("course cleanup keeps LMS truth immutable while projections, comparisons, and workflow deletion are explicit", async () => {
+  const sql = await read("supabase/migrations/202608040008_course_data_cleanup.sql");
+  assert.match(sql, /drop trigger if exists prevent_lms_api_mutation on public\.courses/);
+  assert.match(sql, /projection_origin/);
+  assert.match(sql, /has_manual_overrides/);
+  assert.match(sql, /source_difference_count/);
+  assert.match(sql, /refresh_course_comparisons/);
+  assert.match(sql, /comparison_status = 'Conflict'/);
+  assert.match(sql, /update_course_projection_v2/);
+  assert.match(sql, /secondaryVerticals/);
+  assert.match(sql, /resolved_by = case when p_selected_source is null then null else p_actor_id end/);
+  assert.match(sql, /delete_workflow_record_permanently/);
+  assert.match(sql, /when 'course_flags' then 'flags:manage'/);
+  assert.match(sql, /when 'revamp_proposals' then 'revamp:propose'/);
+  assert.doesNotMatch(sql, /delete\s+from\s+public\.(courses|lms_snapshots|content_metadata_records|accreditation_records)/i);
+});
+
 test("mutation routes authenticate before record lookup and use shared validation", async () => {
   const paths = [
     "app/api/courses/[id]/route.ts",
@@ -43,12 +60,16 @@ test("mutation routes authenticate before record lookup and use shared validatio
   }
 });
 
-test("Revamp UI has pointer, keyboard, menu, permission, and rollback contracts", async () => {
+test("Revamp UI has one pointer/keyboard drag handle, permission, ordering, and rollback contracts", async () => {
   const source = await read("components/portfolio-workspaces.tsx");
+  assert.match(source, /className={`drag-handle/);
   assert.match(source, /draggable/);
   assert.match(source, /onDrop/);
-  assert.match(source, /Move .* left|Move .* right/);
-  assert.match(source, /to another stage/);
+  assert.match(source, /ArrowLeft/);
+  assert.match(source, /ArrowRight/);
+  assert.match(source, /affectedColumns/);
+  assert.doesNotMatch(source, /Move .* left|Move .* right/);
+  assert.doesNotMatch(source, /to another stage/);
   assert.match(source, /Only an administrator can move work into Approved/);
   assert.match(source, /original board was restored/);
 });

@@ -113,7 +113,7 @@ async function fetchGraph(client: SupabaseClient, courseAppId?: string): Promise
     fetchAllRows(
       client,
       "courses",
-      "id,app_id,course_code,lms_course_id,management_classification,monitoring_enabled,reconciliation_status,resolved_fields,source_timestamps,mapping_warnings,import_validation_errors,title,short_title,description,learning_audience,primary_vertical_id,primary_topic,lifecycle_status,publication_status,delivery_format,duration_minutes,authoring_tool,state_code,owner_name,instructional_designer_name,current_version,original_publish_date,last_major_revision_date,next_review_date,health_status,health_score,metadata_completeness_score,internal_summary,source_system,data_source,provenance,origin_provenance,field_provenance,retrieval_status,last_retrieved_at,is_sample,updated_at,archived_at",
+      "id,app_id,course_code,lms_course_id,management_classification,monitoring_enabled,reconciliation_status,resolved_fields,source_timestamps,mapping_warnings,import_validation_errors,title,short_title,description,learning_audience,primary_vertical_id,primary_topic,lifecycle_status,publication_status,delivery_format,duration_minutes,training_credits,is_published,authoring_tool,state_code,owner_name,instructional_designer_name,current_version,original_publish_date,last_major_revision_date,next_review_date,backend_link,frontend_link,content_update_type,content_updated_at,content_notes,projection_origin,has_manual_overrides,source_difference_count,health_status,health_score,metadata_completeness_score,internal_summary,source_system,data_source,provenance,origin_provenance,field_provenance,retrieval_status,last_retrieved_at,is_sample,updated_at,archived_at",
       (query) => (courseDbId ? query.eq("id", courseDbId) : query).is("archived_at", null),
     ),
     fetchAllRows(client, "course_verticals", "course_id,vertical_id,relationship_type", byCourse),
@@ -158,7 +158,7 @@ async function fetchGraph(client: SupabaseClient, courseAppId?: string): Promise
     fetchAllRows(
       client,
       "field_comparisons",
-      "course_id,field_key,field_label,lms_raw_value,lms_normalized_value,content_metadata_raw_value,content_metadata_normalized_value,resolved_value,selected_source,comparison_status,resolution_reason,resolved_by_email,resolved_at,last_compared_at,updated_at",
+      "course_id,field_key,field_label,lms_raw_value,lms_normalized_value,content_metadata_raw_value,content_metadata_normalized_value,resolved_value,selected_source,comparison_status,resolution_reason,resolved_by_email,resolved_at,last_compared_at,updated_at,is_comparable",
       byCourse,
     ),
     fetchAllRows(
@@ -451,6 +451,7 @@ function buildCourseFromRows(row: Row, maps: GraphMaps): Course {
       resolvedAt: (comparison.resolved_at as string) ?? null,
       lastComparedAt: comparison.last_compared_at as string,
       updatedAt: comparison.updated_at as string,
+      isComparable: comparison.is_comparable !== false,
     }),
   );
 
@@ -585,6 +586,8 @@ function buildCourseFromRows(row: Row, maps: GraphMaps): Course {
     publicationStatus: row.publication_status as Course["publicationStatus"],
     deliveryFormat: row.delivery_format as string,
     durationMinutes: Number(row.duration_minutes ?? 0),
+    trainingCredits: (row.training_credits as Course["trainingCredits"]) ?? contentMetadata.trainingCredits,
+    published: (row.is_published as boolean | null) ?? contentMetadata.published,
     authoringTool: row.authoring_tool as string,
     stateCode: (row.state_code as string) ?? null,
     owner: (row.owner_name as string) ?? null,
@@ -593,6 +596,11 @@ function buildCourseFromRows(row: Row, maps: GraphMaps): Course {
     originalPublishDate: (row.original_publish_date as string) ?? null,
     lastMajorRevisionDate: (row.last_major_revision_date as string) ?? null,
     nextReviewDate: (row.next_review_date as string) ?? null,
+    backendLink: (row.backend_link as string) ?? contentMetadata.backendLink,
+    frontendLink: (row.frontend_link as string) ?? contentMetadata.frontendLink,
+    updateType: (row.content_update_type as string) ?? contentMetadata.updateType,
+    contentUpdatedAt: (row.content_updated_at as string) ?? null,
+    contentNotes: (row.content_notes as string) ?? contentMetadata.notes,
     accreditationStatus,
     nearestAccreditationExpiration,
     healthStatus: health.status,
@@ -637,6 +645,9 @@ function buildCourseFromRows(row: Row, maps: GraphMaps): Course {
     retrievalHistory,
     auditHistory,
     conflictCount,
+    sourceDifferenceCount: Number(row.source_difference_count ?? fieldComparisons.filter((comparison) => comparison.isComparable && comparison.comparisonStatus === "Conflict").length),
+    projectionOrigin: (row.projection_origin as Course["projectionOrigin"]) ?? "coursetrack_created",
+    hasManualOverrides: Boolean(row.has_manual_overrides),
     importValidationErrors: (row.import_validation_errors as string[]) ?? [],
   };
 }
@@ -742,6 +753,7 @@ export interface PortfolioSummary {
   nextReviewDate: string | null;
   metadataCompletenessScore: number;
   conflictCount: number;
+  sourceDifferenceCount: number;
   flagCount: number;
   hasLmsSnapshot: boolean;
   hasContentMetadata: boolean;
@@ -769,7 +781,7 @@ export async function fetchPortfolioSummaries(client: SupabaseClient): Promise<P
     fetchAllRows(
       client,
       "courses",
-      "id,app_id,title,short_title,course_code,lms_course_id,description,primary_vertical_id,management_classification,reconciliation_status,retrieval_status,last_retrieved_at,health_status,lifecycle_status,primary_topic,owner_name,duration_minutes,data_source,next_review_date,metadata_completeness_score,import_validation_errors",
+      "id,app_id,title,short_title,course_code,lms_course_id,description,primary_vertical_id,management_classification,reconciliation_status,retrieval_status,last_retrieved_at,health_status,lifecycle_status,primary_topic,owner_name,duration_minutes,data_source,next_review_date,metadata_completeness_score,source_difference_count,import_validation_errors",
     ),
     fetchAllRows(client, "course_flags", "course_id", (query) => query.is("archived_at", null)),
     fetchAllRows(client, "lms_snapshots", "course_id", (query) => query.eq("is_current", true)),
@@ -847,6 +859,7 @@ export async function fetchPortfolioSummaries(client: SupabaseClient): Promise<P
       nextReviewDate: (row.next_review_date as string) ?? null,
       metadataCompletenessScore: calculateMetadataCompleteness(metadataByCourse.get(courseDbId)),
       conflictCount: conflictCounts.get(courseDbId) ?? 0,
+      sourceDifferenceCount: Number(row.source_difference_count ?? 0),
       flagCount: flagCounts.get(courseDbId) ?? 0,
       hasLmsSnapshot: snapshotCourseIds.has(courseDbId),
       hasContentMetadata: metadataCourseIds.has(courseDbId),

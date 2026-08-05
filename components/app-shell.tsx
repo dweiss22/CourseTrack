@@ -80,13 +80,11 @@ function currentSection(pathname: string) {
 
 export function AppShell({
   children,
-  courseIndex,
   authContext,
   deploymentEnvironment,
   snapshotRefreshedAt,
 }: {
   children: ReactNode;
-  courseIndex: CourseIndexEntry[];
   authContext: AuthContext | null;
   deploymentEnvironment: DeploymentEnvironment;
   snapshotRefreshedAt: string | null;
@@ -97,6 +95,7 @@ export function AppShell({
   const [commandOpen, setCommandOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [commandQuery, setCommandQuery] = useState("");
+  const [commandCourses, setCommandCourses] = useState<CourseIndexEntry[]>([]);
   const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -133,6 +132,19 @@ export function AppShell({
     }
   }, [commandOpen]);
 
+  useEffect(() => {
+    const query = commandQuery.trim();
+    if (!commandOpen || query.length < 2) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      fetch(`/api/courses/search?q=${encodeURIComponent(query)}`, { signal: controller.signal })
+        .then((response) => response.ok ? response.json() : { items: [] })
+        .then((result: { items?: CourseIndexEntry[] }) => setCommandCourses(result.items ?? []))
+        .catch((error) => { if (error?.name !== "AbortError") setCommandCourses([]); });
+    }, 200);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [commandOpen, commandQuery]);
+
   const role = authContext?.role;
   const visibleNavigation = useMemo(
     () => navigation.filter((item) => role && item.roles.includes(role)),
@@ -145,14 +157,7 @@ export function AppShell({
       .filter((item) => !query || item.label.toLowerCase().includes(query))
       .slice(0, 4)
       .map((item) => ({ href: item.href, label: item.label, type: "Page" }));
-    const courses = courseIndex
-      .filter(
-        (course) =>
-          !query ||
-          `${course.title} ${course.courseCode}`
-            .toLowerCase()
-            .includes(query),
-      )
+    const courses = (query.length >= 2 ? commandCourses : [])
       .slice(0, 6)
       .map((course) => ({
         href: `/courses/${course.id}`,
@@ -160,7 +165,7 @@ export function AppShell({
         type: course.courseCode,
       }));
     return [...pages, ...courses];
-  }, [commandQuery, courseIndex, visibleNavigation]);
+  }, [commandCourses, commandQuery, visibleNavigation]);
 
   const toggleTheme = () => {
     const current = document.documentElement.dataset.theme ?? "light";
@@ -228,7 +233,7 @@ export function AppShell({
 
         <div className="workspace-chip">
           <StatusBadge tone="success">Database workspace</StatusBadge>
-          <span>{courseIndex.length.toLocaleString()} courses</span>
+          <span>Async course search</span>
         </div>
 
         <nav className="primary-nav" aria-label="Primary navigation">

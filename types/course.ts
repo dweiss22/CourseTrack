@@ -74,6 +74,7 @@ export interface FieldComparison {
   resolvedAt: string | null;
   lastComparedAt: string;
   updatedAt: string;
+  isComparable: boolean;
 }
 
 export interface NormalizedTrainingCredit {
@@ -247,6 +248,11 @@ export const provenanceLabels = {
 } as const;
 
 export type Provenance = keyof typeof provenanceLabels;
+
+export type ProjectionOrigin =
+  | "master_import"
+  | "lms_export"
+  | "coursetrack_created";
 
 /** @deprecated Use Provenance. Kept as a source-compatible alias for callers. */
 export type DataSource = Provenance;
@@ -542,7 +548,50 @@ export interface Course {
   retrievalHistory: SourceHistoryRecord[];
   auditHistory: AuditHistoryRecord[];
   conflictCount: number;
+  sourceDifferenceCount: number;
+  projectionOrigin: ProjectionOrigin;
+  hasManualOverrides: boolean;
+  trainingCredits: NormalizedTrainingCredit;
+  published: boolean | null;
+  backendLink: string | null;
+  frontendLink: string | null;
+  updateType: string | null;
+  contentUpdatedAt: string | null;
+  contentNotes: string | null;
   importValidationErrors: string[];
+}
+
+export interface CourseProjectionUpdate {
+  courseCode: string;
+  title: string;
+  shortTitle: string;
+  description: string;
+  learningAudience: string;
+  primaryVertical: Vertical;
+  secondaryVerticals: Vertical[];
+  primaryTopic: string;
+  managementClassification: ManagementClassification;
+  monitoringEnabled: boolean;
+  lifecycleStatus: Exclude<LifecycleStatus, "Proposed" | "Legal Review">;
+  publicationStatus: PublicationStatus;
+  contentType: string;
+  durationMinutes: number;
+  trainingCredits: NormalizedTrainingCredit;
+  published: boolean;
+  authoringTool: string;
+  stateCode: string;
+  owner: string;
+  instructionalDesigner: string;
+  publishedDate: string;
+  lastMajorRevisionDate: string;
+  nextReviewDate: string;
+  backendLink: string;
+  frontendLink: string;
+  updateType: string;
+  contentUpdatedAt: string;
+  contentNotes: string;
+  internalSummary: string;
+  expectedUpdatedAt: string;
 }
 
 export interface RetrievalRun {

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireApiUser } from "@/lib/auth";
 import { apiError, mutationMetadata, validationError } from "@/lib/api-response";
 import { flagSchema } from "@/lib/workflow-validation";
-import { archiveWorkflowRecord, saveFlag } from "@/db";
+import { deleteWorkflowRecordPermanently, saveFlag } from "@/db";
 
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
   const auth = await requireApiUser(); if ("error" in auth) return auth.error;
@@ -14,6 +14,6 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
 export async function DELETE(request: Request, context: { params: Promise<{ id: string }> }) {
   const auth = await requireApiUser(); if ("error" in auth) return auth.error;
   const body = await request.json().catch(() => ({})); if (typeof body.expectedUpdatedAt !== "string") return validationError("A concurrency token is required.");
-  try { const { id } = await context.params; await archiveWorkflowRecord({ table: "course_flags", id, expectedUpdatedAt: body.expectedUpdatedAt, actor: auth.context }); return NextResponse.json({ archived: true, message: "Task or callout archived." }); }
+  try { const { id } = await context.params; await deleteWorkflowRecordPermanently({ table: "course_flags", id, expectedUpdatedAt: body.expectedUpdatedAt, actor: auth.context }); return NextResponse.json({ deleted: true, message: "Task or callout permanently deleted. An audit snapshot was retained." }); }
   catch (error) { return apiError(error); }
 }

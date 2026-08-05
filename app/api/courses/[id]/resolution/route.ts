@@ -54,7 +54,7 @@ export async function POST(
     parsed.data.reason ?? null,
   );
   try {
-    const updatedAt = await persistFieldResolution({
+    await persistFieldResolution({
       courseId: id,
       actorId: actor.context.userId,
       actorEmail,
@@ -63,13 +63,19 @@ export async function POST(
       resolutionReason: resolution.comparison.resolutionReason,
       expectedUpdatedAt: parsed.data.expectedUpdatedAt,
     });
+    const updatedCourse = await getCourseRecord(id);
+    const updatedComparison = updatedCourse?.fieldComparisons.find((item) => item.fieldKey === comparison.fieldKey);
+    if (!updatedCourse || !updatedComparison) throw new Error("The updated course comparison could not be reloaded.");
     return NextResponse.json({
       saved: true,
-      comparison: { ...resolution.comparison, updatedAt },
+      comparison: updatedComparison,
+      course: updatedCourse,
       resolutionAudit: resolution.audit,
       readOnlyLms: true,
-      ...mutationMetadata(actor.context.userId, updatedAt),
-      message: "CourseTrack resolution saved and audited. LMS and uploaded source values were not changed.",
+      ...mutationMetadata(actor.context.userId, updatedComparison.updatedAt),
+      message: parsed.data.action === "Use LMS value"
+        ? "The LMS value was copied into the CourseTrack projection. The LMS snapshot was not changed."
+        : "The source comparison resolution was saved and audited.",
     });
   } catch (error) {
     return apiError(error);

@@ -19,12 +19,11 @@ import {
   createColumnHelper,
   flexRender,
   getCoreRowModel,
-  getPaginationRowModel,
   getSortedRowModel,
   type SortingState,
   useReactTable,
 } from "@tanstack/react-table";
-import { type FormEvent, type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from "react";
 import type { Course, ManagementClassification } from "@/types/course";
 import {
   courseLibraryOptionalColumns,
@@ -181,8 +180,12 @@ function formatHiddenColumn(course: CourseLibraryRecord, column: CourseLibraryOp
   return String(course[column] ?? "Not available");
 }
 
-export function CourseLibrary({ courses, initialFavoriteIds, initialPreferences, canEdit }: { courses: CourseLibraryRecord[]; initialFavoriteIds: string[]; initialPreferences: CourseLibraryPreferences; canEdit: boolean }) {
+export function CourseLibrary({ courses: initialCourses, initialTotal, initialFavoriteIds, initialPreferences, canEdit }: { courses: CourseLibraryRecord[]; initialTotal?: number; initialFavoriteIds: string[]; initialPreferences: CourseLibraryPreferences; canEdit: boolean }) {
   const router = useRouter();
+  const [courses, setCourses] = useState(initialCourses);
+  const [total, setTotal] = useState(initialTotal ?? initialCourses.filter((course) => course.managementClassification !== "Non-Lexipol excluded").length);
+  const [pageIndex, setPageIndex] = useState(0);
+  const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [vertical, setVertical] = useState("All verticals");
   const [lifecycle, setLifecycle] = useState("All statuses");
@@ -205,7 +208,8 @@ export function CourseLibrary({ courses, initialFavoriteIds, initialPreferences,
   const [preferenceSaving, setPreferenceSaving] = useState(false);
   const columnButtonRef = useRef<HTMLButtonElement>(null);
   const columnMenuRef = useRef<HTMLDivElement>(null);
-  const verticalOptions = Array.from(new Set(courses.map((course) => course.primaryVertical))).sort();
+  const initialQueryRef = useRef(true);
+  const verticalOptions = [...verticals];
 
   const createCourse = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); const form = new FormData(event.currentTarget); setCreatePending(true); setCreateError("");
@@ -265,56 +269,27 @@ export function CourseLibrary({ courses, initialFavoriteIds, initialPreferences,
     controls[next]?.focus();
   };
 
-  const filtered = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    return courses.filter((course) => {
-      const searchable = [
-        course.title,
-        course.shortTitle,
-        course.courseCode,
-        course.lmsCourseId ?? "",
-        course.description,
-        course.primaryTopic,
-        course.topicAssignments.map((assignment) => assignment.topic).join(" "),
-        course.tags.join(" "),
-        course.owner ?? "",
-        course.managementClassification,
-        course.reconciliationStatus,
-      ]
-        .join(" ")
-        .toLowerCase();
-      return (
-        (!query || searchable.includes(query)) &&
-        (vertical === "All verticals" ||
-          course.primaryVertical === vertical) &&
-        (lifecycle === "All statuses" ||
-          course.lifecycleStatus === lifecycle) &&
-        (health === "All health levels" || course.healthStatus === health)
-        &&
-        (classification === "All classifications" ||
-          (classification === "Included portfolio"
-            ? course.managementClassification !== "Non-Lexipol excluded"
-            : course.managementClassification === classification))
-        &&
-        (workQueue === "All queues" ||
-          (workQueue === "Missing Content Metadata" &&
-            course.hasLmsSnapshot &&
-            !course.hasContentMetadata) ||
-          (workQueue === "Missing from LMS" &&
-            !course.hasLmsSnapshot &&
-            course.hasContentMetadata) ||
-          (workQueue === "Field conflicts" && course.conflictCount > 0) ||
-          (workQueue === "Mapping required" &&
-            course.reconciliationStatus === "Mapping required") ||
-          (workQueue === "Invalid import records" &&
-            course.importValidationErrorCount > 0) ||
-          (workQueue === "Stale LMS data" &&
-            ["Stale Data", "Retrieval Failed"].includes(
-              course.retrievalStatus,
-            )))
-      );
-    });
-  }, [classification, courses, health, lifecycle, search, vertical, workQueue]);
+  const filtered = courses.filter((course) => classification === "All classifications" || (classification === "Included portfolio" ? course.managementClassification !== "Non-Lexipol excluded" : course.managementClassification === classification));
+
+  useEffect(() => {
+    if (initialQueryRef.current) { initialQueryRef.current = false; return; }
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      setLoading(true);
+      const params = new URLSearchParams({ page: String(pageIndex + 1), pageSize: "25", search, vertical, lifecycle, health, classification, workQueue });
+      const currentSort = sorting[0];
+      if (currentSort) { params.set("sort", currentSort.id); params.set("descending", String(currentSort.desc)); }
+      try {
+        const response = await fetch(`/api/courses?${params}`, { signal: controller.signal });
+        const result = await response.json() as { items?: CourseLibraryRecord[]; total?: number; message?: string };
+        if (!response.ok || !result.items) throw new Error(result.message || "Courses could not be loaded.");
+        setCourses(result.items); setTotal(result.total ?? result.items.length);
+      } catch (error) {
+        if ((error as { name?: string }).name !== "AbortError") setFavoriteError(error instanceof Error ? error.message : "Courses could not be loaded.");
+      } finally { if (!controller.signal.aborted) setLoading(false); }
+    }, search ? 250 : 0);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [classification, health, lifecycle, pageIndex, search, sorting, vertical, workQueue]);
 
   // TanStack Table intentionally exposes stateful functions that React Compiler
   // does not memoize; the table owns the relevant memoization boundaries.
@@ -322,15 +297,16 @@ export function CourseLibrary({ courses, initialFavoriteIds, initialPreferences,
   const table = useReactTable({
     data: filtered,
     columns,
+    onSortingChange: (updater) => { setSorting(updater); setPageIndex(0); },
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    manualPagination: true,
+    pageCount: Math.max(1, Math.ceil(total / 25)),
     state: {
       sorting,
       columnVisibility: Object.fromEntries(courseLibraryOptionalColumns.map((id) => [id, visibleColumns.includes(id)])),
+      pagination: { pageIndex, pageSize: 25 },
     },
-    onSortingChange: setSorting,
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
-    initialState: { pagination: { pageIndex: 0, pageSize: 10 } },
   });
 
   const activeFilterCount = [
@@ -349,12 +325,12 @@ export function CourseLibrary({ courses, initialFavoriteIds, initialPreferences,
     setHealth("All health levels");
     setClassification("Included portfolio");
     setWorkQueue("All queues");
-    table.setPageIndex(0);
+    setPageIndex(0);
   };
 
   const applySavedView = (savedView: WorkQueue) => {
     setWorkQueue(savedView);
-    table.setPageIndex(0);
+    setPageIndex(0);
   };
 
   const exportResults = () => {
@@ -457,7 +433,7 @@ export function CourseLibrary({ courses, initialFavoriteIds, initialPreferences,
             value={search}
             onChange={(event) => {
               setSearch(event.target.value);
-              table.setPageIndex(0);
+              setPageIndex(0);
             }}
             placeholder="Search title, code, LMS ID, topic, tag, or owner…"
             aria-label="Search course library"
@@ -478,7 +454,7 @@ export function CourseLibrary({ courses, initialFavoriteIds, initialPreferences,
                   | "All classifications"
                   | ManagementClassification,
               );
-              table.setPageIndex(0);
+              setPageIndex(0);
             }}
             aria-label="Filter by management classification"
           >
@@ -492,7 +468,7 @@ export function CourseLibrary({ courses, initialFavoriteIds, initialPreferences,
             value={vertical}
             onChange={(event) => {
               setVertical(event.target.value);
-              table.setPageIndex(0);
+              setPageIndex(0);
             }}
             aria-label="Filter by vertical"
           >
@@ -507,7 +483,7 @@ export function CourseLibrary({ courses, initialFavoriteIds, initialPreferences,
             value={lifecycle}
             onChange={(event) => {
               setLifecycle(event.target.value);
-              table.setPageIndex(0);
+              setPageIndex(0);
             }}
             aria-label="Filter by lifecycle status"
           >
@@ -528,7 +504,7 @@ export function CourseLibrary({ courses, initialFavoriteIds, initialPreferences,
             value={health}
             onChange={(event) => {
               setHealth(event.target.value);
-              table.setPageIndex(0);
+              setPageIndex(0);
             }}
             aria-label="Filter by portfolio health"
           >
@@ -588,11 +564,11 @@ export function CourseLibrary({ courses, initialFavoriteIds, initialPreferences,
 
       <p className="filter-helper-text">Included portfolio shows Lexipol managed, Non-Lexipol tracked, and Unclassified courses. Only courses marked Excluded from portfolio are omitted.</p>
 
-      <section className="panel library-panel">
+      <section className="panel library-panel" aria-busy={loading}>
         <div className="result-summary">
           <div>
-            <strong>{filtered.length} courses</strong>
-            <span>of {courses.length} total</span>
+            <strong>{total.toLocaleString()} courses</strong>
+            <span>{loading ? "Loading page…" : `Page ${pageIndex + 1}`}</span>
           </div>
           <div className="column-picker">
             <button
@@ -776,20 +752,19 @@ export function CourseLibrary({ courses, initialFavoriteIds, initialPreferences,
         {filtered.length > 0 && (
           <div className="pagination-row">
             <span>
-              Page {table.getState().pagination.pageIndex + 1} of{" "}
-              {table.getPageCount()}
+              Page {pageIndex + 1} of {Math.max(1, Math.ceil(total / 25))}
             </span>
             <div>
               <button
-                onClick={() => table.previousPage()}
-                disabled={!table.getCanPreviousPage()}
+                onClick={() => setPageIndex((value) => Math.max(0, value - 1))}
+                disabled={pageIndex === 0 || loading}
                 aria-label="Previous page"
               >
                 <ChevronLeft size={17} />
               </button>
               <button
-                onClick={() => table.nextPage()}
-                disabled={!table.getCanNextPage()}
+                onClick={() => setPageIndex((value) => value + 1)}
+                disabled={(pageIndex + 1) * 25 >= total || loading}
                 aria-label="Next page"
               >
                 <ChevronRight size={17} />
