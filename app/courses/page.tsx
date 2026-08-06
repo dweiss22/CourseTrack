@@ -6,6 +6,7 @@ import {
 import { getCourseLibraryPage, getFavoriteCourseIds } from "@/db";
 import { requireUser } from "@/lib/auth";
 import { getCourseLibraryPreferences } from "@/db/preference-repository";
+import { withServerOperation } from "@/lib/server-observability";
 
 export const metadata: Metadata = {
   title: "Course Library",
@@ -16,11 +17,14 @@ export const dynamic = "force-dynamic";
 
 export default async function CourseLibraryPage() {
   const auth = await requireUser();
-  const [page, favoriteCourseIds, preferences] = await Promise.all([
-    getCourseLibraryPage({ page: 1, pageSize: 25, classification: "Included portfolio" }),
-    getFavoriteCourseIds(auth.userId),
-    getCourseLibraryPreferences(auth.userId),
-  ]);
+  const [page, favoriteCourseIds, preferences] = await withServerOperation(
+    { route: "/courses", operation: "load course library" },
+    () => Promise.all([
+      getCourseLibraryPage({ page: 1, pageSize: 25, classification: "Included portfolio" }),
+      getFavoriteCourseIds(auth.userId),
+      getCourseLibraryPreferences(auth.userId),
+    ]),
+  );
   const records: CourseLibraryRecord[] = page.items.map((course) => ({
     id: course.id,
     title: course.title,

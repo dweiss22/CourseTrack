@@ -1,0 +1,39 @@
+name: CourseTrack deployment smoke
+
+on:
+  deployment_status:
+
+jobs:
+  staging-smoke:
+    name: Smoke test staging deployment
+    if: github.event.deployment_status.state == 'success' && github.event.deployment.ref == 'staging'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: staging
+    env:
+      COURSETRACK_SMOKE_BASE_URL: ${{ github.event.deployment_status.environment_url || github.event.deployment_status.target_url }}
+      VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify deployment health
+        run: npm run smoke:deployment:health
+
+  production-smoke:
+    name: Smoke test production deployment
+    if: github.event.deployment_status.state == 'success' && github.event.deployment.ref == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    env:
+      COURSETRACK_SMOKE_BASE_URL: ${{ github.event.deployment_status.environment_url || github.event.deployment_status.target_url }}
+      VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify deployment health
+        run: npm run smoke:deployment:health

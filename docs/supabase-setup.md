@@ -15,3 +15,7 @@ After migration, verify:
 7. fingerprinted cleanup-report totals.
 
 If credentials, schema, or permissions are missing, the app returns an explicit error. It does not fall back to bundled records.
+
+Every published environment also requires the read-only deployment contract
+described in [`deployment-readiness.md`](deployment-readiness.md). The schema
+checker must not use a database owner or an application service credential.

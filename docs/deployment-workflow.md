@@ -35,6 +35,10 @@ values indiscriminately:
 - Set branch-specific `COURSETRACK_ENVIRONMENT=staging` for `staging` and
   `COURSETRACK_ENVIRONMENT=preview` for feature deployments. The app uses this
   value for its persistent non-production banner and browser-title prefix.
+- Configure the deployment-readiness and smoke variables exactly as described
+  in [`deployment-readiness.md`](deployment-readiness.md). Vercel must retain
+  `npm run build:vercel` as its build command; `npm run build:code` is only the
+  secret-free source-validation build.
 
 ## Normal change workflow
 
@@ -43,11 +47,17 @@ values indiscriminately:
 3. Make and test the change, then push the feature branch.
 4. Open a pull request from the feature branch into `staging`.
 5. Review the Vercel Preview and wait for CourseTrack CI and Vercel checks.
-6. Merge the pull request into `staging` and validate the stable staging URL.
-7. When staging is approved for release, open a pull request from `staging`
+6. Before publishing staging, apply its migrations, run import acceptance, and
+   pass the protected staging deployment contract in the order documented in
+   [`deployment-readiness.md`](deployment-readiness.md).
+7. Merge the pull request into `staging` and validate the stable staging URL
+   with the health and authenticated-route smoke checks.
+8. When staging is approved for release, open a pull request from `staging`
    into `main`.
-8. Merge that release pull request. Vercel then deploys `main` to Production.
-9. Merge the updated `main` back into `staging` so GitHub's release merge
+9. Back up production, apply the approved production migrations, run
+   acceptance and the production contract, then merge the release pull
+   request. Vercel deploys `main` only after the contract is current.
+10. Merge the updated `main` back into `staging` so GitHub's release merge
    commit is present in both long-lived branches.
 
 Do not continue adding unrelated work to a feature branch after its pull
