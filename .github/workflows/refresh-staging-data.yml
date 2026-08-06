@@ -11,6 +11,7 @@ concurrency:
 
 jobs:
   refresh:
+    if: github.event_name == 'workflow_dispatch' || vars.STAGING_REFRESH_ENABLED == 'true'
     name: Sanitized production snapshot
     runs-on: ubuntu-latest
     timeout-minutes: 30
