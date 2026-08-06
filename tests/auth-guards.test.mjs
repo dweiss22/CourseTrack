@@ -113,3 +113,10 @@ test("login verifies application membership after Supabase accepts the password"
   assert.match(access, /auth_schema_not_ready/);
   assert.match(access, /landingPathForRole/);
 });
+
+test("auth callback accepts both PKCE codes and one-time recovery token hashes", async () => {
+  const source = await readFile(new URL("app/auth/callback/route.ts", root), "utf8");
+  assert.match(source, /exchangeCodeForSession\(code\)/);
+  assert.match(source, /type === "recovery"/);
+  assert.match(source, /verifyOtp\(\{ token_hash: tokenHash, type: "recovery" \}\)/);
+});

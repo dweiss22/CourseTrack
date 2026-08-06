@@ -116,7 +116,9 @@ test("refresh checks migration parity before replacing staging", async () => {
   const source = await readFile(new URL("scripts/refresh-staging-from-production.mjs", root), "utf8");
   assert.match(source, /supabase_migrations\.schema_migrations/);
   assert.match(source, /Production and staging migration versions differ/);
-  const mainBody = source.slice(source.indexOf("async function main"));
+  assert.match(source, /select table_name, column_name, data_type, is_nullable\s+from information_schema\.columns/);
+  assert.doesNotMatch(source, /select table_name, column_name, data_type, is_nullable, ordinal_position/);
+  const mainBody = source.slice(source.indexOf("export async function refreshStaging"));
   assert.ok(mainBody.indexOf("sourceMigrations") < mainBody.indexOf("await replaceStagingData("));
 });
 
