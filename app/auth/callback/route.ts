@@ -29,12 +29,18 @@ function safeNextPath(value: string | null, origin: string): string {
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
+  const tokenHash = url.searchParams.get("token_hash");
+  const type = url.searchParams.get("type");
   const next = safeNextPath(url.searchParams.get("next"), url.origin);
 
-  if (code) {
+  if (code || (tokenHash && type === "recovery")) {
     const supabase = await createSupabaseServerClient();
     if (supabase) {
-      await supabase.auth.exchangeCodeForSession(code);
+      if (code) {
+        await supabase.auth.exchangeCodeForSession(code);
+      } else if (tokenHash) {
+        await supabase.auth.verifyOtp({ token_hash: tokenHash, type: "recovery" });
+      }
     }
   }
 
