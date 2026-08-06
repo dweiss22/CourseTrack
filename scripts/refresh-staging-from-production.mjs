@@ -96,7 +96,7 @@ export function sanitizeRow(table, row, context) {
 
 async function schemaDescription(client) {
   const { rows } = await client.query(`
-    select table_name, column_name, data_type, is_nullable, ordinal_position
+    select table_name, column_name, data_type, is_nullable
     from information_schema.columns
     where table_schema = 'public'
     order by table_name, ordinal_position
