@@ -6,9 +6,11 @@ export async function main() {
   if (!rawUrl) throw new Error("Missing required smoke-test variable COURSETRACK_SMOKE_BASE_URL.");
   const baseUrl = new URL(rawUrl);
   if (baseUrl.protocol !== "https:") throw new Error("COURSETRACK_SMOKE_BASE_URL must use HTTPS.");
+  const bypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET?.trim();
   const response = await fetch(new URL("/api/health/deployment", baseUrl), {
     signal: AbortSignal.timeout(15_000),
     redirect: "manual",
+    headers: bypassSecret ? { "x-vercel-protection-bypass": bypassSecret } : undefined,
   });
   const body = await response.json().catch(() => null);
   const safeShape = body

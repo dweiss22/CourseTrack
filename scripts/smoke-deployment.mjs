@@ -8,7 +8,10 @@ function required(name) {
 }
 
 async function fetchWithTimeout(url, init = {}) {
-  return fetch(url, { ...init, signal: AbortSignal.timeout(15_000), redirect: "manual" });
+  const bypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET?.trim();
+  const headers = new Headers(init.headers);
+  if (bypassSecret) headers.set("x-vercel-protection-bypass", bypassSecret);
+  return fetch(url, { ...init, headers, signal: AbortSignal.timeout(15_000), redirect: "manual" });
 }
 
 async function assertReadyHealth(baseUrl) {
