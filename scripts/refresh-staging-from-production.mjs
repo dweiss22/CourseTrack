@@ -14,8 +14,8 @@ const CLEARED_TABLES = new Set([
   "wrike_sync_runs",
 ]);
 
-function requiredEnvironment(name) {
-  const value = process.env[name]?.trim();
+function requiredEnvironment(environment, name) {
+  const value = environment[name]?.trim();
   if (!value) throw new Error(`Missing required environment variable ${name}.`);
   return value;
 }
@@ -265,24 +265,35 @@ async function finalizeAuthUsers(adminClient, sourceProfiles, testerEmails, mask
   }
 }
 
-async function insertRows(client, table, rows) {
+async function insertRows(client, table, rows, schema) {
   if (rows.length === 0) return;
   const columns = Object.keys(rows[0]);
+  const jsonColumns = new Set(
+    schema
+      .filter((column) => column.table_name === table && ["json", "jsonb"].includes(column.data_type))
+      .map((column) => column.column_name),
+  );
   const batchSize = Math.max(1, Math.floor(30000 / columns.length));
   for (let offset = 0; offset < rows.length; offset += batchSize) {
     const batch = rows.slice(offset, offset + batchSize);
     const values = [];
     const tuples = batch.map((row) => {
       const placeholders = columns.map((column) => {
-        values.push(row[column]);
+        values.push(jsonColumns.has(column) && row[column] !== null ? JSON.stringify(row[column]) : row[column]);
         return `$${values.length}`;
       });
       return `(${placeholders.join(",")})`;
     });
-    await client.query(
-      `insert into public.${quoteIdentifier(table)} (${columns.map(quoteIdentifier).join(",")}) values ${tuples.join(",")}`,
-      values,
-    );
+    try {
+      await client.query(
+        `insert into public.${quoteIdentifier(table)} (${columns.map(quoteIdentifier).join(",")}) values ${tuples.join(",")}`,
+        values,
+      );
+    } catch (error) {
+      throw new Error(
+        `Could not copy ${table} rows ${offset}-${offset + batch.length - 1}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 }
 
@@ -309,7 +320,7 @@ async function validateForeignKeys(client, relationships, resetTables) {
   }
 }
 
-async function replaceStagingData(target, copyOrder, clearedTables, snapshot, relationships, sourceRef) {
+async function replaceStagingData(target, copyOrder, clearedTables, snapshot, relationships, sourceRef, schema) {
   const resetTables = new Set([...copyOrder, ...clearedTables]);
   const resetList = [...resetTables].map((table) => `public.${quoteIdentifier(table)}`).join(", ");
   await target.query("begin");
@@ -319,7 +330,7 @@ async function replaceStagingData(target, copyOrder, clearedTables, snapshot, re
     await target.query("set local session_replication_role = replica");
     if (resetList) await target.query(`truncate table ${resetList} restart identity`);
     for (const table of copyOrder) {
-      await insertRows(target, table, snapshot.rowsByTable.get(table) ?? []);
+      await insertRows(target, table, snapshot.rowsByTable.get(table) ?? [], schema);
     }
     await target.query("set local session_replication_role = origin");
     await validateForeignKeys(target, relationships, resetTables);
@@ -327,17 +338,22 @@ async function replaceStagingData(target, copyOrder, clearedTables, snapshot, re
     const rowCounts = Object.fromEntries(
       copyOrder.map((table) => [table, snapshot.rowsByTable.get(table)?.length ?? 0]),
     );
-    await target.query(
-      `insert into public.environment_snapshot_status
-        (singleton, refreshed_at, source_snapshot_at, source_project_ref, row_counts)
-       values (true, now(), $1, $2, $3::jsonb)
-       on conflict (singleton) do update set
-         refreshed_at = excluded.refreshed_at,
-         source_snapshot_at = excluded.source_snapshot_at,
-         source_project_ref = excluded.source_project_ref,
-         row_counts = excluded.row_counts`,
-      [snapshot.snapshotAt, sourceRef, JSON.stringify(rowCounts)],
+    const statusTable = await target.query(
+      "select to_regclass('public.environment_snapshot_status') as relation_name",
     );
+    if (statusTable.rows[0]?.relation_name) {
+      await target.query(
+        `insert into public.environment_snapshot_status
+          (singleton, refreshed_at, source_snapshot_at, source_project_ref, row_counts)
+         values (true, now(), $1, $2, $3::jsonb)
+         on conflict (singleton) do update set
+           refreshed_at = excluded.refreshed_at,
+           source_snapshot_at = excluded.source_snapshot_at,
+           source_project_ref = excluded.source_project_ref,
+           row_counts = excluded.row_counts`,
+        [snapshot.snapshotAt, sourceRef, JSON.stringify(rowCounts)],
+      );
+    }
     await target.query("commit");
     return rowCounts;
   } catch (error) {
@@ -346,18 +362,18 @@ async function replaceStagingData(target, copyOrder, clearedTables, snapshot, re
   }
 }
 
-async function main() {
-  if (requiredEnvironment("COURSETRACK_ENVIRONMENT").toLowerCase() !== "staging") {
+export async function refreshStaging(environment = process.env) {
+  if (requiredEnvironment(environment, "COURSETRACK_ENVIRONMENT").toLowerCase() !== "staging") {
     throw new Error("COURSETRACK_ENVIRONMENT must be exactly staging for a refresh.");
   }
-  const productionUrl = requiredEnvironment("PRODUCTION_SUPABASE_URL");
-  const stagingUrl = requiredEnvironment("STAGING_SUPABASE_URL");
+  const productionUrl = requiredEnvironment(environment, "PRODUCTION_SUPABASE_URL");
+  const stagingUrl = requiredEnvironment(environment, "STAGING_SUPABASE_URL");
   const sourceRef = projectRef(productionUrl);
   const targetRef = projectRef(stagingUrl);
   if (sourceRef === targetRef) throw new Error("Production and staging Supabase projects must be different.");
 
-  const sourceDatabaseUrl = requiredEnvironment("PRODUCTION_DATABASE_URL");
-  const targetDatabaseUrl = requiredEnvironment("STAGING_DATABASE_URL");
+  const sourceDatabaseUrl = requiredEnvironment(environment, "PRODUCTION_DATABASE_URL");
+  const targetDatabaseUrl = requiredEnvironment(environment, "STAGING_DATABASE_URL");
   if (sourceDatabaseUrl === targetDatabaseUrl) throw new Error("Production and staging database URLs must differ.");
   if (databaseProjectRef(sourceDatabaseUrl) !== sourceRef) {
     throw new Error("PRODUCTION_DATABASE_URL does not belong to PRODUCTION_SUPABASE_URL.");
@@ -366,10 +382,10 @@ async function main() {
     throw new Error("STAGING_DATABASE_URL does not belong to STAGING_SUPABASE_URL.");
   }
 
-  const maskingKey = requiredEnvironment("STAGING_MASKING_KEY");
+  const maskingKey = requiredEnvironment(environment, "STAGING_MASKING_KEY");
   if (maskingKey.length < 32) throw new Error("STAGING_MASKING_KEY must contain at least 32 characters.");
   const testerEmails = new Set(
-    requiredEnvironment("STAGING_TESTER_EMAILS")
+    requiredEnvironment(environment, "STAGING_TESTER_EMAILS")
       .split(",")
       .map((email) => email.trim().toLowerCase())
       .filter(Boolean),
@@ -377,7 +393,7 @@ async function main() {
 
   const source = new Client({ connectionString: sourceDatabaseUrl });
   const target = new Client({ connectionString: targetDatabaseUrl });
-  const authAdmin = createClient(stagingUrl, requiredEnvironment("STAGING_SUPABASE_SECRET_KEY"), {
+  const authAdmin = createClient(stagingUrl, requiredEnvironment(environment, "STAGING_SUPABASE_SECRET_KEY"), {
     auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
   });
 
@@ -418,18 +434,21 @@ async function main() {
       snapshot,
       relationships,
       sourceRef,
+      sourceSchema,
     );
     await finalizeAuthUsers(authAdmin, snapshot.sourceProfiles, testerEmails, maskingKey);
 
+    const copiedRows = Object.values(rowCounts).reduce((sum, count) => sum + count, 0);
     console.log(`Staging refresh completed from ${sourceRef} at ${snapshot.snapshotAt}.`);
-    console.log(`Copied ${Object.values(rowCounts).reduce((sum, count) => sum + count, 0)} rows across ${copyOrder.length} tables.`);
+    console.log(`Copied ${copiedRows} rows across ${copyOrder.length} tables.`);
+    return { sourceRef, targetRef, snapshotAt: snapshot.snapshotAt, copiedRows, copiedTables: copyOrder.length, rowCounts };
   } finally {
     await Promise.allSettled([source.end(), target.end()]);
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main().catch((error) => {
+if (typeof process !== "undefined" && process.argv?.[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  refreshStaging().catch((error) => {
     console.error(`Staging refresh failed: ${error instanceof Error ? error.message : String(error)}`);
     process.exitCode = 1;
   });

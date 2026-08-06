@@ -36,6 +36,8 @@ test("course cleanup keeps LMS truth immutable while projections, comparisons, a
   assert.match(sql, /update_course_projection_v2/);
   assert.match(sql, /secondaryVerticals/);
   assert.match(sql, /resolved_by = case when p_selected_source is null then null else p_actor_id end/);
+  assert.match(sql, /new\.health_status := public\.course_health_level\(score\)/);
+  assert.doesNotMatch(sql, /public\.course_health_status\(/);
   assert.match(sql, /delete_workflow_record_permanently/);
   assert.match(sql, /when 'course_flags' then 'flags:manage'/);
   assert.match(sql, /when 'revamp_proposals' then 'revamp:propose'/);
@@ -68,12 +70,14 @@ test("course data repair adds three-source alignment, authority locks, archive r
   assert.match(sql, /coursetrack_normalized_value/);
   for (const status of ["In sync", "Pending LMS update", "Manually confirmed", "Missing metadata", "App only", "Mapping required"]) assert.match(sql, new RegExp(status));
   assert.match(sql, /source_normalized_payload/);
+  assert.match(sql, /coursetrack-import@system\.local/);
   assert.match(sql, /topic_number/);
   assert.match(sql, /confirm_data_alignment/);
   assert.match(sql, /restore_managed_record/);
   assert.match(sql, /Select another current version before archiving/);
   assert.match(sql, /healthy connector and successful API snapshot/i);
   assert.match(sql, /search_course_library/);
+  assert.match(sql, /refresh_all_course_comparisons\(\)[\s\S]*set statement_timeout = '15min'/);
   assert.match(sql, /get_dashboard_snapshot/);
   assert.match(sql, /limit 5/);
   assert.doesNotMatch(sql, /delete\s+from\s+public\.(lms_snapshots|content_metadata_records|accreditation_records|course_versions)/i);

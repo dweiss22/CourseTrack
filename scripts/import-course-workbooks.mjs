@@ -1,23 +1,16 @@
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { pathToFileURL } from "node:url";
 import { createClient } from "@supabase/supabase-js";
+import pg from "pg";
 import "./register-aliases.mjs";
 import { assertCourseWorkbookBaseline, loadCourseWorkbookDataset } from "./course-workbook-loader.mjs";
 
 const { calculateMetadataCompleteness } = await import("../lib/source-normalization.ts");
 
-const args = new Set(process.argv.slice(2));
-const valueFor = (name, fallback) => {
-  const item = process.argv.slice(2).find((value) => value.startsWith(`${name}=`));
-  return item ? item.slice(name.length + 1) : fallback;
-};
-const apply = args.has("--apply");
-const sourceDirectory = path.resolve(valueFor("--source-dir", "Files"));
-const asOfDate = valueFor("--as-of", new Date().toISOString().slice(0, 10));
-const importedAt = `${asOfDate}T12:00:00.000Z`;
-
 function jsonSafe(value) {
+  if (value === undefined) return null;
   return JSON.parse(JSON.stringify(value));
 }
 
@@ -115,7 +108,11 @@ async function allRows(client, table, columns) {
   const result = [];
   const pageSize = 1_000;
   for (let from = 0; ; from += pageSize) {
-    const { data, error } = await client.from(table).select(columns).range(from, from + pageSize - 1);
+    const { data, error } = await client
+      .from(table)
+      .select(columns)
+      .order("id")
+      .range(from, from + pageSize - 1);
     if (error) throw new Error(`Could not read ${table}: ${error.message}`);
     result.push(...(data ?? []));
     if (!data || data.length < pageSize) break;
@@ -123,10 +120,12 @@ async function allRows(client, table, columns) {
   return result;
 }
 
-async function applyDataset(dataset) {
-  await loadEnvFile(path.resolve(".env.local"));
-  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+async function applyDataset(dataset, options = {}) {
+  if (!options.url || !options.key) await loadEnvFile(path.resolve(".env.local"));
+  const url = options.url || process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = options.key || process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const databaseUrl = options.databaseUrl || process.env.STAGING_DATABASE_URL;
+  const redactRawPayloads = (options.environment || process.env.COURSETRACK_ENVIRONMENT || "").toLowerCase() === "staging";
   if (!url || !key) throw new Error("Apply mode requires SUPABASE_URL and SUPABASE_SECRET_KEY (or SUPABASE_SERVICE_ROLE_KEY).");
   const client = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
 
@@ -186,7 +185,7 @@ async function applyDataset(dataset) {
       internal_summary: keepOverride(existing, "internalSummary", value.internalSummary, "internal_summary"),
       mapping_warnings: jsonSafe([...(course.lms?.warnings ?? []), ...(course.metadata?.mappingWarnings ?? [])]),
       import_validation_errors: jsonSafe(course.metadata?.validationErrors ?? []),
-      source_payload: jsonSafe(course.metadata?.rawPayload ?? course.lms?.rawPayload ?? {}),
+      source_payload: redactRawPayloads ? {} : jsonSafe(course.metadata?.rawPayload ?? course.lms?.rawPayload ?? {}),
       is_sample: false,
     });
   }
@@ -221,7 +220,7 @@ async function applyDataset(dataset) {
   });
 
   const retrievalRunId = `workbook-${dataset.importedAt.replace(/\D/g, "").slice(0, 14)}`;
-  const { data: retrievalRun, error: retrievalError } = await client.from("lms_retrieval_runs").upsert({
+  const retrievalRunPayload = {
     external_run_id: retrievalRunId,
     provider: "Workbook LMS export",
     started_at: dataset.importedAt,
@@ -231,10 +230,24 @@ async function applyDataset(dataset) {
     records_received: 0,
     records_failed: 0,
     message: "Importing supplied all_* LMS workbooks.",
-  }, { onConflict: "external_run_id" }).select("id").single();
+  };
+  const { data: existingRetrievalRun, error: existingRetrievalError } = await client
+    .from("lms_retrieval_runs")
+    .select("id")
+    .eq("external_run_id", retrievalRunId)
+    .maybeSingle();
+  if (existingRetrievalError) throw new Error(`Could not inspect the LMS retrieval run: ${existingRetrievalError.message}`);
+  const retrievalRunQuery = existingRetrievalRun
+    ? client.from("lms_retrieval_runs").update(retrievalRunPayload).eq("id", existingRetrievalRun.id)
+    : client.from("lms_retrieval_runs").insert(retrievalRunPayload);
+  const { data: retrievalRun, error: retrievalError } = await retrievalRunQuery.select("id").single();
   if (retrievalError) throw new Error(`Could not create the LMS retrieval run: ${retrievalError.message}`);
 
-  const { error: currentError } = await client.from("lms_snapshots").update({ is_current: false }).eq("provider", "Workbook LMS export").eq("is_current", true);
+  const { error: currentError } = await client
+    .from("lms_snapshots")
+    .update({ is_current: false })
+    .eq("source_transport", "uploaded")
+    .eq("is_current", true);
   if (currentError) throw new Error(`Could not retire prior workbook snapshots: ${currentError.message}`);
   const snapshots = dataset.courses.filter((course) => course.lms).map((course) => ({
     course_id: persistedByLmsId.get(course.courseId)?.id ?? null,
@@ -243,7 +256,7 @@ async function applyDataset(dataset) {
     retrieval_run_id: retrievalRun.id,
     retrieved_at: dataset.importedAt,
     normalized_payload: jsonSafe(course.lms.normalized),
-    raw_payload: jsonSafe(course.lms.rawPayload),
+    raw_payload: redactRawPayloads ? {} : jsonSafe(course.lms.rawPayload),
     payload_hash: hash(course.lms.rawPayload),
     mapping_warnings: jsonSafe(course.lms.warnings),
     is_current: true,
@@ -272,7 +285,7 @@ async function applyDataset(dataset) {
     raw_course_id: jsonSafe(course.metadata.rawCourseId),
     lms_course_id: course.courseId,
     normalized_payload: jsonSafe(course.metadata),
-    raw_payload: jsonSafe(course.metadata.rawPayload),
+    raw_payload: redactRawPayloads ? {} : jsonSafe(course.metadata.rawPayload),
     mapping_warnings: jsonSafe(course.metadata.mappingWarnings),
     validation_errors: jsonSafe(course.metadata.validationErrors),
     is_importable: course.metadata.validationErrors.length === 0,
@@ -316,8 +329,13 @@ async function applyDataset(dataset) {
     if (error) throw new Error(`Could not upsert source comparisons: ${error.message}`);
   });
 
-  const existingAccreditations = await allRows(client, "accreditation_records", "id,course_id,organization,jurisdiction,approval_number,topic_number,source_topic_number,effective_date,expiration_date,source_fingerprint");
-  const existingFingerprints = new Set(existingAccreditations.filter((row) => row.source_fingerprint).map((row) => `${row.course_id}:${row.source_fingerprint}`));
+  const existingAccreditations = await allRows(client, "accreditation_records", "*");
+  const existingByFingerprint = new Map(
+    existingAccreditations
+      .filter((row) => row.source_fingerprint)
+      .map((row) => [`${row.course_id}:${row.source_fingerprint}`, row]),
+  );
+  const consumedAccreditationIds = new Set();
   const accreditationSignature = (courseId, organization, jurisdiction, approvalNumber, topicNumber, effectiveDate, expirationDate) => JSON.stringify([courseId, organization ?? null, jurisdiction ?? null, approvalNumber ?? null, topicNumber ?? null, effectiveDate ?? null, expirationDate ?? null]);
   const existingBySignature = new Map();
   for (const row of existingAccreditations) {
@@ -331,24 +349,31 @@ async function applyDataset(dataset) {
     const persisted = persistedByLmsId.get(course.courseId);
     if (!persisted || !course.lms) continue;
     for (const item of course.lms.normalized.accreditations) {
-      const fingerprint = hash([course.courseId, item.issuingBody, item.state, item.accreditationNumber, item.topicNumber, item.startDate, item.endDate]);
-      if (existingFingerprints.has(`${persisted.id}:${fingerprint}`)) continue;
+      const fingerprint = hash([course.courseId, item.index, item.issuingBody, item.state, item.accreditationNumber, item.topicNumber, item.startDate, item.endDate]);
+      const existingFingerprint = existingByFingerprint.get(`${persisted.id}:${fingerprint}`);
+      if (existingFingerprint) {
+        consumedAccreditationIds.add(existingFingerprint.id);
+        continue;
+      }
       const exactMatches = existingBySignature.get(accreditationSignature(persisted.id, item.issuingBody, item.state, item.accreditationNumber, item.topicNumber, item.startDate, item.endDate)) ?? [];
       const legacyMatches = item.state === null
         ? existingBySignature.get(accreditationSignature(persisted.id, item.issuingBody, "National", item.accreditationNumber, item.topicNumber, item.startDate, item.endDate)) ?? []
         : [];
-      const matches = [...new Map([...exactMatches, ...legacyMatches].map((row) => [row.id, row])).values()];
-      if (matches.length === 1 && !matches[0].source_fingerprint) {
+      const matches = [...new Map([...exactMatches, ...legacyMatches].map((row) => [row.id, row])).values()]
+        .filter((row) => !consumedAccreditationIds.has(row.id));
+      if (matches.length >= 1) {
         accreditationBackfills.push({
+          ...matches[0],
           id: matches[0].id, organization: item.issuingBody, jurisdiction: item.state,
           source_fingerprint: fingerprint, source_topic_number: item.topicNumber, topic_number: item.topicNumber,
           source_record_index: item.index, source_retrieval_run_id: retrievalRun.id, source_domain: "lms", source_transport: "uploaded",
           source_system: "Workbook LMS export", data_source: "uploaded", provenance: "uploaded", origin_provenance: "uploaded",
-          source_payload: jsonSafe({ ...item.rawValues, topicNumber: item.topicNumber }),
+          source_payload: redactRawPayloads ? {} : jsonSafe({ ...item.rawValues, topicNumber: item.topicNumber }),
           source_normalized_payload: jsonSafe({ organization: item.issuingBody, jurisdiction: item.state, approvalNumber: item.accreditationNumber, topicNumber: item.topicNumber, effectiveDate: item.startDate, expirationDate: item.endDate }),
           alignment_status: "In sync", retrieved_at: dataset.importedAt,
         });
-        existingFingerprints.add(`${persisted.id}:${fingerprint}`);
+        consumedAccreditationIds.add(matches[0].id);
+        existingByFingerprint.set(`${persisted.id}:${fingerprint}`, matches[0]);
         continue;
       }
       const expired = item.endDate && item.endDate < dataset.asOfDate;
@@ -367,7 +392,7 @@ async function applyDataset(dataset) {
         topic_number: item.topicNumber,
         data_source: "uploaded",
         source_system: "Workbook LMS export",
-        source_payload: jsonSafe({ ...item.rawValues, topicNumber: item.topicNumber }),
+        source_payload: redactRawPayloads ? {} : jsonSafe({ ...item.rawValues, topicNumber: item.topicNumber }),
         provenance: "uploaded",
         origin_provenance: "uploaded",
         source_domain: "lms",
@@ -391,8 +416,19 @@ async function applyDataset(dataset) {
     if (error) throw new Error(`Could not insert LMS accreditation records: ${error.message}`);
   });
 
-  const { error: refreshError } = await client.rpc("refresh_all_course_comparisons");
-  if (refreshError) throw new Error(`Could not refresh CourseTrack source comparisons: ${refreshError.message}`);
+  if (databaseUrl) {
+    const comparisonClient = new pg.Client({ connectionString: databaseUrl });
+    await comparisonClient.connect();
+    try {
+      await comparisonClient.query("set statement_timeout = '15min'");
+      await comparisonClient.query("select public.refresh_all_course_comparisons()");
+    } finally {
+      await comparisonClient.end();
+    }
+  } else {
+    const { error: refreshError } = await client.rpc("refresh_all_course_comparisons");
+    if (refreshError) throw new Error(`Could not refresh CourseTrack source comparisons: ${refreshError.message}`);
+  }
   const { error: runCompleteError } = await client.from("lms_retrieval_runs").update({
     completed_at: new Date().toISOString(),
     status: "Retrieved",
@@ -417,8 +453,31 @@ async function applyDataset(dataset) {
   return { insertedCourseProjections: courseRows.length, secondaryVerticals: secondaryVerticalRows.length, snapshots: snapshots.length, metadataRecords: metadataRows.length, comparisons: comparisonRows.length, accreditationsBackfilled: accreditationBackfills.length, accreditationsAdded: accreditationRows.length };
 }
 
-const dataset = await loadCourseWorkbookDataset(sourceDirectory, { importedAt, asOfDate });
-assertCourseWorkbookBaseline(dataset);
-const output = { mode: apply ? "apply" : "dry-run", files: dataset.files, summary: dataset.summary };
-if (apply) output.applied = await applyDataset(dataset);
-process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
+export async function runCourseWorkbookImport(options = {}) {
+  const sourceDirectory = path.resolve(options.sourceDirectory || "Files");
+  const asOfDate = options.asOfDate || new Date().toISOString().slice(0, 10);
+  const importedAt = `${asOfDate}T12:00:00.000Z`;
+  const dataset = await loadCourseWorkbookDataset(sourceDirectory, { importedAt, asOfDate });
+  assertCourseWorkbookBaseline(dataset);
+  const output = {
+    mode: options.apply ? "apply" : "dry-run",
+    files: dataset.files,
+    summary: dataset.summary,
+  };
+  if (options.apply) output.applied = await applyDataset(dataset, options);
+  return output;
+}
+
+if (typeof process !== "undefined" && process.argv?.[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const args = new Set(process.argv.slice(2));
+  const valueFor = (name, fallback) => {
+    const item = process.argv.slice(2).find((value) => value.startsWith(`${name}=`));
+    return item ? item.slice(name.length + 1) : fallback;
+  };
+  const output = await runCourseWorkbookImport({
+    apply: args.has("--apply"),
+    sourceDirectory: valueFor("--source-dir", "Files"),
+    asOfDate: valueFor("--as-of", new Date().toISOString().slice(0, 10)),
+  });
+  process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
+}

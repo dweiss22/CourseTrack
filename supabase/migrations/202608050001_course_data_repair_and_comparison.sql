@@ -93,7 +93,10 @@ update public.course_versions set
   data_source = 'uploaded', source_system = 'LMS new list - master.xlsx',
   provenance = 'uploaded', origin_provenance = 'uploaded'
 where lower(coalesce(created_by_email, '')) = 'coursetrack import'
-   or (source_system = 'CourseTrack' and origin_provenance = 'coursetrack' and created_by_email = 'CourseTrack import');
+   or lower(coalesce(created_by_email, '')) = 'coursetrack-import@system.local'
+   or (source_system = 'CourseTrack' and origin_provenance = 'coursetrack' and
+       (lower(coalesce(created_by_email, '')) in ('coursetrack import', 'coursetrack-import@system.local')
+        or lower(coalesce(created_by_email, '')) like 'staging-actor-%@staging.invalid'));
 update public.course_versions set source_fingerprint = encode(digest(concat_ws('|', course_id::text, version_number, publication_date::text), 'sha256'), 'hex')
 where origin_provenance = 'uploaded' and source_fingerprint is null;
 create index if not exists course_versions_source_fingerprint_idx
@@ -201,7 +204,10 @@ revoke all on function public.refresh_course_comparisons(uuid, text[]) from publ
 grant execute on function public.refresh_course_comparisons(uuid, text[]) to service_role;
 
 create or replace function public.refresh_all_course_comparisons()
-returns integer language plpgsql security definer set search_path = public as $$
+returns integer language plpgsql security definer
+set search_path = public
+set statement_timeout = '15min'
+as $$
 declare target record; refreshed integer := 0;
 begin
   for target in select distinct course_id from public.field_comparisons loop

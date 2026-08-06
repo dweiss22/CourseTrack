@@ -118,7 +118,7 @@ test("refresh checks migration parity before replacing staging", async () => {
   assert.match(source, /Production and staging migration versions differ/);
   assert.match(source, /select table_name, column_name, data_type, is_nullable\s+from information_schema\.columns/);
   assert.doesNotMatch(source, /select table_name, column_name, data_type, is_nullable, ordinal_position/);
-  const mainBody = source.slice(source.indexOf("async function main"));
+  const mainBody = source.slice(source.indexOf("export async function refreshStaging"));
   assert.ok(mainBody.indexOf("sourceMigrations") < mainBody.indexOf("await replaceStagingData("));
 });
 

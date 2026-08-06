@@ -415,7 +415,7 @@ begin
     exists (select 1 from public.lms_snapshots where course_id = new.id and is_current)
   );
   new.health_score := score;
-  new.health_status := public.course_health_status(score);
+  new.health_status := public.course_health_level(score);
   return new;
 end;
 $$;
