@@ -7,6 +7,7 @@ import {
   environmentTitlePrefix,
   resolveDeploymentEnvironment,
 } from "@/lib/deployment-environment";
+import { withServerOperation } from "@/lib/server-observability";
 import "./globals.css";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -63,7 +64,12 @@ export default async function RootLayout({
 }>) {
   const deploymentEnvironment = resolveDeploymentEnvironment();
   const authContext = await getAuthContext();
-  const snapshotStatus = authContext && deploymentEnvironment === "staging" ? await getEnvironmentSnapshotStatus() : null;
+  const snapshotStatus = authContext && deploymentEnvironment === "staging"
+    ? await withServerOperation(
+      { route: "/*", operation: "load staging snapshot status" },
+      () => getEnvironmentSnapshotStatus(),
+    )
+    : null;
   return (
     <html lang="en">
       <body>

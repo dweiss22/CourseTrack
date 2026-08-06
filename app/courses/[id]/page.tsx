@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { CourseDetail } from "@/components/course-detail/course-detail";
 import { getActiveAssignees, getAllTags, getAllTopics, getCourseRecord, getFavorite, getLmsAuthorityMode } from "@/db";
 import { requireUser } from "@/lib/auth";
+import { withServerOperation } from "@/lib/server-observability";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +13,10 @@ export async function generateMetadata({
   params: Promise<{ id: string }>;
 }): Promise<Metadata> {
   const { id } = await params;
-  const course = await getCourseRecord(id);
+  const course = await withServerOperation(
+    { route: "/courses/[id]", operation: "load course page metadata" },
+    () => getCourseRecord(id),
+  );
   return {
     title: course?.title ?? "Course not found",
     description: course?.description,
@@ -26,14 +30,17 @@ export default async function CourseDetailPage({
 }) {
   const authContext = await requireUser();
   const { id } = await params;
-  const [course, allTopics, allTags, initialFavorite, assignees, lmsAuthorityMode] = await Promise.all([
-    getCourseRecord(id),
-    getAllTopics(),
-    getAllTags(),
-    getFavorite(id, authContext.userId),
-    getActiveAssignees(),
-    getLmsAuthorityMode(),
-  ]);
+  const [course, allTopics, allTags, initialFavorite, assignees, lmsAuthorityMode] = await withServerOperation(
+    { route: "/courses/[id]", operation: "load course detail and data comparison" },
+    () => Promise.all([
+      getCourseRecord(id),
+      getAllTopics(),
+      getAllTags(),
+      getFavorite(id, authContext.userId),
+      getActiveAssignees(),
+      getLmsAuthorityMode(),
+    ]),
+  );
   if (!course) notFound();
   return (
     <CourseDetail

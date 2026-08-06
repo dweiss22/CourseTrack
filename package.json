@@ -8,7 +8,8 @@
   "scripts": {
     "dev": "vinext dev",
     "build": "vinext build",
-    "build:vercel": "next build",
+    "build:code": "next build",
+    "build:vercel": "npm run check:deployment && npm run build:code",
     "start": "vinext start",
     "test": "npm run build && npm run test:contracts && npm run test:components",
     "test:contracts": "node --experimental-strip-types --test tests/*.test.mjs",
@@ -16,6 +17,9 @@
     "import:course-workbooks": "node --experimental-strip-types scripts/import-course-workbooks.mjs",
     "import:course-workbooks:apply": "node --experimental-strip-types scripts/import-course-workbooks.mjs --apply",
     "rollout:course-data-preflight": "node scripts/course-data-rollout-preflight.mjs",
+    "check:deployment": "node scripts/check-deployment-readiness.mjs",
+    "smoke:deployment": "node scripts/smoke-deployment.mjs",
+    "smoke:deployment:health": "node scripts/smoke-deployment-health.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "typecheck": "tsc --noEmit"
   },

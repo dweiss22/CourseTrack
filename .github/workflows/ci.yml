@@ -42,5 +42,63 @@ jobs:
       - name: Run tests
         run: npm test
 
-      - name: Verify Vercel build
-        run: npm run build:vercel
+      - name: Verify code-only Next.js build
+        run: npm run build:code
+
+  staging-contract:
+    name: Staging deployment contract
+    if: github.event_name == 'push' && github.ref == 'refs/heads/staging'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: staging
+    env:
+      COURSETRACK_ENVIRONMENT: staging
+      VERCEL_GIT_COMMIT_REF: staging
+      SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+      SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+      NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      COURSETRACK_SCHEMA_DATABASE_URL: ${{ secrets.COURSETRACK_SCHEMA_DATABASE_URL }}
+      COURSETRACK_PRODUCTION_SUPABASE_REF: ${{ vars.COURSETRACK_PRODUCTION_SUPABASE_REF }}
+      COURSETRACK_STAGING_SUPABASE_REF: ${{ vars.COURSETRACK_STAGING_SUPABASE_REF }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Verify staging environment and migration contract
+        run: npm run check:deployment
+
+  production-contract:
+    name: Production deployment contract
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    env:
+      COURSETRACK_ENVIRONMENT: production
+      VERCEL_GIT_COMMIT_REF: main
+      SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+      SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+      NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      COURSETRACK_SCHEMA_DATABASE_URL: ${{ secrets.COURSETRACK_SCHEMA_DATABASE_URL }}
+      COURSETRACK_PRODUCTION_SUPABASE_REF: ${{ vars.COURSETRACK_PRODUCTION_SUPABASE_REF }}
+      COURSETRACK_STAGING_SUPABASE_REF: ${{ vars.COURSETRACK_STAGING_SUPABASE_REF }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Verify production environment and migration contract
+        run: npm run check:deployment

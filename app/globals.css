@@ -5397,6 +5397,32 @@ body {
   margin-bottom: 0;
 }
 
+.application-error {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 24px;
+  background: var(--background);
+}
+
+.application-error-card {
+  width: min(100%, 560px);
+  padding: 32px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+}
+
+.application-error-card h1 {
+  margin: 6px 0 12px;
+}
+
+.application-error-incident {
+  margin: 20px 0;
+  color: var(--muted-foreground);
+}
+
 @media (max-width: 1199px) {
   .kanban-board {
     grid-template-columns: repeat(2, minmax(0, 1fr));
