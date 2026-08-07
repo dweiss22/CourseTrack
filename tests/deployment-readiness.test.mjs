@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { DEPLOYMENT_MIGRATION_CONTRACT } from "../lib/deployment-migration-contract.mjs";
+import {
+  DEPLOYMENT_MIGRATION_CONTRACT,
+  PRODUCTION_MIGRATION_BASELINE,
+} from "../lib/deployment-migration-contract.mjs";
 import {
   compareMigrationHistory,
   deploymentHealthSnapshot,
@@ -39,6 +42,13 @@ test("environment validation accepts complete staging configuration", () => {
   const result = validateDeploymentConfiguration(targetEnvironment());
   assert.equal(result.target, "staging");
   assert.equal(result.authenticationConfigured, true);
+});
+
+test("environment validation accepts the supported legacy server key", () => {
+  const environment = targetEnvironment();
+  delete environment.SUPABASE_SECRET_KEY;
+  environment.SUPABASE_SERVICE_ROLE_KEY = "legacy-server-secret-placeholder";
+  assert.equal(validateDeploymentConfiguration(environment).target, "staging");
 });
 
 test("environment validation fails clearly for absent and partial Auth pairs", () => {
@@ -89,6 +99,44 @@ test("migration comparison names missing, extra, duplicated, and out-of-order ve
   assert.match(invalid.errors.join("\n"), /out of order/);
 });
 
+test("production accepts its reviewed Supabase baseline while staging requires explicit migrations", () => {
+  const checkedInRows = DEPLOYMENT_MIGRATION_CONTRACT.map((version) => ({
+    version,
+    filename: `${version}_test.sql`,
+  }));
+  const production = compareMigrationHistory(
+    checkedInRows,
+    [PRODUCTION_MIGRATION_BASELINE.version],
+    { baseline: PRODUCTION_MIGRATION_BASELINE },
+  );
+  assert.equal(production.current, true);
+
+  const staging = compareMigrationHistory(checkedInRows, [PRODUCTION_MIGRATION_BASELINE.version]);
+  assert.equal(staging.current, false);
+  assert.match(staging.errors.join("\n"), /not present under supabase\/migrations/);
+});
+
+test("production baseline still requires migrations added after the covered version", () => {
+  const nextVersion = "202608070001";
+  const checkedInRows = [
+    ...DEPLOYMENT_MIGRATION_CONTRACT.map((version) => ({ version, filename: `${version}_test.sql` })),
+    { version: nextVersion, filename: `${nextVersion}_next.sql` },
+  ];
+  const missing = compareMigrationHistory(
+    checkedInRows,
+    [PRODUCTION_MIGRATION_BASELINE.version],
+    { baseline: PRODUCTION_MIGRATION_BASELINE },
+  );
+  assert.match(missing.errors.join("\n"), /Missing database migration 202608070001_next.sql/);
+
+  const current = compareMigrationHistory(
+    checkedInRows,
+    [PRODUCTION_MIGRATION_BASELINE.version, nextVersion],
+    { baseline: PRODUCTION_MIGRATION_BASELINE },
+  );
+  assert.equal(current.current, true);
+});
+
 test("readiness errors redact database connection failures", async () => {
   const checkedInRows = DEPLOYMENT_MIGRATION_CONTRACT.map((version) => ({ version, filename: `${version}_test.sql` }));
   await assert.rejects(
@@ -125,6 +173,12 @@ test("health is ready only when auth, database, and migration contract are curre
   assert.equal(missingMigration.schemaContractCurrent, false);
   assert.equal(isHealthyDeployment(missingMigration), false);
   assert.equal(deploymentHealthStatus(missingMigration), 503);
+
+  const productionBaseline = await deploymentHealthSnapshot({
+    environment: targetEnvironment("production", PRODUCTION_REF),
+    queryMigrations: async () => [PRODUCTION_MIGRATION_BASELINE.version],
+  });
+  assert.equal(isHealthyDeployment(productionBaseline), true);
 
   const unreachable = await deploymentHealthSnapshot({
     environment: targetEnvironment(),

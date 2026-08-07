@@ -32,11 +32,21 @@ Never apply production migrations from a feature branch, Preview deployment,
 Vercel build, health request, or smoke test. Database changes remain an
 explicit release operation performed before application publication.
 
+The production project was connected to Supabase Branching after its schema
+already existed. Supabase recorded reviewed baseline migration
+`20260806160508`, which represents the checked-in migrations through
+`202608050001`. The production gate accepts that baseline and still requires
+every later checked-in migration as its own ledger row. Staging continues to
+require an exact checked-in migration ledger; do not copy, rename, or manually
+rewrite either environment's migration history.
+
 ## Vercel variables
 
-Configure these variables for the `staging` Git branch only. Production has a
-separate set scoped only to Production. A feature Preview must use an isolated
-third Supabase project; it may not inherit staging or production values.
+Configure these variables as branch-specific Preview overrides for the
+`staging` Git branch. Do not use a custom Vercel `staging` environment.
+Production has a separate set scoped only to Production. A feature Preview
+must use an isolated third Supabase project; it may not inherit staging or
+production values.
 
 | Variable | Vercel scope | Notes |
 | --- | --- | --- |
