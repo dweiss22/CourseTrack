@@ -99,10 +99,12 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=<staging publishable key>
 WRIKE_PROVIDER=unconfigured
 ```
 
-Assign the `staging` branch a persistent `staging.<production-domain>` domain
-in Vercel and enable Deployment Protection for that domain/environment. Keep
-the production domain assigned only to `main`. Redeploy after changing any
-environment variables.
+Assign the `staging` Preview branch a persistent
+`staging.<production-domain>` domain in Vercel and enable Deployment Protection
+for that domain. Keep `staging` in Vercel's built-in Preview environment so the
+Supabase Branching integration can sync the correct preview credentials; do
+not create a custom Vercel environment for it. Keep the production domain
+assigned only to `main`. Redeploy after changing any environment variables.
 
 Feature branches should set or inherit `COURSETRACK_ENVIRONMENT=preview`; they
 display a **PREVIEW** banner but do not receive the scheduled staging refresh.

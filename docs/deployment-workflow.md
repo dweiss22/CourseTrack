@@ -5,13 +5,19 @@ CourseTrack uses two long-lived branches and Vercel environments:
 | Git branch | Vercel environment | Purpose |
 | --- | --- | --- |
 | `main` | Production | The live application |
-| `staging` | Preview | Integrated release candidate for final validation |
+| `staging` | Preview, branch-scoped | Integrated release candidate for final validation |
 | `feature/*` | Preview | Isolated work and pull-request review |
 
 Vercel should keep `main` as the project's Production Branch. Every other
 branch receives a Preview deployment automatically. Assign a staging domain to
 the `staging` Preview branch in Vercel so the team's staging URL always follows
 the latest successful deployment from that branch.
+
+Do not create a Vercel custom environment named `staging`. Supabase Branching
+syncs preview-branch credentials into Vercel's built-in Preview environment;
+moving the branch into a custom environment bypasses those credentials and can
+make the branch inherit production integration values. Use Preview variables
+that are explicitly overridden for Git branch `staging` instead.
 
 ## Environment configuration
 
