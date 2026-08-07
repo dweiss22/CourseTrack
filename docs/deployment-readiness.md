@@ -32,11 +32,21 @@ Never apply production migrations from a feature branch, Preview deployment,
 Vercel build, health request, or smoke test. Database changes remain an
 explicit release operation performed before application publication.
 
+The production project was connected to Supabase Branching after its schema
+already existed. Supabase recorded reviewed baseline migration
+`20260806160508`, which represents the checked-in migrations through
+`202608050001`. The production gate accepts that baseline and still requires
+every later checked-in migration as its own ledger row. Staging continues to
+require an exact checked-in migration ledger; do not copy, rename, or manually
+rewrite either environment's migration history.
+
 ## Vercel variables
 
-Configure these variables for the `staging` Git branch only. Production has a
-separate set scoped only to Production. A feature Preview must use an isolated
-third Supabase project; it may not inherit staging or production values.
+Configure these variables as branch-specific Preview overrides for the
+`staging` Git branch. Do not use a custom Vercel `staging` environment.
+Production has a separate set scoped only to Production. A feature Preview
+must use an isolated third Supabase project; it may not inherit staging or
+production values.
 
 | Variable | Vercel scope | Notes |
 | --- | --- | --- |
@@ -74,13 +84,19 @@ jobs read these exact values:
 | Environment secret | `COURSETRACK_SCHEMA_DATABASE_URL` |
 | Environment variable | `COURSETRACK_PRODUCTION_SUPABASE_REF` |
 | Environment variable | `COURSETRACK_STAGING_SUPABASE_REF` |
+| Environment variable | `COURSETRACK_SMOKE_BASE_URL` |
 | Environment variable | `COURSETRACK_SMOKE_COURSE_ID` |
 | Environment secret | `VERCEL_AUTOMATION_BYPASS_SECRET` |
 
-The deployment-status workflow automatically runs the public health smoke. If
-Vercel Deployment Protection is enabled, its standard automation bypass is
-sent only in the `x-vercel-protection-bypass` header; it does not bypass
-CourseTrack authentication. A
+The deployment-status workflow automatically runs the public health smoke.
+Set `COURSETRACK_SMOKE_BASE_URL` to the stable branch domain for each GitHub
+environment; Vercel deployment-status URLs are used only as a fallback because
+they are not guaranteed to be the release domain. The workflow also supplies
+the triggering deployment SHA as `COURSETRACK_SMOKE_EXPECTED_COMMIT`, and the
+health response must report that exact commit so a stale stable-domain alias
+cannot approve a release. If Vercel Deployment Protection is enabled, its
+standard automation bypass is sent only in the `x-vercel-protection-bypass`
+header; it does not bypass CourseTrack authentication. A
 release operator then runs `npm run smoke:deployment` with
 `COURSETRACK_SMOKE_BASE_URL`, `COURSETRACK_SMOKE_COURSE_ID`, and a current
 `COURSETRACK_SMOKE_SESSION_COOKIE` supplied only to that process. Never save the
