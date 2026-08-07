@@ -11,7 +11,7 @@ jobs:
     timeout-minutes: 10
     environment: staging
     env:
-      COURSETRACK_SMOKE_BASE_URL: ${{ github.event.deployment_status.environment_url || github.event.deployment_status.target_url }}
+      COURSETRACK_SMOKE_BASE_URL: ${{ vars.COURSETRACK_SMOKE_BASE_URL || github.event.deployment_status.environment_url || github.event.deployment_status.target_url }}
       VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
     steps:
       - uses: actions/checkout@v4
@@ -28,7 +28,7 @@ jobs:
     timeout-minutes: 10
     environment: production
     env:
-      COURSETRACK_SMOKE_BASE_URL: ${{ github.event.deployment_status.environment_url || github.event.deployment_status.target_url }}
+      COURSETRACK_SMOKE_BASE_URL: ${{ vars.COURSETRACK_SMOKE_BASE_URL || github.event.deployment_status.environment_url || github.event.deployment_status.target_url }}
       VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
     steps:
       - uses: actions/checkout@v4
