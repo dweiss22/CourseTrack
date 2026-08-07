@@ -91,10 +91,12 @@ jobs read these exact values:
 The deployment-status workflow automatically runs the public health smoke.
 Set `COURSETRACK_SMOKE_BASE_URL` to the stable branch domain for each GitHub
 environment; Vercel deployment-status URLs are used only as a fallback because
-they are not guaranteed to be the release domain. If Vercel Deployment
-Protection is enabled, its standard automation bypass is sent only in the
-`x-vercel-protection-bypass` header; it does not bypass CourseTrack
-authentication. A
+they are not guaranteed to be the release domain. The workflow also supplies
+the triggering deployment SHA as `COURSETRACK_SMOKE_EXPECTED_COMMIT`, and the
+health response must report that exact commit so a stale stable-domain alias
+cannot approve a release. If Vercel Deployment Protection is enabled, its
+standard automation bypass is sent only in the `x-vercel-protection-bypass`
+header; it does not bypass CourseTrack authentication. A
 release operator then runs `npm run smoke:deployment` with
 `COURSETRACK_SMOKE_BASE_URL`, `COURSETRACK_SMOKE_COURSE_ID`, and a current
 `COURSETRACK_SMOKE_SESSION_COOKIE` supplied only to that process. Never save the
