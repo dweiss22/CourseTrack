@@ -84,13 +84,17 @@ jobs read these exact values:
 | Environment secret | `COURSETRACK_SCHEMA_DATABASE_URL` |
 | Environment variable | `COURSETRACK_PRODUCTION_SUPABASE_REF` |
 | Environment variable | `COURSETRACK_STAGING_SUPABASE_REF` |
+| Environment variable | `COURSETRACK_SMOKE_BASE_URL` |
 | Environment variable | `COURSETRACK_SMOKE_COURSE_ID` |
 | Environment secret | `VERCEL_AUTOMATION_BYPASS_SECRET` |
 
-The deployment-status workflow automatically runs the public health smoke. If
-Vercel Deployment Protection is enabled, its standard automation bypass is
-sent only in the `x-vercel-protection-bypass` header; it does not bypass
-CourseTrack authentication. A
+The deployment-status workflow automatically runs the public health smoke.
+Set `COURSETRACK_SMOKE_BASE_URL` to the stable branch domain for each GitHub
+environment; Vercel deployment-status URLs are used only as a fallback because
+they are not guaranteed to be the release domain. If Vercel Deployment
+Protection is enabled, its standard automation bypass is sent only in the
+`x-vercel-protection-bypass` header; it does not bypass CourseTrack
+authentication. A
 release operator then runs `npm run smoke:deployment` with
 `COURSETRACK_SMOKE_BASE_URL`, `COURSETRACK_SMOKE_COURSE_ID`, and a current
 `COURSETRACK_SMOKE_SESSION_COOKIE` supplied only to that process. Never save the
