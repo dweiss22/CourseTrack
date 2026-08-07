@@ -35,10 +35,10 @@ operation performed before application publication.
 The production project was connected to Supabase Branching after its schema
 already existed. Supabase recorded reviewed baseline migration
 `20260806160508`, which represents the checked-in migrations through
-`202608050001`. The production gate accepts that baseline and still requires
-every later checked-in migration as its own ledger row. Staging continues to
-require an exact checked-in migration ledger; do not copy, rename, or manually
-rewrite either environment's migration history.
+`202608040007`. Migrations `202608040008`, `202608050001`, and every later
+checked-in migration must appear as their own ledger rows. Staging continues
+to require an exact checked-in migration ledger; do not copy, rename, or
+manually rewrite either environment's migration history.
 
 ## Vercel variables
 
