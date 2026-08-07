@@ -23,6 +23,16 @@ Authentication and persistence fail closed. Without a valid Supabase session the
 
 The LMS refresh action remains visible but disabled until the read-only GET connector is configured. Wrike is reference-only and is also unavailable until explicitly configured.
 
+## Environments
+
+- `main` is the live Production application.
+- `staging` is the persistent Staging application. Vercel displays it under
+  its built-in Preview category.
+- `change/<description>` is temporary work. It runs GitHub CI but its Vercel
+  build is canceled because temporary branches have no application database.
+
+See `docs/deployment-workflow.md` for the complete naming and release model.
+
 ## Verification
 
 ```text

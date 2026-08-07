@@ -28,9 +28,9 @@ Production:
 4. Run the protected production schema contract check.
 5. Publish `main`, then run the production smoke test.
 
-Never apply production migrations from a feature branch, Preview deployment,
-Vercel build, health request, or smoke test. Database changes remain an
-explicit release operation performed before application publication.
+Never apply production migrations from a temporary branch, Vercel build,
+health request, or smoke test. Database changes remain an explicit release
+operation performed before application publication.
 
 The production project was connected to Supabase Branching after its schema
 already existed. Supabase recorded reviewed baseline migration
@@ -44,21 +44,20 @@ rewrite either environment's migration history.
 
 Configure these variables as branch-specific Preview overrides for the
 `staging` Git branch. Do not use a custom Vercel `staging` environment.
-Production has a separate set scoped only to Production. A feature Preview
-must use an isolated third Supabase project; it may not inherit staging or
-production values.
+Production has a separate set scoped only to Production. Temporary branches
+are not deployed and must not inherit staging or production values.
 
 | Variable | Vercel scope | Notes |
 | --- | --- | --- |
-| `COURSETRACK_ENVIRONMENT` | Branch-specific | `staging`, `production`, or `preview` |
+| `COURSETRACK_ENVIRONMENT` | Branch-specific | `staging` or `production` in the two-environment model |
 | `SUPABASE_URL` | Branch-specific | Server API URL; same project as browser and checker |
 | `SUPABASE_SECRET_KEY` | Secret, branch-specific | Server-only modern secret key |
 | `NEXT_PUBLIC_SUPABASE_URL` | Branch-specific | Browser Auth URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Branch-specific | Publishable/anonymous browser key |
 | `COURSETRACK_SCHEMA_DATABASE_URL` | Secret, branch-specific | Dedicated read-only schema-check login only |
-| `COURSETRACK_PRODUCTION_SUPABASE_REF` | Production/Preview identifier | Production project reference, never a key |
-| `COURSETRACK_STAGING_SUPABASE_REF` | Production/Preview identifier | Persistent staging branch reference |
-| `COURSETRACK_PREVIEW_SUPABASE_REF` | Feature Preview only | Isolated feature-preview project reference |
+| `COURSETRACK_PRODUCTION_SUPABASE_REF` | Environment identifier | Production `main` branch reference, never a key |
+| `COURSETRACK_STAGING_SUPABASE_REF` | Environment identifier | Persistent `staging` branch reference |
+| `COURSETRACK_PREVIEW_SUPABASE_REF` | Reserved | Used only if a third, isolated feature-preview environment is introduced later |
 
 Vercel also supplies `VERCEL_GIT_COMMIT_REF` and `VERCEL_GIT_COMMIT_SHA`. The
 gate cross-checks the branch and reports the commit in the safe health response.
@@ -72,8 +71,9 @@ for `COURSETRACK_SCHEMA_DATABASE_URL`.
 
 ## GitHub protected environments
 
-Create GitHub environments named `staging` and `production`. The CI contract
-jobs read these exact values:
+Use the existing GitHub environments `staging` and `Production`. Restrict them
+to the `staging` and `main` branches, respectively. The CI contract jobs read
+these values:
 
 | Kind | Name |
 | --- | --- |

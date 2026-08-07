@@ -1,9 +1,11 @@
 # Staging data refresh
 
-CourseTrack staging uses a separate Supabase project. A scheduled GitHub
-Actions workflow replaces its application data each Sunday at 08:00 UTC with
-a sanitized, internally consistent production snapshot. The workflow can also
-be started manually with **Run workflow**.
+CourseTrack staging uses the isolated, persistent Supabase `staging` branch in
+the `CourseTrack` project. It has its own project reference, API credentials,
+Auth service, and database. A scheduled GitHub Actions workflow replaces its
+application data each Sunday at 08:00 UTC with a sanitized, internally
+consistent production snapshot. The workflow can also be started manually
+with **Run workflow**.
 
 The refresh is one way. Staging never writes to production, and changes made
 in staging are disposable.
@@ -72,7 +74,7 @@ deliberate remasking is required.
 
 ## First refresh and recovery
 
-1. Apply every checked-in migration to both projects, including
+1. Apply every checked-in migration to both Supabase branches, including
    `202608040005_staging_snapshot_status.sql`.
 2. Confirm the staging superadmin Auth UUID matches production and add the
    email to `STAGING_TESTER_EMAILS`.
@@ -106,5 +108,6 @@ Supabase Branching integration can sync the correct preview credentials; do
 not create a custom Vercel environment for it. Keep the production domain
 assigned only to `main`. Redeploy after changing any environment variables.
 
-Feature branches should set or inherit `COURSETRACK_ENVIRONMENT=preview`; they
-display a **PREVIEW** banner but do not receive the scheduled staging refresh.
+Temporary `change/<description>` branches are not deployed. Vercel cancels
+their builds before application environment variables are read. This prevents
+a temporary branch from inheriting staging or production credentials.
