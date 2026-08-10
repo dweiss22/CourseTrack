@@ -64,6 +64,38 @@ test("candidate migration validation is append-only and checksum-bound", async (
   assert.ok(pendingMigrationVersions(validated, [validated.productionBaseline.version], "production").length > 0);
 });
 
+test("candidate migration validation permits only checkout line-ending changes", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "coursetrack-migration-eol-"));
+  try {
+    const base = path.join(root, "base");
+    const candidate = path.join(root, "candidate");
+    const migrationPath = "supabase/migrations";
+    await mkdir(path.join(base, migrationPath), { recursive: true });
+    await mkdir(path.join(candidate, migrationPath), { recursive: true });
+    const file = "202608110001_line_endings.sql";
+    const lfSql = "select 1;\nselect 2;\n";
+    const crlfSql = lfSql.replace(/\n/g, "\r\n");
+    const { createHash } = await import("node:crypto");
+    const manifest = {
+      version: 1,
+      productionBaseline: { version: "202608100000", coversThrough: "202608100000" },
+      migrations: [{ version: "202608110001", file, sha256: createHash("sha256").update(crlfSql).digest("hex") }],
+    };
+    for (const directory of [base, candidate]) {
+      await writeFile(path.join(directory, migrationPath, "manifest.json"), JSON.stringify(manifest));
+      await writeFile(path.join(directory, migrationPath, file), lfSql);
+    }
+    assert.equal((await validateCandidateMigrations({ baseDirectory: base, candidateDirectory: candidate })).migrations.length, 1);
+    await writeFile(path.join(candidate, migrationPath, file), "select 1;\nselect 3;\n");
+    await assert.rejects(
+      () => validateCandidateMigrations({ baseDirectory: base, candidateDirectory: candidate }),
+      /Checksum mismatch/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("backup selection uses only valid completed timestamps", () => {
   const latest = newestCompletedBackup({ backups: [
     { status: "FAILED", inserted_at: "2026-08-10T12:00:00Z" },

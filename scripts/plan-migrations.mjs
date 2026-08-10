@@ -1,8 +1,9 @@
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { lstat, readFile, readdir, realpath } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import pg from "pg";
-import { assertTarget, assertTargetConfiguration, sha256File, valueFor } from "./release-target.mjs";
+import { assertTarget, assertTargetConfiguration, valueFor } from "./release-target.mjs";
 
 const MIGRATION_PATTERN = /^(\d{12})_([a-z0-9_]+)\.sql$/;
 const MAX_MANIFEST_BYTES = 64 * 1024;
@@ -14,6 +15,18 @@ async function loadJson(fileName, maxBytes) {
     throw new Error(`${path.basename(fileName)} is not a permitted regular file.`);
   }
   return JSON.parse(await readFile(fileName, "utf8"));
+}
+
+async function migrationChecksumVariants(fileName) {
+  const content = await readFile(fileName);
+  const text = content.toString("utf8");
+  if (!Buffer.from(text, "utf8").equals(content)) {
+    throw new Error(`${path.basename(fileName)} is not valid UTF-8 text.`);
+  }
+  const lf = text.replace(/\r\n/g, "\n");
+  const crlf = lf.replace(/\n/g, "\r\n");
+  return new Set([content, Buffer.from(lf, "utf8"), Buffer.from(crlf, "utf8")]
+    .map((value) => createHash("sha256").update(value).digest("hex")));
 }
 
 function validateManifestShape(manifest) {
@@ -66,7 +79,8 @@ export async function validateCandidateMigrations({ baseDirectory, candidateDire
     const resolved = await realpath(fileName);
     if (!resolved.startsWith(directoryRealPath + path.sep)) throw new Error("Candidate migration path escapes the checkout.");
     const expected = candidateManifest.migrations.find((item) => item.file === entry.name);
-    if (await sha256File(fileName) !== expected.sha256) throw new Error(`Checksum mismatch for ${entry.name}.`);
+    const checksums = await migrationChecksumVariants(fileName);
+    if (!checksums.has(expected.sha256)) throw new Error(`Checksum mismatch for ${entry.name}.`);
   }
   return candidateManifest;
 }
