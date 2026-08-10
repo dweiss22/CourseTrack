@@ -5488,3 +5488,303 @@ body {
     gap: 10px;
   }
 }
+
+/* Dense, viewport-first record layouts */
+.data-table {
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.data-table th {
+  height: 40px;
+  padding-inline: 10px;
+  font-size: 11px;
+}
+
+.data-table td,
+.compact-table td {
+  height: 50px;
+  padding: 9px 10px;
+}
+
+.library-panel .table-scroll {
+  overflow-x: clip;
+}
+
+.course-table {
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+  white-space: normal;
+}
+
+.course-table th,
+.course-table td {
+  min-width: 0;
+  overflow: hidden;
+  vertical-align: middle;
+}
+
+.course-table th:first-child,
+.course-table td:first-child {
+  width: 42px;
+  padding-inline: 8px 2px;
+}
+
+.course-table [data-column="title"] {
+  width: 30%;
+}
+
+.course-table [data-column="conflictCount"] {
+  width: 70px;
+  text-align: center;
+}
+
+.course-table [data-column="healthStatus"] {
+  width: 108px;
+}
+
+.course-table .sortable-header,
+.course-table .status-badge,
+.course-table .vertical-label,
+.course-table .topic-summary,
+.course-table .source-status-cell,
+.course-table .source-status-cell small {
+  max-width: 100%;
+}
+
+.course-table .sortable-header,
+.course-table .status-badge,
+.course-table .vertical-label,
+.course-table .topic-summary,
+.course-table .source-status-cell small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.course-table .status-badge,
+.course-table .vertical-label,
+.course-table .topic-summary,
+.course-table .source-status-cell small {
+  white-space: nowrap;
+}
+
+.course-title-cell {
+  max-width: none;
+}
+
+.course-title-cell a {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-height: 1.3;
+  white-space: normal;
+}
+
+.course-title-cell span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.accreditation-table,
+.versions-table {
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+  white-space: normal;
+}
+
+.accreditation-table th,
+.accreditation-table td,
+.versions-table th,
+.versions-table td {
+  min-width: 0;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  text-overflow: ellipsis;
+}
+
+.course-heading.course-heading-expanded {
+  display: grid;
+  align-items: stretch;
+  gap: 18px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--accent-electric);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(115deg, var(--primary-soft), var(--surface) 72%);
+  box-shadow: var(--shadow-sm);
+}
+
+.course-heading-expanded .course-heading-main {
+  align-items: flex-start;
+}
+
+.course-heading-summary {
+  display: grid;
+  overflow: hidden;
+  grid-template-columns: minmax(240px, 1.05fr) repeat(2, minmax(250px, 1fr));
+  gap: 1px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--border-subtle);
+}
+
+.course-summary-card {
+  min-width: 0;
+  padding: 13px 15px;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+}
+
+.course-summary-card-heading,
+.course-summary-card-heading > span,
+.course-summary-health-detail > div:first-child {
+  display: flex;
+  align-items: center;
+}
+
+.course-summary-card-heading {
+  min-height: 24px;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
+
+.course-summary-card-heading > span {
+  gap: 6px;
+}
+
+.course-summary-health-row {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  align-items: center;
+  gap: 11px;
+  margin-top: 8px;
+}
+
+.health-score.health-score-compact {
+  width: 42px;
+  height: 42px;
+  border-width: 4px;
+  font-size: 13px;
+}
+
+.course-summary-health-detail {
+  min-width: 0;
+}
+
+.course-summary-health-detail > div:first-child {
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.course-summary-health-detail strong {
+  color: var(--text-secondary);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.course-summary-health-detail .progress-track {
+  margin-top: 9px;
+}
+
+.course-summary-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 10px 0 0;
+}
+
+.course-summary-facts div {
+  min-width: 0;
+}
+
+.course-summary-facts dt {
+  color: var(--text-muted);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.course-summary-facts dd {
+  overflow: hidden;
+  margin: 4px 0 0;
+  color: var(--foreground);
+  font-size: 11px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.course-detail-grid.course-detail-grid-single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (max-width: 1280px) {
+  .course-heading-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .course-summary-health {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 760px) {
+  .library-panel .table-scroll {
+    overflow: visible;
+  }
+
+  .course-table {
+    min-width: 0;
+  }
+
+  .course-table [data-column]:not([data-column="title"]) {
+    display: none;
+  }
+
+  .course-table [data-column="title"] {
+    width: auto;
+  }
+
+  .course-table .mobile-row-details {
+    display: table-cell;
+    width: 108px;
+    min-width: 0;
+    overflow: visible;
+  }
+
+  .mobile-row-details dl {
+    min-width: min(280px, calc(100vw - 96px));
+  }
+
+  .course-heading.course-heading-expanded {
+    gap: 15px;
+    padding: 16px;
+  }
+
+  .course-heading-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .course-summary-health {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 480px) {
+  .course-heading-expanded .course-monogram {
+    display: none;
+  }
+
+  .course-summary-facts {
+    grid-template-columns: 1fr;
+    gap: 9px;
+  }
+}

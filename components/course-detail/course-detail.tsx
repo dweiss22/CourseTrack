@@ -5,10 +5,7 @@ import {
   Archive,
   ArrowLeft,
   Award,
-  BookOpen,
-  Calendar,
   Check,
-  Clock,
   Database,
   Flag,
   GitCompareArrows,
@@ -288,7 +285,7 @@ export function CourseDetail({
         Back to Course Library
       </Link>
 
-      <section className="course-heading">
+      <section className="course-heading course-heading-expanded">
         <div className="course-heading-main">
           <div className="course-monogram" aria-hidden="true">
             {currentCourse.primaryVertical
@@ -344,6 +341,58 @@ export function CourseDetail({
               )}
             </div>
           </div>
+        </div>
+
+        <div className="course-heading-summary" aria-label="Course summary">
+          <article className="course-summary-card course-summary-health">
+            <div className="course-summary-card-heading">
+              <span>Course health</span>
+              <HealthAboutDialog compact />
+            </div>
+            <div className="course-summary-health-row">
+              <div className={`health-score health-score-compact health-${currentCourse.healthStatus.toLowerCase().replaceAll(" ", "-")}`}>
+                {currentCourse.healthScore}
+              </div>
+              <div className="course-summary-health-detail">
+                <div>
+                  <StatusBadge>{currentCourse.healthStatus}</StatusBadge>
+                  <strong>{currentCourse.metadataCompletenessScore}% complete</strong>
+                </div>
+                <div
+                  className="progress-track"
+                  role="progressbar"
+                  aria-label="Metadata completeness"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={currentCourse.metadataCompletenessScore}
+                >
+                  <span style={{ width: `${currentCourse.metadataCompletenessScore}%` }} />
+                </div>
+              </div>
+            </div>
+          </article>
+
+          <article className="course-summary-card">
+            <div className="course-summary-card-heading">
+              <span><UserRound size={14} aria-hidden="true" /> Ownership & review</span>
+            </div>
+            <dl className="course-summary-facts">
+              <div><dt>Owner</dt><dd>{currentCourse.owner ?? "Unassigned"}</dd></div>
+              <div><dt>Designer</dt><dd>{currentCourse.instructionalDesigner ?? "Unassigned"}</dd></div>
+              <div><dt>Next review</dt><dd>{currentCourse.nextReviewDate ?? "Not scheduled"}</dd></div>
+            </dl>
+          </article>
+
+          <article className="course-summary-card">
+            <div className="course-summary-card-heading">
+              <span><ShieldCheck size={14} aria-hidden="true" /> Source & retrieval</span>
+            </div>
+            <dl className="course-summary-facts">
+              <div><dt>Source</dt><dd>{provenanceLabels[currentCourse.dataSource]}</dd></div>
+              <div><dt>Status</dt><dd>{currentCourse.retrievalStatus}</dd></div>
+              <div><dt>Last retrieved</dt><dd>{currentCourse.lastRetrievedAt ?? "Not retrieved"}</dd></div>
+            </dl>
+          </article>
         </div>
       </section>
 
@@ -479,7 +528,7 @@ export function CourseDetail({
         </section>
       )}
 
-      <section className="course-detail-grid">
+      <section className="course-detail-grid course-detail-grid-single">
         <div className="detail-main">
           {activeTab === "Overview" && (
             <OverviewTab course={currentCourse} />
@@ -519,46 +568,10 @@ export function CourseDetail({
           {activeTab === "Activity" && <ActivityTab course={currentCourse} />}
         </div>
 
-        <aside className="detail-sidebar">
-          <article className="panel compact-panel">
-            <div className="panel-heading"><h3>CourseTrack health</h3><HealthAboutDialog compact /></div>
-            <div className="health-score-row">
-              <div className={`health-score health-${currentCourse.healthStatus.toLowerCase().replaceAll(" ", "-")}`}>
-                {currentCourse.healthScore}
-              </div>
-              <div>
-                <StatusBadge>{currentCourse.healthStatus}</StatusBadge>
-                <span>Calculated from metadata completeness, unresolved discrepancies, import validation errors, and current LMS snapshot availability.</span>
-              </div>
-            </div>
-            <div className="progress-label">
-              <span>Metadata completeness</span>
-              <strong>{currentCourse.metadataCompletenessScore}%</strong>
-            </div>
-            <div className="progress-track">
-              <span style={{ width: `${currentCourse.metadataCompletenessScore}%` }} />
-            </div>
-          </article>
-
-          <article className="panel compact-panel">
-            <h3>Ownership & review</h3>
-            <DetailRow icon={UserRound} label="Course owner" value={currentCourse.owner ?? "Unassigned"} />
-            <DetailRow icon={BookOpen} label="Instructional designer" value={currentCourse.instructionalDesigner ?? "Unassigned"} />
-            <DetailRow icon={Calendar} label="Next review" value={currentCourse.nextReviewDate ?? "Not scheduled"} />
-          </article>
-
-          <article className="panel compact-panel">
-            <h3>Source & retrieval</h3>
-            <DetailRow icon={ShieldCheck} label="Data source" value={provenanceLabels[currentCourse.dataSource]} />
-            <DetailRow icon={RefreshCw} label="Retrieval status" value={currentCourse.retrievalStatus} />
-            <DetailRow icon={Clock} label="Last retrieved" value={currentCourse.lastRetrievedAt ?? "Not retrieved"} />
-          </article>
-        </aside>
       </section>
     </div>
   );
 }
-
 function OverviewTab({ course }: { course: Course }) {
   return (
     <div className="detail-section-stack">
@@ -597,7 +610,6 @@ function OverviewTab({ course }: { course: Course }) {
     </div>
   );
 }
-
 function formatSourceValue(value: unknown): string {
   if (value === null || value === undefined || value === "") return "Not supplied";
   if (typeof value === "boolean") return value ? "Yes" : "No";
@@ -612,7 +624,6 @@ function formatSourceValue(value: unknown): string {
   }
   return String(value);
 }
-
 function validExternalUrl(value: string | null | undefined): string | null {
   if (!value) return null;
   try { const url = new URL(value); return url.protocol === "https:" || url.protocol === "http:" ? url.href : null; }
@@ -1756,23 +1767,4 @@ function ProvenanceField({
     </div>
   );
 }
-
-function DetailRow({
-  icon: Icon,
-  label,
-  value,
-}: {
-  icon: typeof Calendar;
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="detail-row">
-      <Icon size={16} />
-      <span>
-        <small>{label}</small>
-        <strong>{value}</strong>
-      </span>
-    </div>
-  );
-}
+// Course detail helpers remain colocated with the view that owns them.
