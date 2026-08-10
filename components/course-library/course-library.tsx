@@ -150,6 +150,12 @@ const optionalColumnLabels: Record<CourseLibraryOptionalColumn, string> = {
   healthStatus: "Health",
 };
 
+const essentialCourseLibraryColumns: CourseLibraryOptionalColumn[] = [
+  "primaryVertical",
+  "managementClassification",
+  "healthStatus",
+];
+
 type WorkQueue =
   | "All queues"
   | "Missing Content Metadata"
@@ -568,7 +574,7 @@ export function CourseLibrary({ courses: initialCourses, initialTotal, initialFa
         <div className="result-summary">
           <div>
             <strong>{total.toLocaleString()} courses</strong>
-            <span>{loading ? "Loading page…" : `Page ${pageIndex + 1}`}</span>
+            <span>{loading ? "Loading page…" : `Page ${pageIndex + 1}`} · {visibleColumns.length + 1} visible columns</span>
           </div>
           <div className="column-picker">
             <button
@@ -578,7 +584,7 @@ export function CourseLibrary({ courses: initialCourses, initialTotal, initialFa
               aria-expanded={columnMenuOpen}
               onClick={() => setColumnMenuOpen((open) => !open)}
             >
-              <Columns3 size={16} /> Columns
+              <Columns3 size={16} /> Columns {visibleColumns.length}/{courseLibraryOptionalColumns.length}
             </button>
             {columnMenuOpen && (
               <div ref={columnMenuRef} className="column-popover" role="dialog" aria-label="Choose Course Library columns" onKeyDown={navigateColumnMenu}>
@@ -595,6 +601,7 @@ export function CourseLibrary({ courses: initialCourses, initialTotal, initialFa
                   </label>
                 ))}
                 <div className="column-popover-actions">
+                  <button type="button" onClick={() => void persistVisibleColumns([...essentialCourseLibraryColumns])}>Essential</button>
                   <button type="button" onClick={() => void persistVisibleColumns([...courseLibraryOptionalColumns])}>Show all</button>
                   <button type="button" onClick={() => void persistVisibleColumns([...DEFAULT_COURSE_LIBRARY_PREFERENCES.visibleColumns])}>Reset to default</button>
                 </div>
@@ -613,7 +620,7 @@ export function CourseLibrary({ courses: initialCourses, initialTotal, initialFa
                   <tr key={headerGroup.id}>
                     <th aria-label="Favorites" />
                     {headerGroup.headers.map((header) => (
-                      <th key={header.id}>
+                      <th key={header.id} data-column={header.column.id}>
                         <button
                           className={
                             header.column.getCanSort() ? "sortable-header" : ""
@@ -659,7 +666,7 @@ export function CourseLibrary({ courses: initialCourses, initialTotal, initialFa
                       </button>
                     </td>
                     {row.getVisibleCells().map((cell) => (
-                      <td key={cell.id}>
+                      <td key={cell.id} data-column={cell.column.id}>
                         {flexRender(
                           cell.column.columnDef.cell,
                           cell.getContext(),
@@ -668,9 +675,9 @@ export function CourseLibrary({ courses: initialCourses, initialTotal, initialFa
                     ))}
                     <td className="mobile-row-details">
                       <details>
-                        <summary>Course details</summary>
+                        <summary>Details</summary>
                         <dl>
-                          {courseLibraryOptionalColumns.filter((id) => !visibleColumns.includes(id)).map((id) => (
+                          {courseLibraryOptionalColumns.map((id) => (
                             <div key={id}><dt>{optionalColumnLabels[id]}</dt><dd>{formatHiddenColumn(row.original, id)}</dd></div>
                           ))}
                         </dl>
