@@ -34,7 +34,6 @@ jobs:
       NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
       COURSETRACK_SCHEMA_DATABASE_URL: ${{ secrets.COURSETRACK_SCHEMA_DATABASE_URL }}
-      COURSETRACK_MIGRATION_DATABASE_URL: ${{ secrets.COURSETRACK_MIGRATION_DATABASE_URL }}
       COURSETRACK_STAGING_SUPABASE_REF: ${{ vars.COURSETRACK_STAGING_SUPABASE_REF }}
       COURSETRACK_PRODUCTION_SUPABASE_REF: ${{ vars.COURSETRACK_PRODUCTION_SUPABASE_REF }}
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
@@ -69,7 +68,9 @@ jobs:
         run: npm run verify:production-backup
       - name: Apply pending Production migrations
         working-directory: _candidate
-        run: npx --yes supabase@2.110.0 migration up --db-url "$COURSETRACK_MIGRATION_DATABASE_URL"
+        run: |
+          npx --yes supabase@2.110.0 link --project-ref "$COURSETRACK_PRODUCTION_SUPABASE_REF"
+          npx --yes supabase@2.110.0 migration up --linked
       - name: Verify Production contract from exact candidate
         working-directory: _candidate
         run: npm run check:deployment

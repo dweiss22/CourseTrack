@@ -121,6 +121,14 @@ test("staging release can bootstrap from the existing migration-capable staging 
   );
 });
 
+test("production migrations use the scoped Supabase token and a short-lived linked login", async () => {
+  const workflow = await readFile(".github/workflows/production-preparation.yml", "utf8");
+  assert.match(workflow, /SUPABASE_ACCESS_TOKEN: \$\{\{ secrets\.SUPABASE_ACCESS_TOKEN \}\}/);
+  assert.match(workflow, /supabase@2\.110\.0 link --project-ref/);
+  assert.match(workflow, /supabase@2\.110\.0 migration up --linked/);
+  assert.doesNotMatch(workflow, /--include-all/);
+});
+
 test("course-data audit output is limited to safe counts, refs, versions, and optional IDs", async () => {
   const client = {
     async query(sql) {
@@ -132,7 +140,7 @@ test("course-data audit output is limited to safe counts, refs, versions, and op
       return { rows: [{ courses: 18530, current_lms_snapshots: 18406, current_metadata_records: 1952, imported_backend_links: 1341, backend_links: 1341, imported_frontend_links: 1341, frontend_links: 1341, eligible_link_fields: 0, normalized_disagreements: 0, accreditation_sources: 19571, accreditation_topic_numbers: 513 }] };
     },
   };
-  const output = await auditCourseData({ target: "production", client, loadEnvironment: false, databaseUrl: "postgresql://postgres:secret@db.productionref123.supabase.co/postgres", supabaseUrl: "https://productionref123.supabase.co", environment: refs, includeIds: true, requireFullParity: true, acceptedCounts: { courses: 18530, currentLmsSnapshots: 18406, currentMetadataRecords: 1952, lmsExportProjections: 16578, masterImportProjections: 1952, backendLinks: 1341, frontendLinks: 1341, accreditationSourcesMinimum: 19571, accreditationTopicNumbersMinimum: 513 } });
+  const output = await auditCourseData({ target: "production", client, loadEnvironment: false, supabaseUrl: "https://productionref123.supabase.co", environment: { ...refs, COURSETRACK_SCHEMA_DATABASE_URL: "postgresql://schema_check:secret@db.productionref123.supabase.co/postgres" }, includeIds: true, requireFullParity: true, acceptedCounts: { courses: 18530, currentLmsSnapshots: 18406, currentMetadataRecords: 1952, lmsExportProjections: 16578, masterImportProjections: 1952, backendLinks: 1341, frontendLinks: 1341, accreditationSourcesMinimum: 19571, accreditationTopicNumbersMinimum: 513 } });
   assert.equal(output.accepted, true);
   const serialized = JSON.stringify(output);
   assert.doesNotMatch(serialized, /postgresql:|https?:\/\/|secret|title|payload/i);

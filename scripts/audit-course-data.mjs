@@ -30,10 +30,13 @@ function numeric(row, key) {
 export async function auditCourseData(options = {}) {
   const target = assertTarget(options.target);
   if (options.loadEnvironment !== false) await loadEnvFile(path.resolve(".env.local"));
-  const databaseUrl = options.databaseUrl || process.env.COURSETRACK_MIGRATION_DATABASE_URL;
-  const supabaseUrl = options.supabaseUrl || process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
-  if (!databaseUrl) throw new Error("COURSETRACK_MIGRATION_DATABASE_URL is required for the course-data audit.");
-  const identity = assertTargetConfiguration({ target, databaseUrl, supabaseUrl, environment: options.environment || process.env });
+  const environment = options.environment || process.env;
+  const databaseUrl = options.databaseUrl
+    || environment.COURSETRACK_MIGRATION_DATABASE_URL
+    || environment.COURSETRACK_SCHEMA_DATABASE_URL;
+  const supabaseUrl = options.supabaseUrl || environment.SUPABASE_URL || environment.NEXT_PUBLIC_SUPABASE_URL;
+  if (!databaseUrl) throw new Error("A target-specific course-data audit database URL is required.");
+  const identity = assertTargetConfiguration({ target, databaseUrl, supabaseUrl, environment });
   const client = options.client || new pg.Client({ connectionString: databaseUrl });
   if (!options.client) await client.connect();
   try {

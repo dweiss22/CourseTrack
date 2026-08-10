@@ -46,15 +46,20 @@ Repository variables:
 
 Both the `staging` and `Production` environments:
 
-- secret `COURSETRACK_MIGRATION_DATABASE_URL` (migration-capable, target-local)
 - secret `VERCEL_TOKEN`
 - variables `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID`
 - existing target-specific Supabase URL/key, schema-check URL, project refs,
   smoke URL, and Vercel bypass values
 
+Staging only:
+
+- secret `COURSETRACK_MIGRATION_DATABASE_URL` (preferred) or the existing
+  target-local `STAGING_DATABASE_URL` bootstrap credential
+
 Production only:
 
-- secret `SUPABASE_ACCESS_TOKEN` for backup metadata verification
+- secret `SUPABASE_ACCESS_TOKEN`, scoped to the Production project, for backup
+  verification and the Supabase CLI's short-lived linked migration login
 - secret `COURSETRACK_PROMOTION_APP_PRIVATE_KEY`
 - variable `COURSETRACK_PROMOTION_APP_ID`
 
