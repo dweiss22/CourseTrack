@@ -6,6 +6,7 @@ export const courseLibraryOptionalColumns = [
   "conflictCount",
   "topicAssignments",
   "healthStatus",
+  "lmsActions",
 ] as const;
 
 export type CourseLibraryOptionalColumn = (typeof courseLibraryOptionalColumns)[number];
@@ -21,6 +22,7 @@ export const DEFAULT_COURSE_LIBRARY_PREFERENCES: CourseLibraryPreferences = {
     "reconciliationStatus",
     "retrievalStatus",
     "healthStatus",
+    "lmsActions",
   ],
 };
 

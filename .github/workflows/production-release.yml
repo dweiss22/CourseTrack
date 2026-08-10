@@ -1,0 +1,119 @@
+name: CourseTrack production release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      staging_sha:
+        description: Exact staging SHA whose tree must match this main commit
+        required: true
+        type: string
+
+concurrency:
+  group: release-production
+  cancel-in-progress: false
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  release:
+    name: Production release verified
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    environment: Production
+    env:
+      COURSETRACK_ENVIRONMENT: production
+      VERCEL_GIT_COMMIT_REF: main
+      SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+      SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+      NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      COURSETRACK_SCHEMA_DATABASE_URL: ${{ secrets.COURSETRACK_SCHEMA_DATABASE_URL }}
+      COURSETRACK_MIGRATION_DATABASE_URL: ${{ secrets.COURSETRACK_MIGRATION_DATABASE_URL }}
+      COURSETRACK_STAGING_SUPABASE_REF: ${{ vars.COURSETRACK_STAGING_SUPABASE_REF }}
+      COURSETRACK_PRODUCTION_SUPABASE_REF: ${{ vars.COURSETRACK_PRODUCTION_SUPABASE_REF }}
+      COURSETRACK_SMOKE_BASE_URL: ${{ vars.COURSETRACK_SMOKE_BASE_URL }}
+      VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+    steps:
+      - name: Check out main with merge history
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Resolve and verify the tested staging tree
+        id: source
+        shell: bash
+        env:
+          MANUAL_STAGING_SHA: ${{ inputs.staging_sha }}
+        run: |
+          source_sha="$MANUAL_STAGING_SHA"
+          if test -z "$source_sha"; then source_sha="$(git rev-parse HEAD^2)"; fi
+          git fetch origin staging
+          git cat-file -e "$source_sha^{commit}"
+          test "$(git rev-parse "$source_sha^{tree}")" = "$(git rev-parse "HEAD^{tree}")"
+          echo "sha=$source_sha" >> "$GITHUB_OUTPUT"
+      - name: Use Node.js 22
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Verify Production database is release-ready
+        run: |
+          npm run check:deployment
+          npm run audit:course-data -- --target=production --require-full-parity
+      - name: Pull Vercel Production configuration
+        run: npx --yes vercel@58.0.0 pull --yes --environment=production --token="$VERCEL_TOKEN"
+      - name: Build Production artifact
+        run: npx --yes vercel@58.0.0 build --prod --token="$VERCEL_TOKEN"
+      - name: Stage Production deployment without domains
+        id: deploy
+        shell: bash
+        run: |
+          url="$(npx --yes vercel@58.0.0 deploy --prebuilt --prod --skip-domain --token="$VERCEL_TOKEN")"
+          echo "::add-mask::$url"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+      - name: Smoke staged Production deployment
+        env:
+          COURSETRACK_SMOKE_BASE_URL: ${{ steps.deploy.outputs.url }}
+          COURSETRACK_SMOKE_EXPECTED_COMMIT: ${{ github.sha }}
+        run: npm run smoke:deployment:health
+      - name: Promote staged deployment
+        run: npx --yes vercel@58.0.0 promote "${{ steps.deploy.outputs.url }}" --token="$VERCEL_TOKEN"
+      - name: Smoke stable Production URL
+        env:
+          COURSETRACK_SMOKE_EXPECTED_COMMIT: ${{ github.sha }}
+        run: npm run smoke:deployment:health
+    outputs:
+      staging_sha: ${{ steps.source.outputs.sha }}
+
+  sync-staging:
+    name: Fast-forward staging after Production smoke
+    needs: release
+    runs-on: ubuntu-latest
+    environment: Production
+    permissions:
+      contents: read
+    steps:
+      - name: Create least-privilege promotion App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.COURSETRACK_PROMOTION_APP_ID }}
+          private-key: ${{ secrets.COURSETRACK_PROMOTION_APP_PRIVATE_KEY }}
+      - name: Fast-forward staging to the released main commit
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          OLD_STAGING_SHA: ${{ needs.release.outputs.staging_sha }}
+          NEW_MAIN_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          current="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/staging" --jq '.object.sha')"
+          test "$current" = "$OLD_STAGING_SHA"
+          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/git/refs/heads/staging" -f sha="$NEW_MAIN_SHA" -F force=false

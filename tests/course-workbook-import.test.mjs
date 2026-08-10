@@ -58,8 +58,12 @@ test("apply importer performs field-level merges and uses immutable source finge
   assert.match(source, /accreditationBackfills\.push\(\{\s*\.\.\.matches\[0\]/);
   assert.match(source, /hash\(\[course\.courseId, item\.index,/);
   assert.match(source, /consumedAccreditationIds/);
-  assert.match(source, /process\.env\.STAGING_DATABASE_URL/);
-  assert.match(source, /COURSETRACK_ENVIRONMENT[\s\S]*redactRawPayloads/);
+  assert.doesNotMatch(source, /process\.env\.STAGING_DATABASE_URL/);
+  assert.match(source, /COURSETRACK_MIGRATION_DATABASE_URL/);
+  assert.match(source, /target === "staging"/);
+  assert.match(source, /approvedProductionRollout/);
+  assert.match(source, /verifySourceManifest/);
+  assert.match(source, /assertTargetConfiguration/);
   assert.match(source, /raw_payload: redactRawPayloads \? \{\}/);
   assert.match(source, /set statement_timeout = '15min'/);
   assert.match(source, /select public\.refresh_all_course_comparisons\(\)/);

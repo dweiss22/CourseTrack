@@ -4843,6 +4843,274 @@ body {
   }
 }
 
+/* Shared contained-table and accessible disclosure system. */
+.table-scroll {
+  max-width: 100%;
+  overflow-x: clip;
+}
+
+.data-table {
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+}
+
+.data-table th,
+.data-table td {
+  min-width: 0;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.data-table td > small {
+  display: block;
+}
+
+.cell-disclosure {
+  cursor: zoom-in;
+  outline-offset: -2px;
+}
+
+.cell-disclosure:focus,
+.cell-disclosure[data-expanded="true"] {
+  overflow: visible;
+  white-space: normal;
+  -webkit-line-clamp: unset;
+}
+
+.lms-link-actions,
+.comparison-heading-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+}
+
+.lms-link-actions.is-compact {
+  gap: 5px;
+}
+
+.lms-link-action.is-compact {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 4px 7px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 750;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.lms-link-action.is-compact:hover,
+.lms-link-action.is-compact:focus-visible {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.lms-link-invalid,
+.lms-links-unavailable,
+.restricted-link-presence {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.lms-link-invalid {
+  color: var(--danger);
+  font-weight: 700;
+}
+
+.alignment-help,
+.alignment-glossary {
+  position: relative;
+  display: inline-flex;
+}
+
+.alignment-help-trigger {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: help;
+}
+
+.alignment-help-popover,
+.alignment-glossary-popover {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 7px);
+  right: 0;
+  width: min(340px, calc(100vw - 48px));
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-elevated, var(--surface));
+  box-shadow: var(--shadow-lg);
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.alignment-glossary-popover {
+  width: min(520px, calc(100vw - 48px));
+}
+
+.alignment-glossary-popover dl,
+.alignment-glossary-popover dd {
+  margin: 0;
+}
+
+.alignment-glossary-popover dl > div + div {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.alignment-glossary-popover dt {
+  font-weight: 800;
+}
+
+.alignment-glossary-popover dd {
+  margin-top: 3px;
+  color: var(--text-secondary);
+}
+
+.glossary-close {
+  float: right;
+  margin: 0 0 8px 12px;
+}
+
+.course-table [data-column="lmsActions"] {
+  width: 142px;
+}
+
+@media (max-width: 1100px) {
+  .table-scroll:has(> .data-table.responsive-table-ready:not(.course-table):not(.versions-table):not(.accreditation-table)) {
+    overflow: visible;
+  }
+
+  .data-table.responsive-table-ready:not(.course-table):not(.versions-table):not(.accreditation-table),
+  .data-table.responsive-table-ready:not(.course-table):not(.versions-table):not(.accreditation-table) > tbody {
+    display: block;
+  }
+
+  .data-table.responsive-table-ready:not(.course-table):not(.versions-table):not(.accreditation-table) > thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .data-table.responsive-table-ready:not(.course-table):not(.versions-table):not(.accreditation-table) > tbody > tr {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0;
+    margin-bottom: 12px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+    box-shadow: var(--shadow-xs);
+  }
+
+  .data-table.responsive-table-ready:not(.course-table):not(.versions-table):not(.accreditation-table) > tbody > tr > td {
+    display: grid;
+    grid-template-columns: minmax(108px, 0.42fr) minmax(0, 1fr);
+    align-content: start;
+    gap: 10px;
+    min-height: 46px;
+    padding: 10px 12px;
+    border: 0;
+    border-bottom: 1px solid var(--border-subtle);
+    white-space: normal;
+  }
+
+  .data-table.responsive-table-ready:not(.course-table):not(.versions-table):not(.accreditation-table) > tbody > tr > td::before {
+    content: attr(data-label);
+    color: var(--text-muted);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+  }
+
+  .comparison-table.responsive-table-ready > tbody > tr {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 700px) {
+  .data-table.responsive-table-ready:not(.course-table):not(.versions-table):not(.accreditation-table) > tbody > tr {
+    grid-template-columns: 1fr;
+  }
+
+  .data-table.responsive-table-ready:not(.course-table):not(.versions-table):not(.accreditation-table) > tbody > tr > td {
+    grid-template-columns: minmax(92px, 0.38fr) minmax(0, 1fr);
+  }
+
+  .course-action-row .lms-link-actions {
+    flex-basis: 100%;
+  }
+
+  .comparison-heading-actions {
+    align-items: flex-start;
+  }
+}
+
+@media (min-width: 1101px) {
+  .comparison-table.responsive-table-ready,
+  .comparison-table.responsive-table-ready > tbody {
+    display: block;
+  }
+
+  .comparison-table.responsive-table-ready > thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .comparison-table.responsive-table-ready > tbody > tr {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin-bottom: 12px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+  }
+
+  .comparison-table.responsive-table-ready > tbody > tr > td {
+    display: grid;
+    align-content: start;
+    gap: 6px;
+    min-height: 78px;
+    padding: 12px;
+    border: 0;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .comparison-table.responsive-table-ready > tbody > tr > td::before {
+    content: attr(data-label);
+    color: var(--text-muted);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -5761,7 +6029,20 @@ body {
   }
 
   .mobile-row-details dl {
-    min-width: min(280px, calc(100vw - 96px));
+    position: absolute;
+    z-index: 35;
+    right: 0;
+    width: min(280px, calc(100vw - 64px));
+    min-width: 0;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    box-shadow: var(--shadow-lg);
+  }
+
+  .mobile-row-details details {
+    position: relative;
   }
 
   .course-heading.course-heading-expanded {

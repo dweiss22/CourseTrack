@@ -239,6 +239,12 @@ export async function getCourseLibraryPage(input: CourseLibraryPageQuery = {}): 
   if (error) throw databaseError("Could not search the course library", error);
   type LibraryRow = Record<string, unknown>;
   const rows = (data ?? []) as LibraryRow[];
+  const appIds = rows.map((row) => row.id as string).filter(Boolean);
+  const linkRows = appIds.length
+    ? await requireDatabaseClient().from("courses").select("app_id,backend_link,frontend_link").in("app_id", appIds)
+    : { data: [], error: null };
+  if (linkRows.error) throw databaseError("Could not read Course Library LMS links", linkRows.error);
+  const linksByAppId = new Map((linkRows.data ?? []).map((row) => [row.app_id as string, row]));
   const items: PortfolioSummary[] = rows.map((row) => ({
     id: row.id as string, title: row.title as string, shortTitle: (row.short_title as string) ?? "", courseCode: row.course_code as string,
     lmsCourseId: (row.lms_course_id as string) ?? null, description: (row.description as string) ?? "", primaryVertical: row.primary_vertical as PortfolioSummary["primaryVertical"],
@@ -250,6 +256,8 @@ export async function getCourseLibraryPage(input: CourseLibraryPageQuery = {}): 
     metadataCompletenessScore: Number(row.metadata_completeness_score ?? 0), conflictCount: Number(row.conflict_count ?? 0), sourceDifferenceCount: Number(row.source_difference_count ?? 0),
     flagCount: Number(row.flag_count ?? 0), hasLmsSnapshot: Boolean(row.has_lms_snapshot), hasContentMetadata: Boolean(row.has_content_metadata),
     importValidationErrorCount: Number(row.import_validation_error_count ?? 0), topicAssignments: ((row.topics as string[]) ?? []).map((topic) => ({ topic })),
+    backendLink: (linksByAppId.get(row.id as string)?.backend_link as string) ?? null,
+    frontendLink: (linksByAppId.get(row.id as string)?.frontend_link as string) ?? null,
   }));
   return { items, total: Number(rows[0]?.total_count ?? 0), page, pageSize };
 }

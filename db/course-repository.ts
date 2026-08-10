@@ -780,6 +780,8 @@ export interface PortfolioSummary {
   hasContentMetadata: boolean;
   importValidationErrorCount: number;
   topicAssignments: { topic: string }[];
+  backendLink: string | null;
+  frontendLink: string | null;
 }
 
 // Dashboard and Course Library only ever render these flat/derived fields —
@@ -912,7 +914,7 @@ export async function fetchPortfolioSummaries(client: SupabaseClient): Promise<P
     fetchAllRows(
       client,
       "courses",
-      "id,app_id,title,short_title,course_code,lms_course_id,description,primary_vertical_id,management_classification,reconciliation_status,retrieval_status,last_retrieved_at,health_status,lifecycle_status,primary_topic,owner_name,duration_minutes,data_source,next_review_date,metadata_completeness_score,source_difference_count,import_validation_errors",
+      "id,app_id,title,short_title,course_code,lms_course_id,description,primary_vertical_id,management_classification,reconciliation_status,retrieval_status,last_retrieved_at,health_status,lifecycle_status,primary_topic,owner_name,duration_minutes,data_source,next_review_date,metadata_completeness_score,source_difference_count,import_validation_errors,backend_link,frontend_link",
     ),
     fetchAllRows(client, "course_flags", "course_id", (query) => query.is("archived_at", null)),
     fetchAllRows(client, "lms_snapshots", "course_id", (query) => query.eq("is_current", true)),
@@ -996,6 +998,8 @@ export async function fetchPortfolioSummaries(client: SupabaseClient): Promise<P
       hasContentMetadata: metadataCourseIds.has(courseDbId),
       importValidationErrorCount: ((row.import_validation_errors as string[]) ?? []).length,
       topicAssignments: topicsByCourse.get(courseDbId) ?? [],
+      backendLink: (row.backend_link as string) ?? null,
+      frontendLink: (row.frontend_link as string) ?? null,
     };
   });
 }

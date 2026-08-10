@@ -39,6 +39,7 @@ import {
 } from "@/types/course";
 import { StatusBadge } from "../status-badge";
 import { HealthAboutDialog } from "../health-about-dialog";
+import { LmsLinkActions } from "../lms-link-actions";
 
 export type CourseLibraryRecord = Pick<
   Course,
@@ -61,6 +62,8 @@ export type CourseLibraryRecord = Pick<
   | "owner"
   | "durationMinutes"
   | "dataSource"
+  | "backendLink"
+  | "frontendLink"
 > & {
   topicAssignments: Array<{ topic: string }>;
   hasLmsSnapshot: boolean;
@@ -138,6 +141,11 @@ const columns = [
     header: "Health",
     cell: (info) => <StatusBadge>{info.getValue()}</StatusBadge>,
   }),
+  columnHelper.display({
+    id: "lmsActions",
+    header: "LMS",
+    cell: ({ row }) => <LmsLinkActions backendLink={row.original.backendLink} frontendLink={row.original.frontendLink} courseName={row.original.title} compact />,
+  }),
 ];
 
 const optionalColumnLabels: Record<CourseLibraryOptionalColumn, string> = {
@@ -148,6 +156,7 @@ const optionalColumnLabels: Record<CourseLibraryOptionalColumn, string> = {
   conflictCount: "Conflicts",
   topicAssignments: "Topics",
   healthStatus: "Health",
+  lmsActions: "LMS actions",
 };
 
 const essentialCourseLibraryColumns: CourseLibraryOptionalColumn[] = [
@@ -182,6 +191,9 @@ function formatHiddenColumn(course: CourseLibraryRecord, column: CourseLibraryOp
   }
   if (column === "topicAssignments") {
     return course.topicAssignments.map((assignment) => assignment.topic).join(", ") || "No topics";
+  }
+  if (column === "lmsActions") {
+    return `${course.backendLink ? "Backend link available" : "No backend link"}; ${course.frontendLink ? "Course link available" : "No course link"}`;
   }
   return String(course[column] ?? "Not available");
 }
@@ -646,7 +658,7 @@ export function CourseLibrary({ courses: initialCourses, initialTotal, initialFa
               <tbody>
                 {table.getRowModel().rows.map((row) => (
                   <tr key={row.id}>
-                    <td>
+                    <td data-label="Favorite">
                       <button
                         className={`favorite-button ${
                           favorites.includes(row.original.id) ? "favorite-active" : ""
@@ -666,7 +678,7 @@ export function CourseLibrary({ courses: initialCourses, initialTotal, initialFa
                       </button>
                     </td>
                     {row.getVisibleCells().map((cell) => (
-                      <td key={cell.id} data-column={cell.column.id}>
+                      <td key={cell.id} data-column={cell.column.id} data-label={optionalColumnLabels[cell.column.id as CourseLibraryOptionalColumn] ?? (cell.column.id === "title" ? "Course" : cell.column.id)}>
                         {flexRender(
                           cell.column.columnDef.cell,
                           cell.getContext(),
@@ -730,6 +742,7 @@ export function CourseLibrary({ courses: initialCourses, initialTotal, initialFa
                   <StatusBadge>{course.reconciliationStatus}</StatusBadge>
                   <StatusBadge>{course.healthStatus}</StatusBadge>
                 </div>
+                <LmsLinkActions backendLink={course.backendLink} frontendLink={course.frontendLink} courseName={course.title} compact showUnavailable={false} />
                 <div className="course-card-footer">
                   <span>
                     {getVerticalLabel(course.primaryVertical)} · {course.topicAssignments[0]?.topic ?? "No topic"}

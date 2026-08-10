@@ -51,6 +51,8 @@ import { accreditationDisplayLabel, accreditationRiskLabels, groupAccreditationR
 import { statusesForKind, TASK_CALLOUT_KINDS, TASK_CALLOUT_PRIORITIES, taskCalloutDueState, taskCalloutStatusAction } from "@/lib/task-callouts";
 import { AsyncCourseSelect } from "../async-course-select";
 import { AccreditationRecordEditor, VersionRecordEditor } from "../record-editors";
+import { AlignmentGlossary, AlignmentStatusBadge } from "../alignment-help";
+import { LmsLinkAction, LmsLinkActions, RestrictedLinkPresence, type LmsLinkKind } from "../lms-link-actions";
 
 const tabs = [
   "Overview",
@@ -318,6 +320,7 @@ export function CourseDetail({
               {currentCourse.currentVersion}
             </p>
             <div className="course-action-row" aria-label="Course actions">
+              <LmsLinkActions backendLink={currentCourse.backendLink} frontendLink={currentCourse.frontendLink} courseName={currentCourse.title} compact />
               <button
                 className={`icon-action ${favorite ? "is-active" : ""}`}
                 onClick={toggleFavorite}
@@ -624,12 +627,6 @@ function formatSourceValue(value: unknown): string {
   }
   return String(value);
 }
-function validExternalUrl(value: string | null | undefined): string | null {
-  if (!value) return null;
-  try { const url = new URL(value); return url.protocol === "https:" || url.protocol === "http:" ? url.href : null; }
-  catch { return null; }
-}
-
 function ComparisonState({ comparison }: { comparison: FieldComparison }) {
   const state = comparison.alignmentStatus === "In sync"
     ? { label: "In sync", icon: Check, tone: "success" as const }
@@ -643,7 +640,20 @@ function ComparisonState({ comparison }: { comparison: FieldComparison }) {
             ? { label: "App only", icon: Sparkles, tone: "info" as const }
             : { label: "Mapping required", icon: AlertTriangle, tone: "danger" as const };
   const Icon = state.icon;
-  return <StatusBadge tone={state.tone}><Icon size={12} aria-hidden="true" /> {state.label}</StatusBadge>;
+  return <AlignmentStatusBadge status={comparison.alignmentStatus} tone={state.tone}><Icon size={12} aria-hidden="true" /> {state.label}</AlignmentStatusBadge>;
+}
+
+function comparisonLinkKind(fieldKey: string): LmsLinkKind | null {
+  if (fieldKey === "backendLink") return "backend";
+  if (fieldKey === "frontendLink") return "course";
+  return null;
+}
+
+function ComparisonValue({ comparison, value, raw = false }: { comparison: FieldComparison; value: unknown; raw?: boolean }) {
+  const kind = comparisonLinkKind(comparison.fieldKey);
+  if (!kind) return <>{formatSourceValue(value)}</>;
+  if (raw && kind === "backend") return <RestrictedLinkPresence value={value} kind={kind} />;
+  return <LmsLinkAction kind={kind} value={value} compact />;
 }
 
 function DataComparisonTab({
@@ -687,7 +697,7 @@ function DataComparisonTab({
             <h2>Data Comparison</h2>
             <p>LMS, uploaded metadata, and editable CourseTrack values stay separate and auditable.</p>
           </div>
-          <StatusBadge tone={course.sourceDifferenceCount > 0 ? "danger" : "success"}>{course.sourceDifferenceCount} actionable difference{course.sourceDifferenceCount === 1 ? "" : "s"}</StatusBadge>
+          <div className="comparison-heading-actions"><AlignmentGlossary /><StatusBadge tone={course.sourceDifferenceCount > 0 ? "danger" : "success"}>{course.sourceDifferenceCount} actionable difference{course.sourceDifferenceCount === 1 ? "" : "s"}</StatusBadge></div>
         </div>
         <div className="readonly-callout">
           <LockKeyhole size={18} />
@@ -713,25 +723,25 @@ function DataComparisonTab({
             <tbody>
               {course.fieldComparisons.map((comparison) => (
                 <tr key={comparison.fieldKey}>
-                  <td>
+                  <td data-label="Field">
                     <strong>{comparison.fieldLabel}</strong>
                     <small>Compared {comparison.lastComparedAt.slice(0, 10)}</small>
                   </td>
-                  <td>
-                    <span>{formatSourceValue(comparison.lmsNormalizedValue)}</span>
+                  <td data-label="LMS value">
+                    <span><ComparisonValue comparison={comparison} value={comparison.lmsNormalizedValue} /></span>
                     <small>{comparison.lmsSourceTimestamp?.slice(0, 10) ?? "No LMS source"}</small>
                   </td>
-                  <td>
-                    <span>{formatSourceValue(comparison.contentMetadataNormalizedValue)}</span>
+                  <td data-label="Uploaded metadata">
+                    <span><ComparisonValue comparison={comparison} value={comparison.contentMetadataNormalizedValue} /></span>
                     <small>{comparison.metadataSourceTimestamp?.slice(0, 10) ?? "No metadata source"}</small>
                   </td>
-                  <td>
-                    <strong>{formatSourceValue(comparison.courseTrackNormalizedValue)}</strong>
+                  <td data-label="CourseTrack value">
+                    <strong><ComparisonValue comparison={comparison} value={comparison.courseTrackNormalizedValue} /></strong>
                     <small>Editable CourseTrack projection</small>
-                    <details className="comparison-raw-details"><summary>Raw values and audit details</summary><dl><div><dt>Immutable LMS raw value</dt><dd>{formatSourceValue(comparison.lmsRawValue)}</dd></div><div><dt>Immutable uploaded raw value</dt><dd>{formatSourceValue(comparison.contentMetadataRawValue)}</dd></div><div><dt>Last compared</dt><dd>{comparison.lastComparedAt}</dd></div>{comparison.resolvedBy && <div><dt>Resolved by</dt><dd>{comparison.resolvedBy} · {comparison.resolvedAt}</dd></div>}</dl></details>
+                    <details className="comparison-raw-details"><summary>Raw values and audit details</summary><dl><div><dt>Immutable LMS raw value</dt><dd><ComparisonValue comparison={comparison} value={comparison.lmsRawValue} raw /></dd></div><div><dt>Immutable uploaded raw value</dt><dd><ComparisonValue comparison={comparison} value={comparison.contentMetadataRawValue} raw /></dd></div><div><dt>Last compared</dt><dd>{comparison.lastComparedAt}</dd></div>{comparison.resolvedBy && <div><dt>Resolved by</dt><dd>{comparison.resolvedBy} · {comparison.resolvedAt}</dd></div>}</dl></details>
                   </td>
-                  <td><ComparisonState comparison={comparison} /></td>
-                  <td>
+                  <td data-label="Alignment"><ComparisonState comparison={comparison} /></td>
+                  <td data-label="Actions">
                     {canEdit && comparison.alignmentStatus !== "In sync" && comparison.fieldScope === "shared" ? <div className="comparison-actions">
                       <button disabled={resolving} onClick={() => onResolve(comparison.fieldKey, "Use LMS value")}>Use LMS</button>
                       {authorityMode === "workbook" && comparison.alignmentStatus === "Pending LMS update" && <button disabled={confirmingId === comparison.id} onClick={() => void confirmAlignment(comparison)}>Confirm LMS updated</button>}
@@ -764,17 +774,12 @@ function DataComparisonTab({
           <ProvenanceField label="Monitoring" value={course.monitoringEnabled ? "Enabled" : "Excluded from portfolio metrics"} source="CourseTrack" />
           <ProvenanceField label="LMS snapshot" value={course.lmsSnapshot ? course.lmsSnapshot.retrievedAt : "Missing from LMS"} source="LMS" locked />
           <ProvenanceField label="Content Metadata" value={course.contentMetadata ? course.contentMetadata.importedAt : "Missing metadata"} source="Import" />
-          <ProvenanceField label="Backend link" value={course.contentMetadata?.backendLink ? "Restricted internal administrative link" : "Not supplied"} source="Content Metadata" />
-          <ProvenanceField label="Frontend link" value={course.contentMetadata?.frontendLink ?? "Not supplied"} source="Content Metadata" />
+          <ProvenanceField label="Backend link" value={course.contentMetadata?.backendLink ? "Restricted internal administrative link present" : "Not supplied"} source="Content Metadata" />
+          <ProvenanceField label="Frontend link" value={course.contentMetadata?.frontendLink ? "LMS course link present" : "Not supplied"} source="Content Metadata" />
           <ProvenanceField label="Topic assignments" value={`${course.topicAssignments.length} assignments from ${new Set(course.topicAssignments.map((item) => item.source)).size} sources`} source="Multiple" />
           <ProvenanceField label="Vertical assignments" value={`${course.verticalAssignments.length} sourced assignments`} source="Multiple" />
           <ProvenanceField label="Relationships" value={`${course.relationships.length} parent/child records`} source="Content Metadata" />
           <ProvenanceField label="Accreditation comparison" value={`${course.lmsSnapshot?.normalized.accreditations.length ?? 0} LMS records · ${course.accreditations.length} active records`} source="LMS / CourseTrack" />
-        </div>
-        <div className="button-row" aria-label="Course source links">
-          {validExternalUrl(course.backendLink) && <a className="button button-primary" href={validExternalUrl(course.backendLink)!} target="_blank" rel="noreferrer"><Link2 size={15} /> Open LMS backend</a>}
-          {validExternalUrl(course.frontendLink) && <a className="button button-secondary" href={validExternalUrl(course.frontendLink)!} target="_blank" rel="noreferrer"><Link2 size={15} /> Open LMS course</a>}
-          {!validExternalUrl(course.backendLink) && !validExternalUrl(course.frontendLink) && <small>No valid LMS links are available.</small>}
         </div>
         {(course.mappingWarnings.length > 0 || course.importValidationErrors.length > 0) && (
           <div className="source-warning-list">
@@ -1229,7 +1234,7 @@ function AccreditationTab({ course, onCourseChange, canManage, isAdministrator, 
       <article className="panel"><div className="panel-heading"><div><h2>Accreditation management</h2><p>{activeRecords.length} active · {archivedRecords.length} archived</p></div><div className="button-row">{canManage && <button className="button button-primary" onClick={() => setEditingRecord("new")}>Add accreditation</button>}<button className="button button-secondary" onClick={() => setShowArchived((value) => !value)}>{showArchived ? "Show active" : "Archived history"}</button></div></div>
       {accreditationMessage && <div className="inline-alert" role="status"><ShieldCheck size={16} /><span>{accreditationMessage}</span></div>}
       {editingRecord && <AccreditationRecordEditor record={editingRecord === "new" ? null : editingRecord} courseField={<input type="hidden" name="courseId" value={course.id} />} pending={pending} apiLocked={authorityMode === "api"} onSubmit={saveRecord} onCancel={() => setEditingRecord(null)} />}
-      <div className="table-scroll"><table className="data-table"><thead><tr><th>Issuing body</th><th>Jurisdiction</th><th>Accreditation / topic</th><th>Dates</th><th>Status / credits</th><th>Alignment</th><th>Actions</th></tr></thead><tbody>{(showArchived ? archivedRecords : activeRecords).map((record) => <tr key={record.id}><td>{record.organization}</td><td>{record.jurisdiction || "—"}</td><td>{record.approvalNumber ?? "—"}<small>Topic: {record.topicNumber ?? "—"}</small></td><td>{record.effectiveDate ?? "—"} – {record.expirationDate ?? "—"}</td><td>{record.status}<small>{record.creditHours} hours</small></td><td><StatusBadge tone={record.alignmentStatus === "Pending LMS update" ? "danger" : record.alignmentStatus === "Manually confirmed" || record.alignmentStatus === "In sync" ? "success" : "info"}>{record.alignmentStatus}</StatusBadge></td><td><div className="table-actions">{canManage && !record.archivedAt && <button onClick={() => setEditingRecord(record)}>Edit</button>}{canManage && !record.archivedAt && <button disabled={pending || (authorityMode === "api" && record.sourceDomain === "lms")} onClick={() => void archiveOrRestore(record, false)}>Archive</button>}{canManage && authorityMode === "workbook" && record.alignmentStatus === "Pending LMS update" && !record.archivedAt && <button disabled={pending} onClick={() => void confirmRecord(record)}>Confirm LMS updated</button>}{isAdministrator && record.archivedAt && <button disabled={pending} onClick={() => void archiveOrRestore(record, true)}>Restore</button>}</div></td></tr>)}</tbody></table></div>
+      <div className="table-scroll"><table className="data-table"><thead><tr><th>Issuing body</th><th>Jurisdiction</th><th>Accreditation / topic</th><th>Dates</th><th>Status / credits</th><th>Alignment</th><th>Actions</th></tr></thead><tbody>{(showArchived ? archivedRecords : activeRecords).map((record) => <tr key={record.id}><td data-label="Issuing body">{record.organization}</td><td data-label="Jurisdiction">{record.jurisdiction || "—"}</td><td data-label="Accreditation / topic">{record.approvalNumber ?? "—"}<small>Topic: {record.topicNumber ?? "—"}</small></td><td data-label="Dates">{record.effectiveDate ?? "—"} – {record.expirationDate ?? "—"}</td><td data-label="Status / credits">{record.status}<small>{record.creditHours} hours</small></td><td data-label="Alignment"><AlignmentStatusBadge status={record.alignmentStatus} tone={record.alignmentStatus === "Pending LMS update" ? "danger" : record.alignmentStatus === "Manually confirmed" || record.alignmentStatus === "In sync" ? "success" : "info"}>{record.alignmentStatus}</AlignmentStatusBadge></td><td data-label="Actions"><div className="table-actions">{canManage && !record.archivedAt && <button onClick={() => setEditingRecord(record)}>Edit</button>}{canManage && !record.archivedAt && <button disabled={pending || (authorityMode === "api" && record.sourceDomain === "lms")} onClick={() => void archiveOrRestore(record, false)}>Archive</button>}{canManage && authorityMode === "workbook" && record.alignmentStatus === "Pending LMS update" && !record.archivedAt && <button disabled={pending} onClick={() => void confirmRecord(record)}>Confirm LMS updated</button>}{isAdministrator && record.archivedAt && <button disabled={pending} onClick={() => void archiveOrRestore(record, true)}>Restore</button>}</div></td></tr>)}</tbody></table></div>
       {(showArchived ? archivedRecords : activeRecords).length === 0 && <div className="empty-state compact-empty"><Award size={24} /><p>No {showArchived ? "archived" : "active"} accreditation records.</p></div>}
       </article>
       {groups.map((group) => <AccreditationGroupCard group={group} key={group.key} />)}

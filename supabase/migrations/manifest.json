@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "productionBaseline": {
+    "version": "20260806160508",
+    "coversThrough": "202608040007"
+  },
+  "migrations": [
+    { "version": "202607300001", "file": "202607300001_phase1_foundation.sql", "sha256": "bd10de9eb3dec96eaa12b5347c41aa0bb7566b3d9bdbdf74808eb0171b509b1e" },
+    { "version": "202607300002", "file": "202607300002_supabase_runtime_adapter.sql", "sha256": "22ac02d20c8dd4396f4da79cc3958de2664c1ca709e7b2b2d51cd129962d16ea" },
+    { "version": "202607310003", "file": "202607310003_lexipol_verticals.sql", "sha256": "8ae659797c00ee32c58f122606c8307d603c8d9e52af2e50b9f58e8938cc027c" },
+    { "version": "202607310004", "file": "202607310004_source_reconciliation.sql", "sha256": "8d83d6a6c6418fc15616b197debcde9d914ad43ce9171f9a6d1334e99be34c94" },
+    { "version": "202607310005", "file": "202607310005_app_owned_versions_wrike.sql", "sha256": "13ca4ef3aa5f37f5ba78edb0cb3db388774c71221c2b25031c90ff9984ffcea1" },
+    { "version": "202608030001", "file": "202608030001_manual_taxonomy.sql", "sha256": "c8e8e890ab60f2be3c5ff6d35a2efd3d3056e11be740329d6a8699be5cbc5d11" },
+    { "version": "202608040001", "file": "202608040001_wrike_task_sync.sql", "sha256": "9114aa27d9badf5d89ec8675eac05e2d939ee8dc467666a5edae1a745495c04a" },
+    { "version": "202608040002", "file": "202608040002_role_based_auth.sql", "sha256": "b77ca8a4edb04094bbc9e2fb0e35a355512cb72f03fa54bd62bd574d06807e27" },
+    { "version": "202608040003", "file": "202608040003_single_super_admin_transfer.sql", "sha256": "cc0f3aa8df45637732c5e3bfa244926fc11c9d7d6b84fb86a011d78c813cc35b" },
+    { "version": "202608040004", "file": "202608040004_rich_user_profiles.sql", "sha256": "1533c1225038df333560845396496a0573f320c3202be60f4dc1fc5aadd59209" },
+    { "version": "202608040005", "file": "202608040005_staging_snapshot_status.sql", "sha256": "5b386074963bda6b505178fa2e0e07f5e876e95c877cd9df89eb6e9577de0dcc" },
+    { "version": "202608040006", "file": "202608040006_operational_workflows.sql", "sha256": "6b65a6569a637ee420a526a1d6b6e9d7c2884487e6ee2feee018275bdc584759" },
+    { "version": "202608040007", "file": "202608040007_course_operations.sql", "sha256": "558fe3b36e25c70d248607ba4fec1dc63f2fc69ee7d6cf5103b9696515cd5131" },
+    { "version": "202608040008", "file": "202608040008_course_data_cleanup.sql", "sha256": "ebacb128a91a69bd913b87cf6cc2e7c6477a477ea142e3fe1c71e1ce66b682fc" },
+    { "version": "202608050001", "file": "202608050001_course_data_repair_and_comparison.sql", "sha256": "9f033377f3ddca7b339c9313df23b33b809157abf6af6ea901bb02378634ee66" },
+    { "version": "202608100001", "file": "202608100001_backfill_course_links.sql", "sha256": "ddfa4b7fefabc7cb73b875cdef85eff22193d90b67ea1fed5c39bfe272825230" }
+  ]
+}
