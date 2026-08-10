@@ -113,6 +113,14 @@ test("trusted migration workflow never executes candidate code or SQL directly",
   assert.doesNotMatch(workflow, /working-directory: _candidate[\s\S]*npm|psql|migration up/);
 });
 
+test("staging release can bootstrap from the existing migration-capable staging credential", async () => {
+  const workflow = await readFile(".github/workflows/staging-release.yml", "utf8");
+  assert.match(
+    workflow,
+    /COURSETRACK_MIGRATION_DATABASE_URL: \$\{\{ secrets\.COURSETRACK_MIGRATION_DATABASE_URL \|\| secrets\.STAGING_DATABASE_URL \}\}/,
+  );
+});
+
 test("course-data audit output is limited to safe counts, refs, versions, and optional IDs", async () => {
   const client = {
     async query(sql) {
