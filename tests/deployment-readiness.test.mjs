@@ -117,7 +117,7 @@ test("production accepts its reviewed Supabase baseline plus explicit later migr
 
   const production = compareMigrationHistory(
     checkedInRows,
-    [...postBaseline, PRODUCTION_MIGRATION_BASELINE.version],
+    [...postBaseline, PRODUCTION_MIGRATION_BASELINE.version].sort(),
     { baseline: PRODUCTION_MIGRATION_BASELINE },
   );
   assert.equal(production.current, true);
@@ -128,7 +128,7 @@ test("production accepts its reviewed Supabase baseline plus explicit later migr
 });
 
 test("production baseline still requires migrations added after the covered version", () => {
-  const nextVersion = "202608070001";
+  const nextVersion = "202608110001";
   const postBaseline = DEPLOYMENT_MIGRATION_CONTRACT.filter(
     (version) => version > PRODUCTION_MIGRATION_BASELINE.coversThrough,
   );
@@ -138,14 +138,14 @@ test("production baseline still requires migrations added after the covered vers
   ];
   const missing = compareMigrationHistory(
     checkedInRows,
-    [...postBaseline, PRODUCTION_MIGRATION_BASELINE.version],
+    [...postBaseline, PRODUCTION_MIGRATION_BASELINE.version].sort(),
     { baseline: PRODUCTION_MIGRATION_BASELINE },
   );
-  assert.match(missing.errors.join("\n"), /Missing database migration 202608070001_next.sql/);
+  assert.match(missing.errors.join("\n"), /Missing database migration 202608110001_next.sql/);
 
   const current = compareMigrationHistory(
     checkedInRows,
-    [...postBaseline, PRODUCTION_MIGRATION_BASELINE.version, nextVersion],
+    [...postBaseline, PRODUCTION_MIGRATION_BASELINE.version, nextVersion].sort(),
     { baseline: PRODUCTION_MIGRATION_BASELINE },
   );
   assert.equal(current.current, true);
@@ -195,7 +195,7 @@ test("health is ready only when auth, database, and migration contract are curre
         (version) => version > PRODUCTION_MIGRATION_BASELINE.coversThrough,
       ),
       PRODUCTION_MIGRATION_BASELINE.version,
-    ],
+    ].sort(),
   });
   assert.equal(isHealthyDeployment(productionBaseline), true);
 
