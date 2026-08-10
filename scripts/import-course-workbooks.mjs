@@ -3,7 +3,6 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { createClient } from "@supabase/supabase-js";
-import pg from "pg";
 import "./register-aliases.mjs";
 import { assertCourseWorkbookBaseline, loadCourseWorkbookDataset } from "./course-workbook-loader.mjs";
 import {
@@ -134,7 +133,6 @@ async function applyDataset(dataset, options = {}) {
   const databaseUrl = options.databaseUrl || process.env.COURSETRACK_MIGRATION_DATABASE_URL;
   const redactRawPayloads = target === "staging";
   if (!url || !key) throw new Error("Apply mode requires SUPABASE_URL and SUPABASE_SECRET_KEY (or SUPABASE_SERVICE_ROLE_KEY).");
-  if (!databaseUrl) throw new Error("Apply mode requires COURSETRACK_MIGRATION_DATABASE_URL.");
   if (target === "production" && options.approvedProductionRollout !== true) {
     throw new Error("Production apply requires --approved-production-rollout after the documented approval checkpoint.");
   }
@@ -428,13 +426,9 @@ async function applyDataset(dataset, options = {}) {
     if (error) throw new Error(`Could not insert LMS accreditation records: ${error.message}`);
   });
 
-  const comparisonClient = new pg.Client({ connectionString: databaseUrl });
-  await comparisonClient.connect();
-  try {
-    await comparisonClient.query("set statement_timeout = '15min'");
-    await comparisonClient.query("select public.refresh_all_course_comparisons()");
-  } finally {
-    await comparisonClient.end();
+  const { error: comparisonRefreshError } = await client.rpc("refresh_all_course_comparisons");
+  if (comparisonRefreshError) {
+    throw new Error(`Could not refresh source comparisons: ${comparisonRefreshError.message}`);
   }
   const { error: runCompleteError } = await client.from("lms_retrieval_runs").update({
     completed_at: new Date().toISOString(),
