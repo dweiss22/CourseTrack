@@ -33,7 +33,7 @@ describe("Course Library columns and portfolio scope", () => {
     expect(screen.getByText("Conflicts", { selector: "dt" })).toBeInTheDocument();
   });
 
-  it("persists toggles, supports Show all/reset, and returns focus on Escape and outside click", async () => {
+  it("persists toggles, supports density presets, and returns focus on Escape and outside click", async () => {
     const user = userEvent.setup();
     render(<CourseLibrary courses={[included]} initialFavoriteIds={[]} initialPreferences={DEFAULT_COURSE_LIBRARY_PREFERENCES} canEdit={false} />);
     const columnsButton = screen.getByRole("button", { name: /Columns/ });
@@ -45,6 +45,11 @@ describe("Course Library columns and portfolio scope", () => {
     await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/preferences/course-library", expect.objectContaining({ method: "PUT", body: expect.stringContaining("conflictCount") })));
     await user.click(within(popover).getByRole("button", { name: "Show all" }));
     expect(within(popover).getAllByRole("checkbox").every((checkbox) => (checkbox as HTMLInputElement).checked)).toBe(true);
+    await user.click(within(popover).getByRole("button", { name: "Essential" }));
+    expect(within(popover).getAllByRole("checkbox").filter((checkbox) => (checkbox as HTMLInputElement).checked)).toHaveLength(3);
+    expect(within(popover).getByRole("checkbox", { name: "Primary vertical" })).toBeChecked();
+    expect(within(popover).getByRole("checkbox", { name: "Management" })).toBeChecked();
+    expect(within(popover).getByRole("checkbox", { name: "Health" })).toBeChecked();
     await user.click(within(popover).getByRole("button", { name: "Reset to default" }));
     expect(within(popover).getByRole("checkbox", { name: "Conflicts" })).not.toBeChecked();
     await user.keyboard("{Escape}");
