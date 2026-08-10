@@ -38,10 +38,15 @@ const output = path.resolve(relativeOutput);
 if (output !== workspace && !output.startsWith(`${workspace}${path.sep}`)) throw new Error("Backup output must stay inside the repository workspace.");
 
 const client = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+const courseRows = await allRows(client, "courses", "*");
 const datasets = {
+  // Keep the complete course projection in the recovery artifact. This also
+  // makes the preflight usable before 202608040008 adds the manual-override
+  // tracking columns that the rollout is meant to install.
+  courses: courseRows,
   courseVersions: await allRows(client, "course_versions", "*"),
   wrikeReferences: await allRows(client, "version_wrike_task_references", "*"),
-  courseOverrides: await allRows(client, "courses", "id,app_id,lms_course_id,course_code,field_provenance,has_manual_overrides,content_notes,updated_at", (query) => query.eq("has_manual_overrides", true)),
+  courseOverrides: courseRows.filter((row) => row.has_manual_overrides === true),
   notes: await allRows(client, "notes", "*"),
   auditRows: await allRows(client, "audit_logs", "*"),
 };
