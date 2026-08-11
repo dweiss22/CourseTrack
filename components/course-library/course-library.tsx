@@ -24,7 +24,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from "react";
-import type { Course, ManagementClassification } from "@/types/course";
+import type { Course, ManagementClassificationFilter } from "@/types/course";
 import {
   courseLibraryOptionalColumns,
   DEFAULT_COURSE_LIBRARY_PREFERENCES,
@@ -34,7 +34,7 @@ import {
 import { provenanceLabels } from "@/types/course";
 import {
   getVerticalLabel,
-  managementClassifications,
+  managementClassificationFilters,
   verticals,
 } from "@/types/course";
 import { StatusBadge } from "../status-badge";
@@ -73,6 +73,10 @@ export type CourseLibraryRecord = Pick<
 
 const columnHelper = createColumnHelper<CourseLibraryRecord>();
 
+function managementLabel(value: CourseLibraryRecord["managementClassification"]): string {
+  return value === "Lexipol managed" ? "Lexipol Managed" : value;
+}
+
 const columns = [
   columnHelper.accessor("title", {
     header: "Course",
@@ -94,17 +98,9 @@ const columns = [
     header: "Management",
     cell: (info) => (
       <StatusBadge
-        tone={
-          info.getValue() === "Lexipol managed"
-            ? "success"
-            : info.getValue() === "Non-Lexipol excluded"
-              ? "neutral"
-              : info.getValue() === "Unclassified"
-                ? "warning"
-                : "info"
-        }
+        tone={info.getValue() === "Lexipol managed" ? "success" : "warning"}
       >
-        {info.getValue() === "Non-Lexipol excluded" ? "Excluded from portfolio" : info.getValue()}
+        {managementLabel(info.getValue())}
       </StatusBadge>
     ),
   }),
@@ -184,7 +180,7 @@ function csvSafe(value: unknown): string {
 
 function formatHiddenColumn(course: CourseLibraryRecord, column: CourseLibraryOptionalColumn): string {
   if (column === "managementClassification") {
-    return course.managementClassification === "Non-Lexipol excluded" ? "Excluded from portfolio" : course.managementClassification;
+    return managementLabel(course.managementClassification);
   }
   if (column === "retrievalStatus") {
     return `${course.retrievalStatus}${course.lastRetrievedAt ? ` · ${course.lastRetrievedAt.slice(0, 10)}` : " · No LMS snapshot"}`;
@@ -201,16 +197,14 @@ function formatHiddenColumn(course: CourseLibraryRecord, column: CourseLibraryOp
 export function CourseLibrary({ courses: initialCourses, initialTotal, initialFavoriteIds, initialPreferences, canEdit }: { courses: CourseLibraryRecord[]; initialTotal?: number; initialFavoriteIds: string[]; initialPreferences: CourseLibraryPreferences; canEdit: boolean }) {
   const router = useRouter();
   const [courses, setCourses] = useState(initialCourses);
-  const [total, setTotal] = useState(initialTotal ?? initialCourses.filter((course) => course.managementClassification !== "Non-Lexipol excluded").length);
+  const [total, setTotal] = useState(initialTotal ?? initialCourses.length);
   const [pageIndex, setPageIndex] = useState(0);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [vertical, setVertical] = useState("All verticals");
   const [lifecycle, setLifecycle] = useState("All statuses");
   const [health, setHealth] = useState("All health levels");
-  const [classification, setClassification] = useState<
-    "Included portfolio" | "All classifications" | ManagementClassification
-  >("Included portfolio");
+  const [classification, setClassification] = useState<ManagementClassificationFilter>("All courses");
   const [workQueue, setWorkQueue] = useState<WorkQueue>("All queues");
   const [view, setView] = useState<"table" | "cards">("table");
   const [sorting, setSorting] = useState<SortingState>([]);
@@ -287,8 +281,6 @@ export function CourseLibrary({ courses: initialCourses, initialTotal, initialFa
     controls[next]?.focus();
   };
 
-  const filtered = courses.filter((course) => classification === "All classifications" || (classification === "Included portfolio" ? course.managementClassification !== "Non-Lexipol excluded" : course.managementClassification === classification));
-
   useEffect(() => {
     if (initialQueryRef.current) { initialQueryRef.current = false; return; }
     const controller = new AbortController();
@@ -313,7 +305,7 @@ export function CourseLibrary({ courses: initialCourses, initialTotal, initialFa
   // does not memoize; the table owns the relevant memoization boundaries.
   // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
-    data: filtered,
+    data: courses,
     columns,
     onSortingChange: (updater) => { setSorting(updater); setPageIndex(0); },
     getCoreRowModel: getCoreRowModel(),
@@ -332,7 +324,7 @@ export function CourseLibrary({ courses: initialCourses, initialTotal, initialFa
     vertical !== "All verticals" ? vertical : "",
     lifecycle !== "All statuses" ? lifecycle : "",
     health !== "All health levels" ? health : "",
-    classification !== "Included portfolio" ? classification : "",
+    classification !== "All courses" ? classification : "",
     workQueue !== "All queues" ? workQueue : "",
   ].filter(Boolean).length;
 
@@ -341,7 +333,7 @@ export function CourseLibrary({ courses: initialCourses, initialTotal, initialFa
     setVertical("All verticals");
     setLifecycle("All statuses");
     setHealth("All health levels");
-    setClassification("Included portfolio");
+    setClassification("All courses");
     setWorkQueue("All queues");
     setPageIndex(0);
   };
@@ -365,12 +357,12 @@ export function CourseLibrary({ courses: initialCourses, initialTotal, initialFa
       "Health",
       "Data Source",
     ];
-    const rows = filtered.map((course) => [
+    const rows = courses.map((course) => [
       course.id,
       course.courseCode,
       course.title,
       course.primaryVertical,
-      course.managementClassification,
+      managementLabel(course.managementClassification),
       course.reconciliationStatus,
       course.retrievalStatus,
       course.conflictCount,
@@ -457,7 +449,7 @@ export function CourseLibrary({ courses: initialCourses, initialTotal, initialFa
             aria-label="Search course library"
           />
           {search && (
-            <button onClick={() => setSearch("")} aria-label="Clear search">
+            <button onClick={() => { setSearch(""); setPageIndex(0); }} aria-label="Clear search">
               <X size={15} />
             </button>
           )}
@@ -466,21 +458,12 @@ export function CourseLibrary({ courses: initialCourses, initialTotal, initialFa
           <select
             value={classification}
             onChange={(event) => {
-              setClassification(
-                event.target.value as
-                  | "Included portfolio"
-                  | "All classifications"
-                  | ManagementClassification,
-              );
+              setClassification(event.target.value as ManagementClassificationFilter);
               setPageIndex(0);
             }}
             aria-label="Filter by management classification"
           >
-            <option>Included portfolio</option>
-            <option>All classifications</option>
-            {managementClassifications.map((item) => (
-              <option key={item} value={item}>{item === "Non-Lexipol excluded" ? "Excluded from portfolio" : item}</option>
-            ))}
+            {managementClassificationFilters.map((filter) => <option key={filter}>{filter}</option>)}
           </select>
           <select
             value={vertical}
@@ -580,7 +563,7 @@ export function CourseLibrary({ courses: initialCourses, initialTotal, initialFa
         )}
       </section>
 
-      <p className="filter-helper-text">Included portfolio shows Lexipol managed, Non-Lexipol tracked, and Unclassified courses. Only courses marked Excluded from portfolio are omitted.</p>
+      <p className="filter-helper-text">Lexipol Managed courses are backed by the uploaded master metadata or an explicit CourseTrack assignment.</p>
 
       <section className="panel library-panel" aria-busy={loading}>
         <div className="result-summary">
@@ -706,16 +689,9 @@ export function CourseLibrary({ courses: initialCourses, initialTotal, initialFa
               <article className="course-card" key={course.id}>
                 <div className="course-card-top">
                   <StatusBadge
-                    tone={
-                      course.managementClassification === "Lexipol managed"
-                        ? "success"
-                        : course.managementClassification ===
-                            "Non-Lexipol excluded"
-                          ? "neutral"
-                          : "warning"
-                    }
+                    tone={course.managementClassification === "Lexipol managed" ? "success" : "warning"}
                   >
-                    {course.managementClassification === "Non-Lexipol excluded" ? "Excluded from portfolio" : course.managementClassification}
+                    {managementLabel(course.managementClassification)}
                   </StatusBadge>
                   <button
                     className={`favorite-button ${
@@ -758,7 +734,7 @@ export function CourseLibrary({ courses: initialCourses, initialTotal, initialFa
           </div>
         )}
 
-        {filtered.length === 0 && (
+        {courses.length === 0 && (
           <div className="empty-state">
             <Search size={26} />
             <h3>No courses match these filters</h3>
@@ -769,7 +745,7 @@ export function CourseLibrary({ courses: initialCourses, initialTotal, initialFa
           </div>
         )}
 
-        {filtered.length > 0 && (
+        {courses.length > 0 && (
           <div className="pagination-row">
             <span>
               Page {pageIndex + 1} of {Math.max(1, Math.ceil(total / 25))}

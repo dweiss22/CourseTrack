@@ -20,6 +20,7 @@
     { "version": "202608040007", "file": "202608040007_course_operations.sql", "sha256": "558fe3b36e25c70d248607ba4fec1dc63f2fc69ee7d6cf5103b9696515cd5131" },
     { "version": "202608040008", "file": "202608040008_course_data_cleanup.sql", "sha256": "ebacb128a91a69bd913b87cf6cc2e7c6477a477ea142e3fe1c71e1ce66b682fc" },
     { "version": "202608050001", "file": "202608050001_course_data_repair_and_comparison.sql", "sha256": "9f033377f3ddca7b339c9313df23b33b809157abf6af6ea901bb02378634ee66" },
-    { "version": "202608100001", "file": "202608100001_backfill_course_links.sql", "sha256": "ddfa4b7fefabc7cb73b875cdef85eff22193d90b67ea1fed5c39bfe272825230" }
+    { "version": "202608100001", "file": "202608100001_backfill_course_links.sql", "sha256": "ddfa4b7fefabc7cb73b875cdef85eff22193d90b67ea1fed5c39bfe272825230" },
+    { "version": "202608110001", "file": "202608110001_management_classification_authority.sql", "sha256": "8d8bd0513b613494370e90c43872e6503ea88e320df3d7ce1c6b7800986d975b" }
   ]
 }

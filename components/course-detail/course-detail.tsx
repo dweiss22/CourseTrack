@@ -71,6 +71,7 @@ type Tab = (typeof tabs)[number];
 type ProjectionForm = Omit<CourseProjectionUpdate, "expectedUpdatedAt">;
 const editableLifecycleStatuses: ProjectionForm["lifecycleStatus"][] = ["In Development", "Internal Review", "Published", "Under Maintenance", "Scheduled for Revamp", "Retired", "Archived"];
 const publicationStatuses: ProjectionForm["publicationStatus"][] = ["Unknown", "Not in LMS", "Draft", "Testing", "Published", "Hidden", "Inactive", "Retired", "Retrieval Error"];
+const managementLabel = (value: ProjectionForm["managementClassification"]) => value === "Lexipol managed" ? "Lexipol Managed" : value;
 
 function projectionForm(course: Course): ProjectionForm {
   return {
@@ -299,16 +300,9 @@ export function CourseDetail({
           <div className="course-identity">
             <div className="course-heading-badges">
               <StatusBadge
-                tone={
-                  currentCourse.managementClassification === "Lexipol managed"
-                    ? "success"
-                    : currentCourse.managementClassification ===
-                        "Non-Lexipol excluded"
-                      ? "neutral"
-                      : "warning"
-                }
+                tone={currentCourse.managementClassification === "Lexipol managed" ? "success" : "warning"}
               >
-                {currentCourse.managementClassification}
+                {managementLabel(currentCourse.managementClassification)}
               </StatusBadge>
               <StatusBadge>{currentCourse.reconciliationStatus}</StatusBadge>
               <StatusBadge>{currentCourse.lifecycleStatus}</StatusBadge>
@@ -500,7 +494,7 @@ export function CourseDetail({
               <label className="form-field"><span>Primary vertical</span><select value={form.primaryVertical} onChange={(event) => updateForm("primaryVertical", event.target.value as ProjectionForm["primaryVertical"])}>{verticals.map((value) => <option key={value}>{value}</option>)}</select></label>
               <label className="form-field"><span>Secondary verticals</span><select multiple value={form.secondaryVerticals} onChange={(event) => updateForm("secondaryVerticals", Array.from(event.currentTarget.selectedOptions, (option) => option.value).filter((value) => value !== form.primaryVertical) as ProjectionForm["secondaryVerticals"])}>{verticals.filter((value) => value !== form.primaryVertical).map((value) => <option key={value}>{value}</option>)}</select></label>
               <label className="form-field"><span>Primary topic</span><input value={form.primaryTopic} onChange={(event) => updateForm("primaryTopic", event.target.value)} /></label>
-              <label className="form-field"><span>Management classification</span><select value={form.managementClassification} onChange={(event) => updateForm("managementClassification", event.target.value as ProjectionForm["managementClassification"])}>{managementClassifications.map((value) => <option key={value}>{value}</option>)}</select></label>
+              <label className="form-field"><span>Management classification</span><select value={form.managementClassification} disabled={Boolean(currentCourse.contentMetadata)} onChange={(event) => updateForm("managementClassification", event.target.value as ProjectionForm["managementClassification"])}>{managementClassifications.map((value) => <option key={value} value={value}>{managementLabel(value)}</option>)}</select>{currentCourse.contentMetadata && <small>Managed by the current uploaded master metadata record.</small>}</label>
               <label className="form-field checkbox-field"><input type="checkbox" checked={form.monitoringEnabled} onChange={(event) => updateForm("monitoringEnabled", event.target.checked)} /><span>Monitoring enabled</span></label>
               <label className="form-field"><span>Lifecycle</span><select value={form.lifecycleStatus} onChange={(event) => updateForm("lifecycleStatus", event.target.value as ProjectionForm["lifecycleStatus"])}>{editableLifecycleStatuses.map((value) => <option key={value}>{value}</option>)}</select></label>
               <label className="form-field"><span>Owner</span><input value={form.owner} onChange={(event) => updateForm("owner", event.target.value)} /></label>
@@ -589,7 +583,7 @@ function OverviewTab({ course }: { course: Course }) {
         <p className="course-description">{course.description}</p>
         <div className="field-grid">
           <ProvenanceField label="LMS course ID" value={course.lmsCourseId ?? "Not mapped"} source="LMS" locked />
-          <ProvenanceField label="Management classification" value={course.managementClassification} source="CourseTrack" />
+          <ProvenanceField label="Management classification" value={managementLabel(course.managementClassification)} source={course.contentMetadata ? "Content Metadata" : "CourseTrack"} />
           <ProvenanceField label="Reconciliation" value={course.reconciliationStatus} source="Calculated" />
           <ProvenanceField label="Duration" value={course.durationMinutes === null ? "Not supplied" : `${course.durationMinutes} minutes`} source="Resolved value" />
           <ProvenanceField label="Authoring tool" value={course.contentMetadata?.authoringTool ?? course.authoringTool} source="Content Metadata" />
@@ -770,8 +764,8 @@ function DataComparisonTab({
           <GitCompareArrows size={20} className="panel-icon" />
         </div>
         <div className="field-grid source-record-grid">
-          <ProvenanceField label="Management classification" value={course.managementClassification} source="CourseTrack" />
-          <ProvenanceField label="Monitoring" value={course.monitoringEnabled ? "Enabled" : "Excluded from portfolio metrics"} source="CourseTrack" />
+          <ProvenanceField label="Management classification" value={managementLabel(course.managementClassification)} source={course.contentMetadata ? "Content Metadata" : "CourseTrack"} />
+          <ProvenanceField label="Monitoring" value={course.monitoringEnabled ? "Enabled" : "Disabled"} source="CourseTrack" />
           <ProvenanceField label="LMS snapshot" value={course.lmsSnapshot ? course.lmsSnapshot.retrievedAt : "Missing from LMS"} source="LMS" locked />
           <ProvenanceField label="Content Metadata" value={course.contentMetadata ? course.contentMetadata.importedAt : "Missing metadata"} source="Import" />
           <ProvenanceField label="Backend link" value={course.contentMetadata?.backendLink ? "Restricted internal administrative link present" : "Not supplied"} source="Content Metadata" />
@@ -802,10 +796,10 @@ function DataComparisonTab({
             ))}
           </div>
           <div>
-            <h3>Verticals by source</h3>
+            <h3>Vertical membership and LMS availability</h3>
             {course.verticalAssignments.map((assignment, index) => (
               <span key={`${assignment.source}-${assignment.vertical}-${index}`}>
-                <strong>{assignment.vertical}{assignment.isPrimary ? " · Primary" : ""}</strong>
+                <strong>{assignment.kind === "availability" ? `Available on ${assignment.vertical}` : assignment.vertical}{assignment.isPrimary ? " · Primary" : ""}</strong>
                 <small>{assignment.source} · {assignment.sourceValue}</small>
               </span>
             ))}

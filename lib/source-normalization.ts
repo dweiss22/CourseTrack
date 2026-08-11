@@ -932,7 +932,7 @@ export interface MonitoringColumnMapping {
 }
 
 export function parseMonitoringRows(rows: SourceRow[], mapping: MonitoringColumnMapping) {
-  const validClassifications = new Set(["Lexipol managed", "Non-Lexipol tracked", "Non-Lexipol excluded", "Unclassified"]);
+  const validClassifications = new Set(["Lexipol managed", "Unclassified"]);
   return rows.map((row) => {
     const courseId = normalizeCourseId(row[mapping.courseId]);
     const classification = normalizeWhitespace(row[mapping.classification]);
@@ -957,20 +957,24 @@ export function parseMonitoringRows(rows: SourceRow[], mapping: MonitoringColumn
 export function determineManagementClassification(input: {
   hasLmsRecord: boolean;
   hasContentMetadataMatch: boolean;
-  monitoringRule?: { classification: string; monitoringEnabled: boolean } | null;
+  manualClassification?: string | null;
+  manualClassificationSource?: string | null;
 }) {
-  if (input.monitoringRule) {
-    return {
-      classification: input.monitoringRule.classification,
-      monitoringEnabled: input.monitoringRule.monitoringEnabled,
-      source: "Monitoring list",
-    };
-  }
   if (input.hasContentMetadataMatch) {
     return {
       classification: "Lexipol managed",
       monitoringEnabled: true,
       source: "Content Metadata match",
+    };
+  }
+  if (
+    input.manualClassification === "Lexipol managed"
+    && input.manualClassificationSource === "coursetrack"
+  ) {
+    return {
+      classification: "Lexipol managed",
+      monitoringEnabled: true,
+      source: "CourseTrack assignment",
     };
   }
   return {
@@ -990,23 +994,18 @@ export function calculateSourceAwareMetrics(
     retrievalStatus: string;
     importValidationErrors: unknown[];
   }>,
-  options: { includeExcluded?: boolean } = {},
 ) {
-  const normalPortfolio = options.includeExcluded
-    ? courses
-    : courses.filter((course) => course.managementClassification !== "Non-Lexipol excluded");
   return {
     totalLmsRetrieved: courses.filter((course) => course.lmsSnapshot).length,
-    lexipolManaged: normalPortfolio.filter((course) => course.managementClassification === "Lexipol managed").length,
-    nonLexipolTracked: normalPortfolio.filter((course) => course.managementClassification === "Non-Lexipol tracked").length,
-    unclassified: normalPortfolio.filter((course) => course.managementClassification === "Unclassified").length,
-    missingContentMetadata: normalPortfolio.filter((course) => course.lmsSnapshot && !course.contentMetadata).length,
-    missingFromLms: normalPortfolio.filter((course) => !course.lmsSnapshot && course.contentMetadata).length,
-    unresolvedConflicts: normalPortfolio.filter((course) => course.conflictCount > 0).length,
-    mappingRequired: normalPortfolio.filter((course) => course.reconciliationStatus === "Mapping required").length,
-    staleLms: normalPortfolio.filter((course) => ["Stale Data", "Retrieval Failed"].includes(course.retrievalStatus)).length,
-    importValidationErrors: normalPortfolio.reduce((total, course) => total + course.importValidationErrors.length, 0),
-    portfolioCourseCount: normalPortfolio.length,
+    lexipolManaged: courses.filter((course) => course.managementClassification === "Lexipol managed").length,
+    unclassified: courses.filter((course) => course.managementClassification === "Unclassified").length,
+    missingContentMetadata: courses.filter((course) => course.lmsSnapshot && !course.contentMetadata).length,
+    missingFromLms: courses.filter((course) => !course.lmsSnapshot && course.contentMetadata).length,
+    unresolvedConflicts: courses.filter((course) => course.conflictCount > 0).length,
+    mappingRequired: courses.filter((course) => course.reconciliationStatus === "Mapping required").length,
+    staleLms: courses.filter((course) => ["Stale Data", "Retrieval Failed"].includes(course.retrievalStatus)).length,
+    importValidationErrors: courses.reduce((total, course) => total + course.importValidationErrors.length, 0),
+    portfolioCourseCount: courses.length,
   };
 }
 

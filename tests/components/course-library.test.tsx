@@ -18,20 +18,80 @@ const included: CourseLibraryRecord = {
   hasLmsSnapshot: true, hasContentMetadata: true, importValidationErrorCount: 0,
   backendLink: "https://admin.example.test/courses/101", frontendLink: "https://learn.example.test/courses/101",
 };
-const excluded: CourseLibraryRecord = { ...included, id: "excluded", title: "Outside Portfolio", courseCode: "CT-200", managementClassification: "Non-Lexipol excluded" };
+const unclassified: CourseLibraryRecord = { ...included, id: "unclassified", title: "Outside Portfolio", courseCode: "CT-200", managementClassification: "Unclassified", hasContentMetadata: false };
 
-describe("Course Library columns and portfolio scope", () => {
+describe("Course Library columns and management filters", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({ preferences: DEFAULT_COURSE_LIBRARY_PREFERENCES }), { status: 200, headers: { "content-type": "application/json" } }))));
   });
 
-  it("defaults to Included portfolio and exposes hidden fields in mobile row details", () => {
-    render(<CourseLibrary courses={[included, excluded]} initialFavoriteIds={[]} initialPreferences={DEFAULT_COURSE_LIBRARY_PREFERENCES} canEdit={false} />);
-    expect(screen.getByText("1 courses")).toBeInTheDocument();
+  it("defaults to All courses, exposes exactly three management options, and shows every record", () => {
+    render(<CourseLibrary courses={[included, unclassified]} initialTotal={2} initialFavoriteIds={[]} initialPreferences={DEFAULT_COURSE_LIBRARY_PREFERENCES} canEdit={false} />);
+    const filter = screen.getByRole("combobox", { name: "Filter by management classification" });
+    expect(filter).toHaveValue("All courses");
+    expect(within(filter).getAllByRole("option").map((option) => option.textContent)).toEqual([
+      "All courses", "Lexipol Managed", "Unclassified",
+    ]);
+    expect(screen.getByText("2 courses")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Critical Incident Leadership" })).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Outside Portfolio" })).not.toBeInTheDocument();
-    expect(screen.getByText(/Only courses marked Excluded from portfolio are omitted/)).toBeInTheDocument();
-    expect(screen.getByText("Conflicts", { selector: "dt" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Outside Portfolio" })).toBeInTheDocument();
+    expect(screen.getByText(/uploaded master metadata or an explicit CourseTrack assignment/)).toBeInTheDocument();
+    expect(screen.getAllByText("Conflicts", { selector: "dt" })).toHaveLength(2);
+  });
+
+  it("combines management filtering with search and server counts", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (!url.startsWith("/api/courses?")) return Promise.resolve(new Response(JSON.stringify({ preferences: DEFAULT_COURSE_LIBRARY_PREFERENCES }), { status: 200 }));
+      const params = new URLSearchParams(url.split("?")[1]);
+      const managed = params.get("classification") === "Lexipol Managed";
+      return Promise.resolve(new Response(JSON.stringify({ items: [managed ? included : unclassified], total: 1 }), { status: 200, headers: { "content-type": "application/json" } }));
+    }));
+    render(<CourseLibrary courses={[included, unclassified]} initialTotal={2} initialFavoriteIds={[]} initialPreferences={DEFAULT_COURSE_LIBRARY_PREFERENCES} canEdit={false} />);
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "Filter by management classification" }), "Unclassified");
+    await waitFor(() => expect(screen.queryByRole("link", { name: "Critical Incident Leadership" })).not.toBeInTheDocument());
+    expect(screen.getByRole("link", { name: "Outside Portfolio" })).toBeInTheDocument();
+    expect(screen.getByText("1 courses")).toBeInTheDocument();
+
+    await user.type(screen.getByRole("textbox", { name: "Search course library" }), "Outside");
+    await waitFor(() => expect(fetch).toHaveBeenLastCalledWith(
+      expect.stringMatching(/classification=Unclassified.*search=Outside|search=Outside.*classification=Unclassified/),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    ));
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "Filter by management classification" }), "Lexipol Managed");
+    await waitFor(() => expect(screen.getByRole("link", { name: "Critical Incident Leadership" })).toBeInTheDocument());
+  });
+
+  it("resets pagination when the management filter changes", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({ items: [unclassified], total: 26 }), { status: 200, headers: { "content-type": "application/json" } }))));
+    render(<CourseLibrary courses={[included]} initialTotal={26} initialFavoriteIds={[]} initialPreferences={DEFAULT_COURSE_LIBRARY_PREFERENCES} canEdit={false} />);
+    await user.click(screen.getByRole("button", { name: "Next page" }));
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith(expect.stringContaining("page=2"), expect.any(Object)));
+    await user.selectOptions(screen.getByRole("combobox", { name: "Filter by management classification" }), "Unclassified");
+    await waitFor(() => expect(fetch).toHaveBeenLastCalledWith(expect.stringContaining("page=1"), expect.any(Object)));
+    expect(screen.getAllByText(/Page 1/).length).toBeGreaterThan(0);
+  });
+
+  it("resets pagination for search changes and restores All courses on remount", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({ items: [included], total: 26 }), { status: 200, headers: { "content-type": "application/json" } }))));
+    const view = render(<CourseLibrary courses={[included]} initialTotal={26} initialFavoriteIds={[]} initialPreferences={DEFAULT_COURSE_LIBRARY_PREFERENCES} canEdit={false} />);
+    await user.click(screen.getByRole("button", { name: "Next page" }));
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith(expect.stringContaining("page=2"), expect.any(Object)));
+    await user.type(screen.getByRole("textbox", { name: "Search course library" }), "leadership");
+    await waitFor(() => expect(fetch).toHaveBeenLastCalledWith(
+      expect.stringMatching(/page=1.*search=leadership|search=leadership.*page=1/),
+      expect.any(Object),
+    ));
+    await user.selectOptions(screen.getByRole("combobox", { name: "Filter by management classification" }), "Unclassified");
+    view.unmount();
+    render(<CourseLibrary courses={[included]} initialTotal={26} initialFavoriteIds={[]} initialPreferences={DEFAULT_COURSE_LIBRARY_PREFERENCES} canEdit={false} />);
+    expect(screen.getByRole("combobox", { name: "Filter by management classification" })).toHaveValue("All courses");
+    expect(screen.getByRole("textbox", { name: "Search course library" })).toHaveValue("");
   });
 
   it("persists toggles, supports density presets, and returns focus on Escape and outside click", async () => {

@@ -99,7 +99,7 @@ function datasetRows(dataset: ReportDefinition["dataset"], courses: Course[]): A
   return courses.flatMap((course) => course.fieldComparisons.map((item) => ({ courseCode: course.courseCode, courseTitle: course.title, fieldLabel: item.fieldLabel, lmsValue: printable(item.lmsNormalizedValue), courseTrackValue: printable(item.selectedSource ? item.resolvedValue : item.contentMetadataNormalizedValue), comparisonStatus: item.selectedSource && item.comparisonStatus === "Conflict" ? "Resolved discrepancy" : item.comparisonStatus === "Conflict" ? "Discrepancy" : item.comparisonStatus, resolvedBy: item.resolvedBy })));
 }
 
-function pickCourse(course: Course) { return { courseCode: course.courseCode, title: course.title, primaryVertical: course.primaryVertical, managementClassification: course.managementClassification === "Non-Lexipol excluded" ? "Excluded from portfolio" : course.managementClassification, publicationStatus: course.publicationStatus, healthStatus: course.healthStatus }; }
+function pickCourse(course: Course) { return { courseCode: course.courseCode, title: course.title, primaryVertical: course.primaryVertical, managementClassification: course.managementClassification === "Lexipol managed" ? "Lexipol Managed" : course.managementClassification, publicationStatus: course.publicationStatus, healthStatus: course.healthStatus }; }
 function printable(value: unknown) { return value == null ? "" : typeof value === "object" ? JSON.stringify(value) : String(value); }
 function compare(left: unknown, right: unknown) { return String(left ?? "").localeCompare(String(right ?? ""), undefined, { numeric: true }); }
 function applies(value: unknown, filter: ReportFilter): boolean {

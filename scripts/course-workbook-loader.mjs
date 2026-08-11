@@ -77,7 +77,9 @@ function metadataProjectionFromLms(lms, importedAt) {
     publishedDate: normalized.publishedDate,
     updateType: null,
     updatedRawValue: null,
-    verticals: normalized.mappedVerticals,
+    // LMS sites describe where a course is available. They are retained on the
+    // immutable LMS snapshot, but they are not authoritative course metadata.
+    verticals: [],
     parentCourseIds: [],
     childCourseIds: [],
     notes: null,

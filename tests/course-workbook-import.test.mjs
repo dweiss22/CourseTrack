@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { assertCourseWorkbookBaseline, loadCourseWorkbookDataset } from "../scripts/course-workbook-loader.mjs";
+import { projectionFor } from "../scripts/import-course-workbooks.mjs";
 
 const workbookDirectory = path.resolve("Files");
 const workbookTestOptions = existsSync(workbookDirectory)
@@ -30,6 +31,28 @@ test("LMS and CourseTrack workbooks reproduce the accepted import baseline", wor
   assert.equal(new Set(ids).size, ids.length, "stable union contains no duplicate course IDs");
   assert.ok(dataset.courses.some((course) => course.metadata && !course.lms), "master-only courses remain discoverable");
   assert.ok(dataset.courses.some((course) => course.lms && !course.metadata), "LMS-only courses receive display projections");
+  const projections = dataset.courses.map((course) => ({ course, projection: projectionFor(course) }));
+  assert.equal(projections.filter(({ projection }) => projection.managementClassification === "Lexipol managed").length, 1_952);
+  assert.equal(projections.filter(({ projection }) => projection.managementClassification === "Unclassified").length, 16_578);
+  const multiSiteLmsOnly = projections.find(({ course }) =>
+    !course.metadata
+    && ["ems1_academy", "firerescue1_academy", "policeone_academy"].every((site) => course.lms?.normalized.sites.includes(site)),
+  );
+  assert.ok(multiSiteLmsOnly, "the three-site LMS example exists in the source baseline");
+  assert.equal(multiSiteLmsOnly.projection.managementClassification, "Unclassified");
+  assert.equal(multiSiteLmsOnly.projection.primaryVertical, "Unclassified");
+  assert.deepEqual(multiSiteLmsOnly.projection.secondaryVerticals, []);
+  assert.ok(multiSiteLmsOnly.course.lms.normalized.mappedVerticals.length >= 3, "site availability remains on the LMS snapshot");
+  assert.equal(projectionFor(multiSiteLmsOnly.course, {
+    management_classification: "Lexipol managed",
+    field_provenance: { managementClassification: "coursetrack" },
+  }).managementClassification, "Lexipol managed", "an explicit CourseTrack assignment is authoritative");
+  assert.equal(projectionFor(multiSiteLmsOnly.course, {
+    management_classification: "Lexipol managed",
+    field_provenance: {},
+  }).managementClassification, "Unclassified", "an unprovenanced managed flag is not authoritative");
+  const metadataWithoutLms = projections.find(({ course }) => course.metadata && !course.lms);
+  assert.equal(metadataWithoutLms?.projection.managementClassification, "Lexipol managed");
   assert.equal(dataset.courses.filter((course) => course.lms?.normalized.courseType === "Standard Course").length, 16_544);
   const accreditations = dataset.courses.flatMap((course) => course.accreditations);
   assert.equal(accreditations.filter((record) => record.jurisdiction === null).length, 2_043, "blank LMS jurisdictions remain null rather than being relabeled National");

@@ -20,7 +20,7 @@ export default async function CourseLibraryPage() {
   const [page, favoriteCourseIds, preferences] = await withServerOperation(
     { route: "/courses", operation: "load course library" },
     () => Promise.all([
-      getCourseLibraryPage({ page: 1, pageSize: 25, classification: "Included portfolio" }),
+      getCourseLibraryPage({ page: 1, pageSize: 25, classification: "All courses" }),
       getFavoriteCourseIds(auth.userId),
       getCourseLibraryPreferences(auth.userId),
     ]),

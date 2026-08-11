@@ -102,7 +102,7 @@ export {
   setFavorite,
   updateRevampTask,
 } from "@/db/workflow-repository";
-import type { Course, CourseProjectionUpdate, RetrievalRun } from "@/types/course";
+import type { Course, CourseProjectionUpdate, ManagementClassificationFilter, RetrievalRun } from "@/types/course";
 
 type DatabaseStatus = {
   available: boolean;
@@ -210,7 +210,7 @@ export async function getPortfolioSummaries(): Promise<PortfolioSummary[]> {
   return fetchPortfolioSummaries(requireDatabaseClient());
 }
 
-export async function getDashboardSnapshot(input: { vertical?: string; includeExcluded?: boolean } = {}): Promise<DashboardSnapshot> {
+export async function getDashboardSnapshot(input: { vertical?: string } = {}): Promise<DashboardSnapshot> {
   return fetchDashboardSnapshot(requireDatabaseClient(), input);
 }
 
@@ -221,7 +221,7 @@ export interface CourseLibraryPageQuery {
   vertical?: string;
   lifecycle?: string;
   health?: string;
-  classification?: string;
+  classification?: ManagementClassificationFilter;
   workQueue?: string;
   sort?: string;
   descending?: boolean;
@@ -232,7 +232,7 @@ export async function getCourseLibraryPage(input: CourseLibraryPageQuery = {}): 
   const pageSize = Math.min(100, Math.max(10, Math.trunc(input.pageSize ?? 25)));
   const { data, error } = await requireDatabaseClient().rpc("search_course_library", {
     p_search: input.search?.trim() ?? "", p_vertical: input.vertical ?? "", p_lifecycle: input.lifecycle ?? "",
-    p_health: input.health ?? "", p_classification: input.classification ?? "Included portfolio",
+    p_health: input.health ?? "", p_classification: input.classification ?? "All courses",
     p_work_queue: input.workQueue ?? "", p_sort: input.sort ?? "title", p_descending: input.descending ?? false,
     p_limit: pageSize, p_offset: (page - 1) * pageSize,
   });

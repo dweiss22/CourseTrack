@@ -303,25 +303,44 @@ test("field resolutions persist across comparison, clear cleanly, and create aud
   assert.equal(cleared.audit.action, "field_resolution.cleared");
 });
 
-test("classification, monitoring records, excluded metrics, and failed snapshot preservation are deterministic", () => {
+test("classification authority ignores LMS sites and requires metadata or a CourseTrack assignment", () => {
   assert.deepEqual(determineManagementClassification({ hasLmsRecord: true, hasContentMetadataMatch: true }), {
     classification: "Lexipol managed",
     monitoringEnabled: true,
     source: "Content Metadata match",
   });
-  assert.deepEqual(determineManagementClassification({ hasLmsRecord: true, hasContentMetadataMatch: false }), {
+  assert.deepEqual(determineManagementClassification({
+    hasLmsRecord: true,
+    hasContentMetadataMatch: false,
+    manualClassification: "Lexipol managed",
+    manualClassificationSource: "coursetrack",
+  }), {
+    classification: "Lexipol managed",
+    monitoringEnabled: true,
+    source: "CourseTrack assignment",
+  });
+  assert.deepEqual(determineManagementClassification({
+    hasLmsRecord: true,
+    hasContentMetadataMatch: false,
+    manualClassification: "Lexipol managed",
+    manualClassificationSource: "uploaded",
+  }), {
     classification: "Unclassified",
     monitoringEnabled: true,
     source: "Default",
   });
 
   const monitoring = parseMonitoringRows(
-    [{ id: 123, class: "Non-Lexipol tracked", enabled: "Yes", why: "Partner course" }],
+    [{ id: 123, class: "Lexipol managed", enabled: "Yes", why: "Explicit assignment" }],
     { courseId: "id", classification: "class", monitoringEnabled: "enabled", reason: "why" },
   )[0];
   assert.equal(monitoring.lmsCourseId, "123");
   assert.equal(monitoring.monitoringEnabled, true);
   assert.deepEqual(monitoring.validationErrors, []);
+  assert.match(parseMonitoringRows(
+    [{ id: 124, class: "Non-Lexipol tracked", enabled: "Yes" }],
+    { courseId: "id", classification: "class", monitoringEnabled: "enabled" },
+  )[0].validationErrors.join(" "), /Unknown management classification/);
 
   const course = (classification) => ({
     managementClassification: classification,
@@ -332,10 +351,10 @@ test("classification, monitoring records, excluded metrics, and failed snapshot 
     retrievalStatus: "Retrieved",
     importValidationErrors: [],
   });
-  const courses = [course("Lexipol managed"), course("Non-Lexipol tracked"), course("Non-Lexipol excluded")];
+  const courses = [course("Lexipol managed"), course("Unclassified")];
   assert.equal(calculateSourceAwareMetrics(courses).portfolioCourseCount, 2);
-  assert.equal(calculateSourceAwareMetrics(courses).totalLmsRetrieved, 3);
-  assert.equal(calculateSourceAwareMetrics(courses, { includeExcluded: true }).portfolioCourseCount, 3);
+  assert.equal(calculateSourceAwareMetrics(courses).lexipolManaged, 1);
+  assert.equal(calculateSourceAwareMetrics(courses).unclassified, 1);
 
   const lastGood = { id: "snapshot-1" };
   assert.equal(selectCurrentSnapshotAfterRetrieval({

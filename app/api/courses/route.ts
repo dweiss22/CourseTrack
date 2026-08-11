@@ -3,16 +3,21 @@ import { createCourseProjection, getCourseLibraryPage } from "@/db";
 import { apiError, validationError } from "@/lib/api-response";
 import { requireApiRole, requireApiUser } from "@/lib/auth";
 import { courseCreateSchema } from "@/lib/workflow-validation";
+import { managementClassificationFilters, type ManagementClassificationFilter } from "@/types/course";
 
 export async function GET(request: Request) {
   const auth = await requireApiUser();
   if ("error" in auth) return auth.error;
   const params = new URL(request.url).searchParams;
+  const requestedClassification = params.get("classification") ?? "All courses";
+  if (!managementClassificationFilters.includes(requestedClassification as ManagementClassificationFilter)) {
+    return validationError("Management classification must be All courses, Lexipol Managed, or Unclassified.");
+  }
   try {
     return NextResponse.json(await getCourseLibraryPage({
       page: Number(params.get("page") ?? 1), pageSize: Number(params.get("pageSize") ?? 25),
       search: params.get("search") ?? "", vertical: params.get("vertical") ?? "", lifecycle: params.get("lifecycle") ?? "",
-      health: params.get("health") ?? "", classification: params.get("classification") ?? "Included portfolio", workQueue: params.get("workQueue") ?? "",
+      health: params.get("health") ?? "", classification: requestedClassification as ManagementClassificationFilter, workQueue: params.get("workQueue") ?? "",
       sort: params.get("sort") ?? "title", descending: params.get("descending") === "true",
     }));
   } catch (error) { return apiError(error); }

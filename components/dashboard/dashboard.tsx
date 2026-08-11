@@ -50,23 +50,16 @@ function buildMetricCards(metrics: DashboardSnapshot["metrics"]) {
     {
       label: "LMS courses retrieved",
       value: metrics.totalLmsRetrieved,
-      detail: "Includes excluded source snapshots",
+      detail: "Current LMS source snapshots",
       icon: Database,
       tone: "blue",
     },
     {
-      label: "Lexipol managed",
+      label: "Lexipol Managed",
       value: metrics.lexipolManaged,
       detail: "Confirmed managed portfolio",
       icon: ShieldCheck,
       tone: "teal",
-    },
-    {
-      label: "Non-Lexipol tracked",
-      value: metrics.nonLexipolTracked,
-      detail: "Visible for monitoring",
-      icon: CircleGauge,
-      tone: "purple",
     },
     {
       label: "Unclassified",
@@ -125,21 +118,18 @@ export function Dashboard({
   retrievalRuns,
   firstName,
   selectedVertical,
-  includeExcluded,
 }: {
   snapshot: DashboardSnapshot;
   retrievalRuns: RetrievalRun[];
   firstName: string;
   selectedVertical: Vertical | "All verticals";
-  includeExcluded: boolean;
 }) {
   const router = useRouter();
   const today = new Date().toISOString().slice(0, 10);
   const metricCards = buildMetricCards(snapshot.metrics);
-  const updateFilters = (vertical: Vertical | "All verticals", excluded: boolean) => {
+  const updateFilters = (vertical: Vertical | "All verticals") => {
     const params = new URLSearchParams();
     if (vertical !== "All verticals") params.set("vertical", vertical);
-    if (excluded) params.set("excluded", "1");
     router.replace(params.size ? `/?${params}` : "/");
   };
 
@@ -158,7 +148,7 @@ export function Dashboard({
           <select
             className="select-control"
             value={selectedVertical}
-            onChange={(event) => updateFilters(event.target.value as Vertical | "All verticals", includeExcluded)}
+            onChange={(event) => updateFilters(event.target.value as Vertical | "All verticals")}
             aria-label="Filter dashboard by vertical"
           >
             <option>All verticals</option>
@@ -168,14 +158,6 @@ export function Dashboard({
               </option>
             ))}
           </select>
-          <label className="include-excluded-control">
-            <input
-              type="checkbox"
-              checked={includeExcluded}
-              onChange={(event) => updateFilters(selectedVertical, event.target.checked)}
-            />
-            Include excluded
-          </label>
           <button
             className="button button-secondary"
             disabled

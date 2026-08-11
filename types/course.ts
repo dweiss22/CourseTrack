@@ -21,7 +21,7 @@ export const verticalNames: Record<Vertical, string> = {
   LGU: "Local Government University",
   Lexipol: "Internal employee LMS",
   Wellness: "Course content for the Wellness app",
-  Unclassified: "No reliable LMS or metadata mapping",
+  Unclassified: "No uploaded metadata or CourseTrack vertical assignment",
 };
 
 export function getVerticalLabel(vertical: Vertical): string {
@@ -30,13 +30,20 @@ export function getVerticalLabel(vertical: Vertical): string {
 
 export const managementClassifications = [
   "Lexipol managed",
-  "Non-Lexipol tracked",
-  "Non-Lexipol excluded",
   "Unclassified",
 ] as const;
 
 export type ManagementClassification =
   (typeof managementClassifications)[number];
+
+export const managementClassificationFilters = [
+  "All courses",
+  "Lexipol Managed",
+  "Unclassified",
+] as const;
+
+export type ManagementClassificationFilter =
+  (typeof managementClassificationFilters)[number];
 
 export const reconciliationStatuses = [
   "Matched between LMS and Content Metadata",
@@ -222,7 +229,8 @@ export interface CourseTagAssignment {
 
 export interface VerticalAssignment {
   vertical: Vertical;
-  source: "LMS Site mapping" | "Content Metadata" | "CourseTrack";
+  source: "LMS Site availability" | "Content Metadata" | "CourseTrack";
+  kind: "membership" | "availability";
   sourceValue: string;
   isPrimary: boolean;
 }

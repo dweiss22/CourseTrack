@@ -154,7 +154,7 @@ async function fetchGraph(client: SupabaseClient, courseAppId?: string): Promise
       "id,course_id,provider,external_id,retrieval_run_id,retrieved_at,normalized_payload,raw_payload,mapping_warnings,source_transport",
       (query) => byCourse(query).eq("is_current", true),
     ),
-    fetchAllRows(client, "content_metadata_records", "course_id,normalized_payload", (query) => byCourse(query).eq("is_current", true)),
+    fetchAllRows(client, "content_metadata_records", "course_id,normalized_payload", (query) => byCourse(query).eq("is_current", true).eq("is_importable", true)),
     fetchAllRows(
       client,
       "field_comparisons",
@@ -417,32 +417,9 @@ function buildCourseFromRows(row: Row, maps: GraphMaps): Course {
     : null;
 
   const metadataRow = (maps.metadataRecordByCourse.get(courseDbId) ?? [])[0];
-  const contentMetadata = (metadataRow?.normalized_payload as ContentMetadataRecord) ?? {
-    id: `${appId}-METADATA`,
-    importRunId: "content-metadata-import",
-    importedAt: row.last_retrieved_at as string,
-    rawCourseId: null,
-    lmsCourseId: row.lms_course_id as string,
-    courseName: row.title as string,
-    contentType: null,
-    durationMinutes: row.duration_minutes as number,
-    trainingCredits: { rawDisplay: null, amount: null, unit: null },
-    published: row.publication_status === "Published",
-    authoringTool: (row.authoring_tool as string) ?? null,
-    description: row.description as string,
-    backendLink: null,
-    frontendLink: null,
-    publishedDate: row.original_publish_date as string,
-    updateType: null,
-    updatedRawValue: null,
-    verticals: [primaryVertical],
-    parentCourseIds: [],
-    childCourseIds: [],
-    notes: null,
-    rawPayload: {},
-    mappingWarnings: [],
-    validationErrors: [],
-  };
+  const contentMetadata = metadataRow
+    ? metadataRow.normalized_payload as ContentMetadataRecord
+    : null;
 
   const fieldComparisons: FieldComparison[] = (maps.fieldComparisonsByCourse.get(courseDbId) ?? []).map(
     (comparison) => ({
@@ -457,7 +434,7 @@ function buildCourseFromRows(row: Row, maps: GraphMaps): Course {
       fieldScope: (comparison.field_scope as FieldComparison["fieldScope"]) ?? "shared",
       alignmentStatus: (comparison.alignment_status as FieldComparison["alignmentStatus"]) ?? "Mapping required",
       lmsSourceTimestamp: (row.last_retrieved_at as string) ?? null,
-      metadataSourceTimestamp: contentMetadata.importedAt ?? null,
+      metadataSourceTimestamp: contentMetadata?.importedAt ?? null,
       confirmationActor: (comparison.alignment_confirmed_by_email as string) ?? null,
       confirmationTime: (comparison.alignment_confirmed_at as string) ?? null,
       confirmationNote: (comparison.alignment_confirmation_note as string) ?? null,
@@ -517,7 +494,7 @@ function buildCourseFromRows(row: Row, maps: GraphMaps): Course {
   const verticalAssignments = buildVerticalAssignments({
     primaryVertical,
     secondaryVerticals,
-    metadataVerticals: contentMetadata.verticals,
+    metadataVerticals: contentMetadata?.verticals ?? [],
     mappedVerticals: lmsSnapshot?.normalized.mappedVerticals ?? [],
   });
 
@@ -544,14 +521,14 @@ function buildCourseFromRows(row: Row, maps: GraphMaps): Course {
   });
 
   const importHistory: SourceHistoryRecord[] = [
-    {
+    ...(contentMetadata ? [{
       id: `${appId}-IMPORT-METADATA`,
-      source: "Content Metadata",
+      source: "Content Metadata" as const,
       runId: "content-metadata-import",
-      status: contentMetadata.validationErrors.length > 0 ? "Succeeded with warnings" : "Succeeded",
+      status: (contentMetadata.validationErrors.length > 0 ? "Succeeded with warnings" : "Succeeded") as SourceHistoryRecord["status"],
       occurredAt: contentMetadata.importedAt,
       summary: "Course metadata imported from LMS new list - master.xlsx.",
-    },
+    }] : []),
     ...(topicAssignments.some((assignment) => assignment.source === "Topics import")
       ? [
           {
@@ -559,7 +536,7 @@ function buildCourseFromRows(row: Row, maps: GraphMaps): Course {
             source: "Topics" as const,
             runId: "topics-import",
             status: "Succeeded" as const,
-            occurredAt: contentMetadata.importedAt,
+            occurredAt: contentMetadata?.importedAt ?? topicAssignments[0]?.assignedAt ?? new Date(0).toISOString(),
             summary: `${topicAssignments.filter((assignment) => assignment.source === "Topics import").length} topic assignment(s) imported from LMS new list - Topics.xlsx.`,
           },
         ]
@@ -606,8 +583,8 @@ function buildCourseFromRows(row: Row, maps: GraphMaps): Course {
     publicationStatus: row.publication_status as Course["publicationStatus"],
     deliveryFormat: row.delivery_format as string,
     durationMinutes: row.duration_minutes === null || row.duration_minutes === undefined ? null : Number(row.duration_minutes),
-    trainingCredits: (row.training_credits as Course["trainingCredits"]) ?? contentMetadata.trainingCredits,
-    published: (row.is_published as boolean | null) ?? contentMetadata.published,
+    trainingCredits: (row.training_credits as Course["trainingCredits"]) ?? contentMetadata?.trainingCredits ?? { rawDisplay: null, amount: null, unit: null },
+    published: (row.is_published as boolean | null) ?? contentMetadata?.published ?? null,
     authoringTool: row.authoring_tool as string,
     stateCode: (row.state_code as string) ?? null,
     owner: (row.owner_name as string) ?? null,
@@ -616,11 +593,11 @@ function buildCourseFromRows(row: Row, maps: GraphMaps): Course {
     originalPublishDate: (row.original_publish_date as string) ?? null,
     lastMajorRevisionDate: (row.last_major_revision_date as string) ?? null,
     nextReviewDate: (row.next_review_date as string) ?? null,
-    backendLink: (row.backend_link as string) ?? contentMetadata.backendLink,
-    frontendLink: (row.frontend_link as string) ?? contentMetadata.frontendLink,
-    updateType: (row.content_update_type as string) ?? contentMetadata.updateType,
+    backendLink: (row.backend_link as string) ?? contentMetadata?.backendLink ?? null,
+    frontendLink: (row.frontend_link as string) ?? contentMetadata?.frontendLink ?? null,
+    updateType: (row.content_update_type as string) ?? contentMetadata?.updateType ?? null,
     contentUpdatedAt: (row.content_updated_at as string) ?? null,
-    contentNotes: (row.content_notes as string) ?? contentMetadata.notes,
+    contentNotes: (row.content_notes as string) ?? contentMetadata?.notes ?? null,
     accreditationStatus,
     nearestAccreditationExpiration,
     healthStatus: health.status,
@@ -728,14 +705,16 @@ function buildVerticalAssignments(input: {
       source: input.metadataVerticals.includes(vertical)
         ? ("Content Metadata" as const)
         : ("CourseTrack" as const),
+      kind: "membership" as const,
       sourceValue: vertical,
       isPrimary: index === 0,
     })),
     ...input.mappedVerticals.map((vertical) => ({
       vertical,
-      source: "LMS Site mapping" as const,
+      source: "LMS Site availability" as const,
+      kind: "availability" as const,
       sourceValue: vertical,
-      isPrimary: vertical === input.primaryVertical,
+      isPrimary: false,
     })),
   ];
   return assignments.filter(
@@ -804,7 +783,6 @@ export interface DashboardSnapshot {
   metrics: {
     totalLmsRetrieved: number;
     lexipolManaged: number;
-    nonLexipolTracked: number;
     unclassified: number;
     missingContentMetadata: number;
     missingFromLms: number;
@@ -821,23 +799,23 @@ export interface DashboardSnapshot {
   degradedMode?: boolean;
 }
 
-export async function fetchDashboardSnapshot(client: SupabaseClient, input: { vertical?: string; includeExcluded?: boolean } = {}): Promise<DashboardSnapshot> {
+export async function fetchDashboardSnapshot(client: SupabaseClient, input: { vertical?: string } = {}): Promise<DashboardSnapshot> {
   const { data, error } = await client.rpc("get_dashboard_snapshot", {
     p_vertical: input.vertical ?? "",
-    p_include_excluded: input.includeExcluded ?? false,
+    p_include_excluded: false,
   });
   if (error?.code === "PGRST202") return fetchLegacyDashboardSnapshot(client, input);
   if (error) throw new Error(`Could not read the dashboard snapshot: ${error.message}`);
   return data as DashboardSnapshot;
 }
 
-async function fetchLegacyDashboardSnapshot(client: SupabaseClient, input: { vertical?: string; includeExcluded?: boolean }): Promise<DashboardSnapshot> {
+async function fetchLegacyDashboardSnapshot(client: SupabaseClient, input: { vertical?: string }): Promise<DashboardSnapshot> {
   const [verticalRows, courseRows, flagRows, snapshotRows, metadataRows, conflictRows] = await Promise.all([
     fetchAllRows(client, "verticals", "id,slug"),
     fetchAllRows(client, "courses", "id,app_id,title,primary_vertical_id,management_classification,health_status,next_review_date,owner_name,metadata_completeness_score,reconciliation_status,retrieval_status,import_validation_errors", (query) => query.is("archived_at", null)),
     fetchAllRows(client, "course_flags", "course_id", (query) => query.is("archived_at", null)),
     fetchAllRows(client, "lms_snapshots", "course_id", (query) => query.eq("is_current", true)),
-    fetchAllRows(client, "content_metadata_records", "course_id"),
+    fetchAllRows(client, "content_metadata_records", "course_id", (query) => query.eq("is_current", true).eq("is_importable", true)),
     fetchAllRows(client, "field_comparisons", "course_id", (query) => query.eq("comparison_status", "Conflict").is("selected_source", null)),
   ]);
   const verticalById = new Map(verticalRows.map((row) => [row.id as string, row.slug as string]));
@@ -870,7 +848,7 @@ async function fetchLegacyDashboardSnapshot(client: SupabaseClient, input: { ver
       flagCount: flagCounts.get(databaseId) ?? 0,
     };
   });
-  const portfolio = input.includeExcluded ? courses : courses.filter((course) => course.managementClassification !== "Non-Lexipol excluded");
+  const portfolio = courses;
   const filtered = !input.vertical || input.vertical === "All verticals" ? portfolio : portfolio.filter((course) => course.primaryVertical === input.vertical);
   const queueCourse = (course: (typeof courses)[number]): DashboardQueueCourse => ({
     id: course.id, title: course.title, primaryVertical: course.primaryVertical, owner: course.owner,
@@ -882,7 +860,6 @@ async function fetchLegacyDashboardSnapshot(client: SupabaseClient, input: { ver
     metrics: {
       totalLmsRetrieved: courses.filter((course) => course.hasLms).length,
       lexipolManaged: portfolio.filter((course) => course.managementClassification === "Lexipol managed").length,
-      nonLexipolTracked: portfolio.filter((course) => course.managementClassification === "Non-Lexipol tracked").length,
       unclassified: portfolio.filter((course) => course.managementClassification === "Unclassified").length,
       missingContentMetadata: portfolio.filter((course) => course.hasLms && !course.hasMetadata).length,
       missingFromLms: portfolio.filter((course) => !course.hasLms && course.hasMetadata).length,
@@ -918,7 +895,7 @@ export async function fetchPortfolioSummaries(client: SupabaseClient): Promise<P
     ),
     fetchAllRows(client, "course_flags", "course_id", (query) => query.is("archived_at", null)),
     fetchAllRows(client, "lms_snapshots", "course_id", (query) => query.eq("is_current", true)),
-    fetchAllRows(client, "content_metadata_records", "course_id,normalized_payload", (query) => query.eq("is_current", true)),
+    fetchAllRows(client, "content_metadata_records", "course_id,normalized_payload", (query) => query.eq("is_current", true).eq("is_importable", true)),
     fetchAllRows(
       client,
       "field_comparisons",

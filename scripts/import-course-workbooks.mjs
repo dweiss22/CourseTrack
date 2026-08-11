@@ -12,7 +12,10 @@ import {
   verifySourceManifest,
 } from "./release-target.mjs";
 
-const { calculateMetadataCompleteness } = await import("../lib/source-normalization.ts");
+const {
+  calculateMetadataCompleteness,
+  determineManagementClassification,
+} = await import("../lib/source-normalization.ts");
 
 function jsonSafe(value) {
   if (value === undefined) return null;
@@ -42,47 +45,59 @@ function addDays(isoDateValue, days) {
   return date.toISOString().slice(0, 10);
 }
 
-function projectionFor(course) {
+function hasImportableMetadata(course) {
+  return Boolean(course.metadata && course.metadata.validationErrors.length === 0);
+}
+
+export function projectionFor(course, existing = null) {
   const lms = course.lms?.normalized ?? null;
-  const metadata = course.projection;
-  const verticals = metadata?.verticals?.length ? metadata.verticals : lms?.mappedVerticals ?? [];
+  const projection = course.projection;
+  const metadata = hasImportableMetadata(course) ? course.metadata : null;
+  const verticals = metadata?.verticals ?? [];
   const primaryVertical = verticals[0] ?? "Unclassified";
-  const published = metadata?.published ?? lms?.isPublished ?? null;
+  const published = projection?.published ?? lms?.isPublished ?? null;
+  const manualClassificationSource = existing?.field_provenance?.managementClassification ?? null;
+  const management = determineManagementClassification({
+    hasLmsRecord: Boolean(course.lms),
+    hasContentMetadataMatch: Boolean(metadata),
+    manualClassification: existing?.management_classification ?? null,
+    manualClassificationSource,
+  });
   return {
     appId: `LMS-${course.courseId}`,
     courseCode: course.courseId,
-    title: metadata?.courseName ?? lms?.courseName,
+    title: projection?.courseName ?? lms?.courseName,
     shortTitle: null,
-    description: metadata?.description ?? lms?.courseDescription ?? null,
+    description: projection?.description ?? lms?.courseDescription ?? null,
     learningAudience: null,
     primaryVertical,
     secondaryVerticals: verticals.filter((value) => value !== primaryVertical),
     primaryTopic: lms?.publicTopics?.[0] ?? lms?.privateTopics?.[0] ?? null,
-    managementClassification: metadata ? "Lexipol managed" : lms?.isLexipol === true ? "Lexipol managed" : "Unclassified",
+    managementClassification: management.classification,
     monitoringEnabled: true,
     lifecycleStatus: published ? "Published" : "In Development",
     publicationStatus: published ? "Published" : course.lms ? "Inactive" : "Not in LMS",
-    contentType: metadata?.contentType ?? lms?.courseType ?? "",
-    durationMinutes: metadata?.durationMinutes ?? lms?.durationMinutes ?? null,
-    trainingCredits: metadata?.trainingCredits ?? lms?.trainingCredits ?? { rawDisplay: null, amount: null, unit: null },
+    contentType: projection?.contentType ?? lms?.courseType ?? "",
+    durationMinutes: projection?.durationMinutes ?? lms?.durationMinutes ?? null,
+    trainingCredits: projection?.trainingCredits ?? lms?.trainingCredits ?? { rawDisplay: null, amount: null, unit: null },
     published,
-    authoringTool: metadata?.authoringTool ?? null,
+    authoringTool: projection?.authoringTool ?? null,
     stateCode: null,
     owner: null,
     instructionalDesigner: null,
-    publishedDate: metadata?.publishedDate ?? lms?.publishedDate ?? null,
+    publishedDate: projection?.publishedDate ?? lms?.publishedDate ?? null,
     lastMajorRevisionDate: lms?.lastRevisionDate ?? null,
     nextReviewDate: null,
-    backendLink: metadata?.backendLink ?? null,
-    frontendLink: metadata?.frontendLink ?? null,
-    updateType: metadata?.updateType ?? null,
-    contentUpdatedAt: isoDate(metadata?.updatedRawValue),
-    contentNotes: metadata?.notes ?? null,
-    internalSummary: metadata?.notes ?? "",
-    projectionOrigin: course.metadata ? "master_import" : "lms_export",
-    reconciliationStatus: course.metadata && course.lms
+    backendLink: projection?.backendLink ?? null,
+    frontendLink: projection?.frontendLink ?? null,
+    updateType: projection?.updateType ?? null,
+    contentUpdatedAt: isoDate(projection?.updatedRawValue),
+    contentNotes: projection?.notes ?? null,
+    internalSummary: projection?.notes ?? "",
+    projectionOrigin: metadata ? "master_import" : "lms_export",
+    reconciliationStatus: metadata && course.lms
       ? "Matched between LMS and Content Metadata"
-      : course.metadata
+      : metadata
         ? "Content Metadata only / missing from LMS"
         : "LMS only / missing Content Metadata",
     retrievalStatus: course.lms ? "Retrieved" : "Not connected",
@@ -151,7 +166,15 @@ async function applyDataset(dataset, options = {}) {
   const courseRows = [];
   for (const course of dataset.courses) {
     const existing = existingByLmsId.get(course.courseId);
-    const value = projectionFor(course);
+    const value = projectionFor(course, existing);
+    const fieldProvenance = { ...(existing?.field_provenance ?? {}) };
+    if (
+      fieldProvenance.managementClassification === "coursetrack"
+      && existing?.management_classification !== "Lexipol managed"
+      && (hasImportableMetadata(course) || !["Lexipol managed", "Unclassified"].includes(existing?.management_classification))
+    ) {
+      delete fieldProvenance.managementClassification;
+    }
     courseRows.push({
       app_id: existing?.app_id ?? value.appId,
       course_code: keepOverride(existing, "courseId", value.courseCode, "course_code"),
@@ -176,7 +199,7 @@ async function applyDataset(dataset, options = {}) {
       content_update_type: keepOverride(existing, "updateType", value.updateType, "content_update_type"),
       content_updated_at: keepOverride(existing, "contentUpdatedAt", value.contentUpdatedAt, "content_updated_at"),
       content_notes: keepOverride(existing, "notes", value.contentNotes, "content_notes"),
-      management_classification: keepOverride(existing, "managementClassification", value.managementClassification, "management_classification"),
+      management_classification: value.managementClassification,
       monitoring_enabled: keepOverride(existing, "monitoringEnabled", value.monitoringEnabled, "monitoring_enabled"),
       reconciliation_status: value.reconciliationStatus,
       retrieval_status: value.retrievalStatus,
@@ -188,7 +211,7 @@ async function applyDataset(dataset, options = {}) {
       projection_origin: value.projectionOrigin,
       has_manual_overrides: existing?.has_manual_overrides ?? false,
       source_difference_count: value.sourceDifferenceCount,
-      field_provenance: existing?.field_provenance ?? {},
+      field_provenance: fieldProvenance,
       health_status: "Needs Review",
       health_score: 0,
       metadata_completeness_score: calculateMetadataCompleteness(course.metadata),
