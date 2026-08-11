@@ -66,8 +66,10 @@ jobs:
         run: node scripts/plan-migrations.mjs --target=production --base-dir=. --candidate-dir=_candidate
       - name: Verify recent Production backup
         run: npm run verify:production-backup
+      - name: Prepare isolated Production migration workspace
+        run: cp -R _candidate _migration_apply
       - name: Apply pending Production migrations
-        working-directory: _candidate
+        working-directory: _migration_apply
         shell: bash
         run: |
           node --input-type=module <<'NODE'

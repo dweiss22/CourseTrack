@@ -118,7 +118,7 @@ test("staging release can bootstrap from the existing migration-capable staging 
   const workflow = await readFile(".github/workflows/staging-release.yml", "utf8");
   assert.match(workflow, /push:\s+branches: \[staging\]/);
   assert.match(workflow, /checks: read/);
-  assert.match(workflow, /commits\/\$\{RELEASE_SHA\}\/check-runs/);
+  assert.match(workflow, /commits\/\$\{RELEASE_SHA\}\/check-runs\?per_page=100/);
   assert.match(workflow, /select\(\.name == "Validate application" and \.app\.slug == "github-actions"\)/);
   assert.doesNotMatch(workflow, /actions\/workflows\/ci\.yml\/runs\?head_sha=/);
   assert.match(
@@ -137,6 +137,9 @@ test("production migrations use the scoped Supabase token and a short-lived link
   assert.match(workflow, /SUPABASE_ACCESS_TOKEN: \$\{\{ secrets\.SUPABASE_ACCESS_TOKEN \}\}/);
   assert.match(workflow, /productionBaseline\.version/);
   assert.match(workflow, /productionBaseline \?\? \{\}/);
+  assert.match(workflow, /cp -R _candidate _migration_apply/);
+  assert.match(workflow, /Apply pending Production migrations\s+working-directory: _migration_apply/);
+  assert.doesNotMatch(workflow, /Apply pending Production migrations\s+working-directory: _candidate/);
   assert.match(workflow, /match\[1\] <= coversThrough/);
   assert.match(workflow, /unlink\(path\.join\(migrationDirectory, entry\)\)/);
   assert.match(workflow, /Trusted local marker for the reviewed Production baseline/);
