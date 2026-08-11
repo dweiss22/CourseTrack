@@ -63,7 +63,7 @@ Staging only:
 Production only:
 
 - secret `VERCEL_TOKEN`
-- variables `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID`
+- variables `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`, and `VERCEL_TEAM_SLUG`
 - secret `SUPABASE_ACCESS_TOKEN`, scoped to the Production project, for backup
   verification and the Supabase CLI's short-lived linked migration login
 - secret `COURSETRACK_PROMOTION_APP_PRIVATE_KEY`

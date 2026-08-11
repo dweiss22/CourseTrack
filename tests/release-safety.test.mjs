@@ -142,6 +142,15 @@ test("production migrations use the scoped Supabase token and a short-lived link
   assert.doesNotMatch(workflow, /migration repair|--include-all/);
 });
 
+test("production promotion stays in the configured Vercel team scope", async () => {
+  const workflow = await readFile(".github/workflows/production-release.yml", "utf8");
+  assert.match(workflow, /VERCEL_TEAM_SLUG: \$\{\{ vars\.VERCEL_TEAM_SLUG \}\}/);
+  assert.match(
+    workflow,
+    /vercel@58\.0\.0 promote .* --scope="\$VERCEL_TEAM_SLUG" --token="\$VERCEL_TOKEN"/,
+  );
+});
+
 test("production readiness executes only protected code against candidate migration data", async () => {
   const workflow = await readFile(".github/workflows/production-preparation.yml", "utf8");
   const step = workflow.match(
