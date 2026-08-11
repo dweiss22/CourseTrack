@@ -115,6 +115,8 @@ test("trusted migration workflow never executes candidate code or SQL directly",
 
 test("staging release can bootstrap from the existing migration-capable staging credential", async () => {
   const workflow = await readFile(".github/workflows/staging-release.yml", "utf8");
+  assert.match(workflow, /push:\s+branches: \[staging\]/);
+  assert.match(workflow, /head_sha=\$\{RELEASE_SHA\}&event=push/);
   assert.match(
     workflow,
     /COURSETRACK_MIGRATION_DATABASE_URL: \$\{\{ secrets\.COURSETRACK_MIGRATION_DATABASE_URL \|\| secrets\.STAGING_DATABASE_URL \}\}/,

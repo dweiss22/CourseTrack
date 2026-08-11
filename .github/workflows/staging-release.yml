@@ -1,9 +1,7 @@
 name: CourseTrack staging release
 
 on:
-  workflow_run:
-    workflows: [CourseTrack CI]
-    types: [completed]
+  push:
     branches: [staging]
   workflow_dispatch:
     inputs:
@@ -24,12 +22,11 @@ permissions:
 jobs:
   release:
     name: Staging release verified
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment: staging
     env:
-      RELEASE_SHA: ${{ inputs.sha || github.event.workflow_run.head_sha }}
+      RELEASE_SHA: ${{ inputs.sha || github.sha }}
       COURSETRACK_ENVIRONMENT: staging
       VERCEL_GIT_COMMIT_REF: staging
       SUPABASE_URL: ${{ vars.SUPABASE_URL }}
@@ -50,7 +47,7 @@ jobs:
       - name: Require an exact staging SHA
         run: |
           test -n "$RELEASE_SHA"
-          test "${{ github.event_name }}" = "workflow_dispatch" || test "${{ github.event.workflow_run.head_branch }}" = "staging"
+          test "${{ github.event_name }}" = "workflow_dispatch" || test "${{ github.ref }}" = "refs/heads/staging"
       - name: Check out the exact validated commit
         uses: actions/checkout@v7
         with:
@@ -60,11 +57,20 @@ jobs:
         run: |
           git fetch origin staging
           test "$(git rev-parse HEAD)" = "$(git rev-parse origin/staging)"
-      - name: Verify Validate application passed for the exact SHA
+      - name: Wait for successful CI on the exact SHA
         shell: bash
         run: |
-          count="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${RELEASE_SHA}&status=success" --jq '.total_count')"
-          test "$count" -ge 1
+          for attempt in $(seq 1 60); do
+            result="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${RELEASE_SHA}&event=push&per_page=1" --jq '[.workflow_runs[0].status // "", .workflow_runs[0].conclusion // ""] | @tsv')"
+            IFS=$'\t' read -r status conclusion <<< "$result"
+            if test "$status" = "completed"; then
+              test "$conclusion" = "success"
+              exit
+            fi
+            sleep 10
+          done
+          echo "Timed out waiting for CourseTrack CI on ${RELEASE_SHA}." >&2
+          exit 1
       - name: Use Node.js 22
         uses: actions/setup-node@v7
         with:
