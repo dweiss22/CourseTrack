@@ -17,7 +17,7 @@ concurrency:
 permissions:
   actions: read
   contents: read
-  deployments: write
+  deployments: read
 
 jobs:
   release:
@@ -39,9 +39,6 @@ jobs:
       COURSETRACK_PRODUCTION_SUPABASE_REF: ${{ vars.COURSETRACK_PRODUCTION_SUPABASE_REF }}
       COURSETRACK_SMOKE_BASE_URL: ${{ vars.COURSETRACK_SMOKE_BASE_URL }}
       VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: Require an exact staging SHA
@@ -84,20 +81,37 @@ jobs:
         run: npm run check:deployment
       - name: Audit staging data
         run: npm run audit:course-data -- --target=staging --require-full-parity
-      - name: Pull Vercel Preview configuration
-        run: npx --yes vercel@58.0.0 pull --yes --environment=preview --token="$VERCEL_TOKEN"
-      - name: Build exact staging SHA
-        run: npx --yes vercel@58.0.0 build --token="$VERCEL_TOKEN"
-      - name: Deploy exact staging SHA
-        id: deploy
+      - name: Resolve exact Vercel Git deployment
+        id: vercel
         shell: bash
         run: |
-          url="$(npx --yes vercel@58.0.0 deploy --prebuilt --token="$VERCEL_TOKEN")"
-          echo "::add-mask::$url"
-          echo "url=$url" >> "$GITHUB_OUTPUT"
+          for attempt in $(seq 1 90); do
+            deployments="$(gh api "repos/${GITHUB_REPOSITORY}/deployments?sha=${RELEASE_SHA}&environment=Preview&per_page=50")"
+            deployment_id="$(jq -r '[.[] | select(.creator.login == "vercel[bot]")][0].id // empty' <<< "$deployments")"
+            if test -n "$deployment_id"; then
+              statuses="$(gh api "repos/${GITHUB_REPOSITORY}/deployments/${deployment_id}/statuses?per_page=20")"
+              state="$(jq -r '.[0].state // empty' <<< "$statuses")"
+              if test "$state" = "success"; then
+                url="$(jq -r '.[0].environment_url // .[0].target_url // empty' <<< "$statuses")"
+                test -n "$url"
+                echo "::add-mask::$url"
+                echo "url=$url" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              case "$state" in
+                error|failure|inactive)
+                  echo "Vercel Git deployment ${deployment_id} finished with ${state}." >&2
+                  exit 1
+                  ;;
+              esac
+            fi
+            sleep 10
+          done
+          echo "Timed out waiting for Vercel Git deployment of ${RELEASE_SHA}." >&2
+          exit 1
       - name: Smoke unique staging deployment
         env:
-          COURSETRACK_SMOKE_BASE_URL: ${{ steps.deploy.outputs.url }}
+          COURSETRACK_SMOKE_BASE_URL: ${{ steps.vercel.outputs.url }}
           COURSETRACK_SMOKE_EXPECTED_COMMIT: ${{ env.RELEASE_SHA }}
         run: npm run smoke:deployment:health
       - name: Smoke stable staging URL
