@@ -38,7 +38,11 @@ already existed. Supabase recorded reviewed baseline migration
 `202608040007`. Migrations `202608040008`, `202608050001`, and every later
 checked-in migration must appear as their own ledger rows. Staging continues
 to require an exact checked-in migration ledger; do not copy, rename, or
-manually rewrite either environment's migration history.
+manually rewrite either environment's migration history. Before invoking the
+Supabase CLI, the protected Production preparation workflow creates a local,
+comment-only marker for that already-applied baseline version. This satisfies
+the CLI's local-history check without executing SQL or changing the remote
+migration ledger.
 
 ## Vercel variables
 
@@ -63,11 +67,14 @@ Vercel also supplies `VERCEL_GIT_COMMIT_REF` and `VERCEL_GIT_COMMIT_SHA`. The
 gate cross-checks the branch and reports the commit in the safe health response.
 
 The schema-check login must be `LOGIN NOINHERIT`, have no ownership or write
-privileges, and receive only database `CONNECT`, schema `USAGE` on
-`supabase_migrations`, and `SELECT` on
-`supabase_migrations.schema_migrations`. Give it a short statement timeout.
-Never use the Supabase database owner, service role, or administrative password
-for `COURSETRACK_SCHEMA_DATABASE_URL`.
+privileges, and receive database `CONNECT`; schema `USAGE` on `public` and
+`supabase_migrations`; and `SELECT` only on
+`supabase_migrations.schema_migrations`, `public.courses`,
+`public.content_metadata_records`, `public.lms_snapshots`, and
+`public.accreditation_records`. Those four application tables support the
+read-only release audit. Give the login a short statement timeout. Never use
+the Supabase database owner, service role, or administrative password for
+`COURSETRACK_SCHEMA_DATABASE_URL`.
 
 ## GitHub protected environments
 

@@ -14,10 +14,12 @@ move through `change/* -> staging -> main`; no release branch is created.
 1. `Validate application` runs lint, typecheck, contracts/components, the
    workbook fixture contract, and a code-only build. The staging release polls
    this exact-SHA check run directly, avoiding stale parent workflow state.
-2. The trusted `CourseTrack migration plan` workflow runs protected base-branch
-   code. Candidate SQL and `supabase/migrations/manifest.json` are read only as
-   inert data. Existing entries must remain byte-identical; new versions must
-   be appended in order with reviewed SHA-256 values.
+2. The secret-free, trusted `CourseTrack migration plan` workflow runs
+   protected base-branch code. Candidate SQL and
+   `supabase/migrations/manifest.json` are read only as inert data. Existing
+   entries must remain byte-identical; new versions must be appended in order
+   with reviewed SHA-256 values. Target database state is checked later by the
+   protected staging release or Production preparation workflow.
 3. After a successful push validation on `staging`, `CourseTrack staging
    release` applies pending migrations with Supabase CLI `2.110.0`, verifies the
    deployment contract, runs the safe data audit, resolves Vercel's successful

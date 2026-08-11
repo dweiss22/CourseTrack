@@ -110,6 +110,7 @@ test("trusted migration workflow never executes candidate code or SQL directly",
   assert.match(workflow, /pull_request_target/);
   assert.match(workflow, /persist-credentials: false/g);
   assert.match(workflow, /node scripts\/plan-migrations\.mjs/);
+  assert.doesNotMatch(workflow, /environment:|COURSETRACK_SCHEMA_DATABASE_URL|secrets\./);
   assert.doesNotMatch(workflow, /working-directory: _candidate[\s\S]*npm|psql|migration up/);
 });
 
@@ -134,9 +135,11 @@ test("staging release can bootstrap from the existing migration-capable staging 
 test("production migrations use the scoped Supabase token and a short-lived linked login", async () => {
   const workflow = await readFile(".github/workflows/production-preparation.yml", "utf8");
   assert.match(workflow, /SUPABASE_ACCESS_TOKEN: \$\{\{ secrets\.SUPABASE_ACCESS_TOKEN \}\}/);
+  assert.match(workflow, /productionBaseline\.version/);
+  assert.match(workflow, /Trusted local marker for the reviewed Production baseline/);
   assert.match(workflow, /supabase@2\.110\.0 link --project-ref/);
   assert.match(workflow, /supabase@2\.110\.0 migration up --linked/);
-  assert.doesNotMatch(workflow, /--include-all/);
+  assert.doesNotMatch(workflow, /migration repair|--include-all/);
 });
 
 test("production readiness executes only protected code against candidate migration data", async () => {
