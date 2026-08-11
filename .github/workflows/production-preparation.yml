@@ -70,6 +70,23 @@ jobs:
         working-directory: _candidate
         shell: bash
         run: |
+          node --input-type=module <<'NODE'
+          import path from "node:path";
+          import { readFile, readdir, unlink } from "node:fs/promises";
+
+          const migrationDirectory = path.resolve("supabase/migrations");
+          const manifest = JSON.parse(await readFile(path.join(migrationDirectory, "manifest.json"), "utf8"));
+          const { version: baselineVersion, coversThrough } = manifest.productionBaseline ?? {};
+          if (!/^\d{12,14}$/.test(baselineVersion ?? "") || !/^\d{12}$/.test(coversThrough ?? "")) {
+            throw new Error("Production baseline metadata is malformed.");
+          }
+          for (const entry of await readdir(migrationDirectory)) {
+            const match = /^(\d{12})_[a-z0-9_]+\.sql$/.exec(entry);
+            if (match && match[1] <= coversThrough) {
+              await unlink(path.join(migrationDirectory, entry));
+            }
+          }
+          NODE
           baseline_version="$(node -p "require('./supabase/migrations/manifest.json').productionBaseline.version")"
           baseline_file="supabase/migrations/${baseline_version}_production_baseline.sql"
           if ! test -e "$baseline_file"; then
