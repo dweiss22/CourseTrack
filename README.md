@@ -16,7 +16,7 @@ Raw uploads, LMS snapshots, import/retrieval history, and audit logs are immutab
 
 1. Install Node.js 22.13 or newer and run `npm install`.
 2. Copy `.env.example` to `.env.local` and configure Supabase server and browser credentials.
-3. Apply the checked-in migrations in `supabase/migrations` to an authorized development database. Do not apply migrations to production from this repository workflow.
+3. Apply checked-in migrations only to an authorized development database. Staging and Production migrations are applied by the protected release workflows.
 4. Start with `npm run dev`.
 
 Authentication and persistence fail closed. Without a valid Supabase session the protected pages redirect to sign-in; without database credentials reads and mutations return an explicit unavailable error.
@@ -39,8 +39,13 @@ See `docs/deployment-workflow.md` for the complete naming and release model.
 npm run lint
 npm run typecheck
 npm test
-npm run build:vercel
+npm run build
+npm run build:code
 ```
+
+Targeted data verification is available through
+`npm run audit:course-data -- --target=staging|production`. Workbook imports
+also require an explicit target and a complete reviewed source manifest.
 
 The operational migration is `supabase/migrations/202608040006_operational_workflows.sql`. It backfills provenance, adds optimistic-concurrency and archive metadata, protects LMS API records, creates favorites and atomic board/version functions, and performs narrowly fingerprinted legacy cleanup.
 

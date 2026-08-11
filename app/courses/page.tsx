@@ -49,6 +49,8 @@ export default async function CourseLibraryPage() {
     hasLmsSnapshot: course.hasLmsSnapshot,
     hasContentMetadata: course.hasContentMetadata,
     importValidationErrorCount: course.importValidationErrorCount,
+    backendLink: course.backendLink,
+    frontendLink: course.frontendLink,
   }));
   return <CourseLibrary courses={records} initialTotal={page.total} initialFavoriteIds={favoriteCourseIds} initialPreferences={preferences} canEdit={["super_admin", "admin", "content"].includes(auth.role)} />;
 }

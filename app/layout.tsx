@@ -8,6 +8,7 @@ import {
   resolveDeploymentEnvironment,
 } from "@/lib/deployment-environment";
 import { withServerOperation } from "@/lib/server-observability";
+import { ResponsiveTableEnhancer } from "@/components/responsive-table-enhancer";
 import "./globals.css";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -73,6 +74,7 @@ export default async function RootLayout({
   return (
     <html lang="en">
       <body>
+        <ResponsiveTableEnhancer />
         <AppShell
           authContext={authContext}
           deploymentEnvironment={deploymentEnvironment}

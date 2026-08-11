@@ -1,0 +1,80 @@
+name: CourseTrack production preparation
+
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      staging_sha:
+        description: Exact green staging SHA
+        required: true
+        type: string
+
+concurrency:
+  group: prepare-production
+  cancel-in-progress: false
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  prepare:
+    name: Production release readiness
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: Production
+    env:
+      RELEASE_SHA: ${{ inputs.staging_sha || github.event.pull_request.head.sha }}
+      COURSETRACK_ENVIRONMENT: production
+      VERCEL_GIT_COMMIT_REF: main
+      SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+      SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+      NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      COURSETRACK_SCHEMA_DATABASE_URL: ${{ secrets.COURSETRACK_SCHEMA_DATABASE_URL }}
+      COURSETRACK_STAGING_SUPABASE_REF: ${{ vars.COURSETRACK_STAGING_SUPABASE_REF }}
+      COURSETRACK_PRODUCTION_SUPABASE_REF: ${{ vars.COURSETRACK_PRODUCTION_SUPABASE_REF }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out protected production workflow and scripts
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Check out exact staging candidate as inert migration data
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.RELEASE_SHA }}
+          path: _candidate
+          persist-credentials: false
+      - name: Use Node.js 22
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install protected production dependencies
+        run: npm ci --ignore-scripts
+      - name: Verify exact SHA has a successful staging release
+        shell: bash
+        run: |
+          count="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/staging-release.yml/runs?head_sha=${RELEASE_SHA}&status=success" --jq '.total_count')"
+          test "$count" -ge 1
+      - name: Revalidate candidate migration data
+        run: node scripts/plan-migrations.mjs --target=production --base-dir=. --candidate-dir=_candidate
+      - name: Verify recent Production backup
+        run: npm run verify:production-backup
+      - name: Apply pending Production migrations
+        working-directory: _candidate
+        run: |
+          npx --yes supabase@2.110.0 link --project-ref "$COURSETRACK_PRODUCTION_SUPABASE_REF"
+          npx --yes supabase@2.110.0 migration up --linked
+      - name: Verify Production contract from exact candidate
+        run: node scripts/check-deployment-readiness.mjs --candidate-dir=_candidate
+      - name: Audit Production data parity
+        run: npm run audit:course-data -- --target=production --require-full-parity
+      - name: Verify PR head did not move
+        if: github.event_name == 'pull_request_target'
+        run: test "${{ github.event.pull_request.head.sha }}" = "$RELEASE_SHA"

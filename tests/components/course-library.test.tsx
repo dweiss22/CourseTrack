@@ -16,6 +16,7 @@ const included: CourseLibraryRecord = {
   healthStatus: "Healthy", lifecycleStatus: "Published", primaryTopic: "Leadership", tags: ["incident"],
   owner: "Alex Admin", durationMinutes: 60, dataSource: "uploaded", topicAssignments: [{ topic: "Leadership" }],
   hasLmsSnapshot: true, hasContentMetadata: true, importValidationErrorCount: 0,
+  backendLink: "https://admin.example.test/courses/101", frontendLink: "https://learn.example.test/courses/101",
 };
 const excluded: CourseLibraryRecord = { ...included, id: "excluded", title: "Outside Portfolio", courseCode: "CT-200", managementClassification: "Non-Lexipol excluded" };
 
