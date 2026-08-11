@@ -11,7 +11,7 @@ move through `change/* -> staging -> main`; no release branch is created.
 
 ## Ordered release path
 
-1. `Application validation` runs lint, typecheck, contracts/components, the
+1. `Validate application` runs lint, typecheck, contracts/components, the
    workbook fixture contract, and a code-only build.
 2. The trusted `CourseTrack migration plan` workflow runs protected base-branch
    code. Candidate SQL and `supabase/migrations/manifest.json` are read only as
@@ -70,9 +70,9 @@ fast-forward-only update of `staging`.
 
 Use two rulesets:
 
-- `staging`: pull request, `Application validation`, `Staging migration plan`,
+- `staging`: pull request, `Validate application`, `Staging migration plan`,
   conversation resolution; block force pushes and deletion.
-- `main`: pull request, `Application validation`, `Production migration plan`,
+- `main`: pull request, `Validate application`, `Production migration plan`,
   `Staging release verified`, `Production release readiness`, conversation
   resolution; block force pushes and deletion.
 

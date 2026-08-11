@@ -60,7 +60,7 @@ jobs:
         run: |
           git fetch origin staging
           test "$(git rev-parse HEAD)" = "$(git rev-parse origin/staging)"
-      - name: Verify Application validation passed for the exact SHA
+      - name: Verify Validate application passed for the exact SHA
         shell: bash
         run: |
           count="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${RELEASE_SHA}&status=success" --jq '.total_count')"
