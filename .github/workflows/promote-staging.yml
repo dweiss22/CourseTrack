@@ -1,0 +1,79 @@
+name: CourseTrack temporary staging promotion
+
+on:
+  workflow_run:
+    workflows: [CourseTrack staging release]
+    types: [completed]
+    branches: [staging]
+  workflow_dispatch:
+
+concurrency:
+  group: promote-staging-to-main
+  cancel-in-progress: false
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  promote:
+    name: Promote exact staging SHA
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: Production
+    steps:
+      - name: Require enabled, unexpired temporary promotion
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          ENABLED: ${{ vars.AUTO_PROMOTE_STAGING_TO_MAIN }}
+          EXPIRES_AT: ${{ vars.AUTO_PROMOTE_EXPIRES_AT }}
+        run: node -e "if(process.env.EVENT_NAME==='workflow_dispatch')process.exit(0);if(process.env.ENABLED!=='true')throw Error('Automatic promotion is disabled.');const expiry=Date.parse(process.env.EXPIRES_AT||'');if(!Number.isFinite(expiry)||expiry<=Date.now())throw Error('Automatic promotion is expired or has no valid expiry.');if(expiry-Date.now()>30*864e5)throw Error('Automatic promotion expiry exceeds 30 days.');"
+      - name: Create least-privilege promotion App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.COURSETRACK_PROMOTION_APP_ID }}
+          private-key: ${{ secrets.COURSETRACK_PROMOTION_APP_PRIVATE_KEY }}
+      - name: Resolve exact current staging SHA
+        id: staging
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+        shell: bash
+        run: |
+          current="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/staging" --jq '.object.sha')"
+          if test -n "$RELEASE_SHA"; then test "$current" = "$RELEASE_SHA"; fi
+          echo "sha=$current" >> "$GITHUB_OUTPUT"
+      - name: Create or update the single staging to main PR
+        id: pr
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        shell: bash
+        run: |
+          number="$(gh pr list --base main --head staging --state open --json number --jq '.[0].number // empty')"
+          if test -z "$number"; then
+            url="$(gh pr create --base main --head staging --title 'Promote staging to production' --body 'Automated, exact-SHA promotion after the controlled staging release. Production preparation and all protected checks must pass before merge.')"
+            number="${url##*/}"
+          fi
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+      - name: Verify PR head before Production preparation
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          EXPECTED_SHA: ${{ steps.staging.outputs.sha }}
+        run: test "$(gh pr view "$PR_NUMBER" --json headRefOid --jq '.headRefOid')" = "$EXPECTED_SHA"
+      - name: Wait for all protected PR checks
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: gh pr checks "${{ steps.pr.outputs.number }}" --watch --fail-fast --interval 20
+      - name: Verify exact PR head immediately before merge
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          EXPECTED_SHA: ${{ steps.staging.outputs.sha }}
+        run: test "$(gh pr view "$PR_NUMBER" --json headRefOid --jq '.headRefOid')" = "$EXPECTED_SHA"
+      - name: Merge without bypassing main protection
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: gh pr merge "${{ steps.pr.outputs.number }}" --merge --match-head-commit "${{ steps.staging.outputs.sha }}"

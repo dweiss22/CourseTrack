@@ -1,0 +1,100 @@
+name: CourseTrack staging release
+
+on:
+  workflow_run:
+    workflows: [CourseTrack CI]
+    types: [completed]
+    branches: [staging]
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Exact staging commit to release (defaults to the current staging head)
+        required: false
+        type: string
+
+concurrency:
+  group: release-staging
+  cancel-in-progress: false
+
+permissions:
+  actions: read
+  contents: read
+  deployments: write
+
+jobs:
+  release:
+    name: Staging release verified
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    environment: staging
+    env:
+      RELEASE_SHA: ${{ inputs.sha || github.event.workflow_run.head_sha }}
+      COURSETRACK_ENVIRONMENT: staging
+      VERCEL_GIT_COMMIT_REF: staging
+      SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+      SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+      NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      COURSETRACK_SCHEMA_DATABASE_URL: ${{ secrets.COURSETRACK_SCHEMA_DATABASE_URL }}
+      COURSETRACK_MIGRATION_DATABASE_URL: ${{ secrets.COURSETRACK_MIGRATION_DATABASE_URL || secrets.STAGING_DATABASE_URL }}
+      COURSETRACK_STAGING_SUPABASE_REF: ${{ vars.COURSETRACK_STAGING_SUPABASE_REF }}
+      COURSETRACK_PRODUCTION_SUPABASE_REF: ${{ vars.COURSETRACK_PRODUCTION_SUPABASE_REF }}
+      COURSETRACK_SMOKE_BASE_URL: ${{ vars.COURSETRACK_SMOKE_BASE_URL }}
+      VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Require an exact staging SHA
+        run: |
+          test -n "$RELEASE_SHA"
+          test "${{ github.event_name }}" = "workflow_dispatch" || test "${{ github.event.workflow_run.head_branch }}" = "staging"
+      - name: Check out the exact validated commit
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.RELEASE_SHA }}
+          fetch-depth: 0
+      - name: Verify SHA is the current staging head
+        run: |
+          git fetch origin staging
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/staging)"
+      - name: Verify Validate application passed for the exact SHA
+        shell: bash
+        run: |
+          count="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${RELEASE_SHA}&status=success" --jq '.total_count')"
+          test "$count" -ge 1
+      - name: Use Node.js 22
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Apply pending staging migrations
+        run: npx --yes supabase@2.110.0 migration up --db-url "$COURSETRACK_MIGRATION_DATABASE_URL"
+      - name: Verify staging contract
+        run: npm run check:deployment
+      - name: Audit staging data
+        run: npm run audit:course-data -- --target=staging --require-full-parity
+      - name: Pull Vercel Preview configuration
+        run: npx --yes vercel@58.0.0 pull --yes --environment=preview --token="$VERCEL_TOKEN"
+      - name: Build exact staging SHA
+        run: npx --yes vercel@58.0.0 build --token="$VERCEL_TOKEN"
+      - name: Deploy exact staging SHA
+        id: deploy
+        shell: bash
+        run: |
+          url="$(npx --yes vercel@58.0.0 deploy --prebuilt --token="$VERCEL_TOKEN")"
+          echo "::add-mask::$url"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+      - name: Smoke unique staging deployment
+        env:
+          COURSETRACK_SMOKE_BASE_URL: ${{ steps.deploy.outputs.url }}
+          COURSETRACK_SMOKE_EXPECTED_COMMIT: ${{ env.RELEASE_SHA }}
+        run: npm run smoke:deployment:health
+      - name: Smoke stable staging URL
+        env:
+          COURSETRACK_SMOKE_EXPECTED_COMMIT: ${{ env.RELEASE_SHA }}
+        run: npm run smoke:deployment:health

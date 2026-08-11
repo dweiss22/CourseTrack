@@ -3,9 +3,14 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { createClient } from "@supabase/supabase-js";
-import pg from "pg";
 import "./register-aliases.mjs";
 import { assertCourseWorkbookBaseline, loadCourseWorkbookDataset } from "./course-workbook-loader.mjs";
+import {
+  assertTarget,
+  assertTargetConfiguration,
+  valueFor,
+  verifySourceManifest,
+} from "./release-target.mjs";
 
 const { calculateMetadataCompleteness } = await import("../lib/source-normalization.ts");
 
@@ -122,11 +127,16 @@ async function allRows(client, table, columns) {
 
 async function applyDataset(dataset, options = {}) {
   if (!options.url || !options.key) await loadEnvFile(path.resolve(".env.local"));
+  const target = assertTarget(options.target);
   const url = options.url || process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = options.key || process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const databaseUrl = options.databaseUrl || process.env.STAGING_DATABASE_URL;
-  const redactRawPayloads = (options.environment || process.env.COURSETRACK_ENVIRONMENT || "").toLowerCase() === "staging";
+  const databaseUrl = options.databaseUrl || process.env.COURSETRACK_MIGRATION_DATABASE_URL;
+  const redactRawPayloads = target === "staging";
   if (!url || !key) throw new Error("Apply mode requires SUPABASE_URL and SUPABASE_SECRET_KEY (or SUPABASE_SERVICE_ROLE_KEY).");
+  if (target === "production" && options.approvedProductionRollout !== true) {
+    throw new Error("Production apply requires --approved-production-rollout after the documented approval checkpoint.");
+  }
+  assertTargetConfiguration({ target, supabaseUrl: url, databaseUrl, environment: options.environment || process.env });
   const client = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
 
   const verticalRows = await allRows(client, "verticals", "id,slug");
@@ -416,18 +426,9 @@ async function applyDataset(dataset, options = {}) {
     if (error) throw new Error(`Could not insert LMS accreditation records: ${error.message}`);
   });
 
-  if (databaseUrl) {
-    const comparisonClient = new pg.Client({ connectionString: databaseUrl });
-    await comparisonClient.connect();
-    try {
-      await comparisonClient.query("set statement_timeout = '15min'");
-      await comparisonClient.query("select public.refresh_all_course_comparisons()");
-    } finally {
-      await comparisonClient.end();
-    }
-  } else {
-    const { error: refreshError } = await client.rpc("refresh_all_course_comparisons");
-    if (refreshError) throw new Error(`Could not refresh CourseTrack source comparisons: ${refreshError.message}`);
+  const { error: comparisonRefreshError } = await client.rpc("refresh_all_course_comparisons");
+  if (comparisonRefreshError) {
+    throw new Error(`Could not refresh source comparisons: ${comparisonRefreshError.message}`);
   }
   const { error: runCompleteError } = await client.from("lms_retrieval_runs").update({
     completed_at: new Date().toISOString(),
@@ -445,39 +446,58 @@ async function applyDataset(dataset, options = {}) {
     courses: (await allRows(client, "courses", "id")).length,
     currentLmsSnapshots: (await allRows(client, "lms_snapshots", "id,is_current")).filter((row) => row.is_current).length,
     currentMetadataRecords: (await allRows(client, "content_metadata_records", "id,is_current")).filter((row) => row.is_current).length,
+    projectionOrigins: (await allRows(client, "courses", "id,projection_origin")).reduce((counts, row) => ({ ...counts, [row.projection_origin]: (counts[row.projection_origin] ?? 0) + 1 }), {}),
+    backendLinks: (await allRows(client, "courses", "id,backend_link")).filter((row) => row.backend_link?.trim()).length,
+    frontendLinks: (await allRows(client, "courses", "id,frontend_link")).filter((row) => row.frontend_link?.trim()).length,
     accreditationSources: (await allRows(client, "accreditation_records", "id,source_domain,source_transport,topic_number")).filter((row) => row.source_domain === "lms" && row.source_transport === "uploaded"),
   };
-  if (acceptance.currentLmsSnapshots !== 18_406 || acceptance.currentMetadataRecords !== 1_952 || acceptance.accreditationSources.length < 19_571 || acceptance.accreditationSources.filter((row) => row.topic_number).length < 513 || acceptance.courses < 18_530) {
+  if (
+    acceptance.courses !== 18_530
+    || acceptance.currentLmsSnapshots !== 18_406
+    || acceptance.currentMetadataRecords !== 1_952
+    || acceptance.projectionOrigins.lms_export !== 16_578
+    || acceptance.projectionOrigins.master_import !== 1_952
+    || acceptance.backendLinks !== 1_341
+    || acceptance.frontendLinks !== 1_341
+    || acceptance.accreditationSources.length < 19_571
+    || acceptance.accreditationSources.filter((row) => row.topic_number).length < 513
+  ) {
     throw new Error(`Post-import acceptance failed: ${JSON.stringify({ ...acceptance, accreditationSources: acceptance.accreditationSources.length })}`);
   }
   return { insertedCourseProjections: courseRows.length, secondaryVerticals: secondaryVerticalRows.length, snapshots: snapshots.length, metadataRecords: metadataRows.length, comparisons: comparisonRows.length, accreditationsBackfilled: accreditationBackfills.length, accreditationsAdded: accreditationRows.length };
 }
 
 export async function runCourseWorkbookImport(options = {}) {
+  const target = assertTarget(options.target);
   const sourceDirectory = path.resolve(options.sourceDirectory || "Files");
-  const asOfDate = options.asOfDate || new Date().toISOString().slice(0, 10);
+  const manifestPath = path.resolve(options.manifestPath || "config/course-data-manifest.json");
+  const manifest = await verifySourceManifest(sourceDirectory, manifestPath);
+  const asOfDate = options.asOfDate || manifest.reviewedImportDate;
+  if (asOfDate !== manifest.reviewedImportDate) throw new Error(`Import date must match the reviewed source manifest (${manifest.reviewedImportDate}).`);
   const importedAt = `${asOfDate}T12:00:00.000Z`;
   const dataset = await loadCourseWorkbookDataset(sourceDirectory, { importedAt, asOfDate });
   assertCourseWorkbookBaseline(dataset);
   const output = {
     mode: options.apply ? "apply" : "dry-run",
-    files: dataset.files,
+    target,
+    reviewedImportDate: manifest.reviewedImportDate,
+    files: manifest.files.map(({ name, bytes, sha256 }) => ({ name, bytes, sha256 })),
     summary: dataset.summary,
   };
-  if (options.apply) output.applied = await applyDataset(dataset, options);
+  if (options.apply) output.applied = await applyDataset(dataset, { ...options, target });
   return output;
 }
 
 if (typeof process !== "undefined" && process.argv?.[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const args = new Set(process.argv.slice(2));
-  const valueFor = (name, fallback) => {
-    const item = process.argv.slice(2).find((value) => value.startsWith(`${name}=`));
-    return item ? item.slice(name.length + 1) : fallback;
-  };
+  const argv = process.argv.slice(2);
   const output = await runCourseWorkbookImport({
     apply: args.has("--apply"),
-    sourceDirectory: valueFor("--source-dir", "Files"),
-    asOfDate: valueFor("--as-of", new Date().toISOString().slice(0, 10)),
+    target: valueFor(argv, "--target"),
+    sourceDirectory: valueFor(argv, "--source-dir", "Files"),
+    manifestPath: valueFor(argv, "--manifest", "config/course-data-manifest.json"),
+    asOfDate: valueFor(argv, "--as-of"),
+    approvedProductionRollout: args.has("--approved-production-rollout"),
   });
   process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
 }

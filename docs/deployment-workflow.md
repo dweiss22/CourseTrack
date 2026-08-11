@@ -1,103 +1,106 @@
 # Deployment workflow
 
-CourseTrack uses two long-lived branches. Every other branch is temporary and
-is deleted after its pull request is merged or closed.
+CourseTrack has exactly two long-lived branches: `staging` and `main`. Changes
+move through `change/* -> staging -> main`; no release branch is created.
 
-| Application environment | Git branch | Vercel label | Supabase branch | Purpose |
+| Environment | Git branch | Vercel environment | Supabase project | Purpose |
 | --- | --- | --- | --- | --- |
-| Production | `main` | Production | `main` | Live application |
-| Staging | `staging` | Preview | `staging` | Integrated release candidate and final validation |
-| Temporary change | `change/<description>` | Preview (canceled before build) | None | CI and pull-request review only |
+| Staging | `staging` | Preview, overridden for `staging` | staging | Integrated release candidate |
+| Production | `main` | Production | production | Live application |
+| Temporary change | `change/*` | Git build ignored | none | Pull-request validation only |
 
-`Preview` is Vercel's built-in label for every non-production deployment; it
-is not a separate CourseTrack environment or a copy of Production. CourseTrack
-uses that Vercel category only for the long-lived `staging` branch. The
-`ignoreCommand` in `vercel.json` cancels deployments for temporary branches.
-The stable staging URL always follows the latest successful `staging`
-deployment.
+## Ordered release path
 
-Use `change/<plain-English-description>` for all temporary work. For example,
-an update to GitHub Actions should use `change/update-github-actions`.
+1. `Validate application` runs lint, typecheck, contracts/components, the
+   workbook fixture contract, and a code-only build.
+2. The trusted `CourseTrack migration plan` workflow runs protected base-branch
+   code. Candidate SQL and `supabase/migrations/manifest.json` are read only as
+   inert data. Existing entries must remain byte-identical; new versions must
+   be appended in order with reviewed SHA-256 values.
+3. After a successful push validation on `staging`, `CourseTrack staging
+   release` applies pending migrations with Supabase CLI `2.110.0`, verifies the
+   deployment contract, runs the safe data audit, builds/deploys the exact SHA
+   with Vercel CLI `58.0.0`, and smokes the unique and stable URLs.
+4. A `staging -> main` PR runs Production migration planning and `CourseTrack
+   production preparation`. The latter verifies the exact staging release and
+   a recent Supabase backup, applies pending Production migrations, and runs
+   data/contract acceptance before reporting `Production release readiness`.
+5. The main merge must be a merge commit whose tree exactly matches the tested
+   staging tree. `CourseTrack production release` stages a domainless Vercel
+   Production deployment, smokes it, promotes it, and smokes the stable domain.
+6. After Production smoke succeeds, the promotion App updates `staging` to the
+   released main merge commit using a non-force, fast-forward-only ref update.
 
-Do not create a Vercel custom environment named `staging`. Supabase Branching
-syncs preview-branch credentials into Vercel's built-in Preview environment;
-moving the branch into a custom environment bypasses those credentials and can
-make the branch inherit production integration values. Use Preview variables
-that are explicitly overridden for Git branch `staging` instead.
+`COURSETRACK_CONTROLLED_RELEASES=true` makes Vercel's Git-triggered build exit
+through `scripts/vercel-ignore-build.mjs`; the workflow-controlled CLI release
+then owns database-before-code ordering. Keep Git connected for commit and
+deployment metadata. Do not create deploy hooks or a custom Vercel staging
+environment.
 
-## Environment configuration
+## GitHub configuration checklist
 
-Configure Vercel variables by environment rather than copying production
-values indiscriminately:
+Repository variables:
 
-- **Production** variables are used only by `main`.
-- Branch-specific **Preview** variables are used only by `staging`.
-- Supabase project `CourseTrack` uses an isolated persistent `staging` branch.
-  Its API credentials and database are distinct from the production `main`
-  branch. This prevents staging tests, user administration, Wrike links, and
-  synchronization runs from changing production records.
-- Refresh the persistent staging branch with the sanitized weekly snapshot
-  described in [`staging-data-refresh.md`](staging-data-refresh.md). Never point
-  the `staging` deployment at the production Supabase branch.
-- Apply the same migrations to both Supabase branches.
-- Generate a distinct `TOKEN_ENCRYPTION_KEY` for each environment. Keep each
-  key stable after a Wrike connection is saved in that environment.
-- `WRIKE_PERMANENT_TOKEN` may use the same read-only Wrike credential in both
-  environments when appropriate, but it must remain a protected server-only
-  variable.
-- Set branch-specific `COURSETRACK_ENVIRONMENT=staging` for `staging`. The app
-  uses this value for its persistent non-production banner and browser-title
-  prefix. Temporary branches do not receive application environment variables
-  because they are not deployed.
-- Configure the deployment-readiness and smoke variables exactly as described
-  in [`deployment-readiness.md`](deployment-readiness.md). Vercel must retain
-  `npm run build:vercel` as its build command; `npm run build:code` is only the
-  secret-free source-validation build.
+- `AUTO_PROMOTE_STAGING_TO_MAIN=false`
+- `AUTO_PROMOTE_EXPIRES_AT=<ISO timestamp no more than 30 days ahead>`
 
-## Normal change workflow
+Both the `staging` and `Production` environments:
 
-1. Update local `staging` from GitHub.
-2. Create `change/<short-description>` from `staging`.
-3. Make and test the change, then push the temporary branch.
-4. Open a pull request from the temporary branch into `staging`.
-5. Wait for CourseTrack CI. Vercel intentionally cancels the temporary-branch
-   deployment because temporary branches have no application database.
-6. Before publishing staging, apply its migrations, run import acceptance, and
-   pass the protected staging deployment contract in the order documented in
-   [`deployment-readiness.md`](deployment-readiness.md).
-7. Merge the pull request into `staging` and validate the stable staging URL
-   with the health and authenticated-route smoke checks.
-8. When staging is approved for release, open a pull request from `staging`
-   into `main`.
-9. Back up production, apply the approved production migrations, run
-   acceptance and the production contract, then merge the release pull
-   request. Vercel deploys `main` only after the contract is current.
-10. Merge the updated `main` back into `staging` so GitHub's release merge
-   commit is present in both long-lived branches.
+- secret `VERCEL_TOKEN`
+- variables `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID`
+- existing target-specific Supabase URL/key, schema-check URL, project refs,
+  smoke URL, and Vercel bypass values
 
-Do not continue adding unrelated work to a temporary branch after its pull
-request is merged. Start the next change from the latest `staging` instead.
+Staging only:
 
-## Production hotfix
+- secret `COURSETRACK_MIGRATION_DATABASE_URL` (preferred) or the existing
+  target-local `STAGING_DATABASE_URL` bootstrap credential
 
-For an urgent production fix, create `change/<short-description>` from `main`,
-open a pull request directly into `main`, and rely on CourseTrack CI before
-merging. Validate Production immediately after publication, then merge `main`
-back into `staging`.
+Production only:
 
-## Recommended GitHub rules
+- secret `SUPABASE_ACCESS_TOKEN`, scoped to the Production project, for backup
+  verification and the Supabase CLI's short-lived linked migration login
+- secret `COURSETRACK_PROMOTION_APP_PRIVATE_KEY`
+- variable `COURSETRACK_PROMOTION_APP_ID`
 
-Create clearly named branch rulesets for both long-lived branches:
+The GitHub App is installed only on CourseTrack. Grant repository contents
+read/write, pull requests read/write, and Actions/checks/deployments read. It
+does not bypass `main`; its only ruleset bypass is the post-release,
+fast-forward-only update of `staging`.
 
-- `CourseTrack - Production (main)`: require a pull request, CourseTrack CI,
-  and the Vercel deployment check; block force pushes and deletion.
-- `CourseTrack - Staging (staging)`: require a pull request and CourseTrack
-  CI; block force pushes and deletion.
-- Allow repository administrators to bypass only for recovery, not as the
-  normal release process.
+Use two rulesets:
 
-Use merge commits for the `staging` to `main` release pull request, then perform
-the documented merge-back. Temporary-change pull requests may use squash merge
-to keep their history compact. GitHub environment access must also be limited
-so only `main` can use Production values and only `staging` can use staging
-values.
+- `staging`: pull request, `Validate application`, `Staging migration plan`,
+  conversation resolution; block force pushes and deletion.
+- `main`: pull request, `Validate application`, `Production migration plan`,
+  `Staging release verified`, `Production release readiness`, conversation
+  resolution; block force pushes and deletion.
+
+Require branches to be current. Use merge commits for `staging -> main` because
+the production workflow verifies the merge's second-parent tree. Temporary
+change PRs may be squashed into staging.
+
+## Temporary automatic promotion
+
+`CourseTrack temporary staging promotion` is inert until
+`AUTO_PROMOTE_STAGING_TO_MAIN=true`. For automatic runs, the expiry must be a
+valid future timestamp no more than 30 days away. The workflow reuses one open
+`staging -> main` PR, waits for protected checks, verifies the head SHA both
+before preparation and immediately before merge, and merges with the GitHub App
+so the normal `main` push workflow runs. Manual dispatch remains the recovery
+fallback.
+
+At expiration, set promotion to false and remove the automatic trigger,
+variables, App credential, and staging bypass. Retain the manual migration and
+controlled-release workflows.
+
+## Emergency rollback
+
+1. Set `AUTO_PROMOTE_STAGING_TO_MAIN=false`.
+2. Set Vercel `COURSETRACK_CONTROLLED_RELEASES=false` in Production and the
+   staging Preview override to restore ordinary Git builds.
+3. Revoke the App key or remove its staging bypass.
+4. Promote the prior Vercel deployment, or revert application code through a
+   PR. Applied migrations are additive and remain in place.
+5. Restore Production only from its verified Production backup if the workbook
+   import must be reversed. Never restore Production from staging.

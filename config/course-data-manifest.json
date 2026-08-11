@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "reviewedImportDate": "2026-08-06",
+  "files": [
+    {
+      "name": "all_Full Length Courses.xlsx",
+      "bytes": 843267,
+      "sha256": "b94148987b34ab061deb0e4124648e8b0c6c8547a0e5946b9368de403d1ae501"
+    },
+    {
+      "name": "all_Single Video Courses.xlsx",
+      "bytes": 48783,
+      "sha256": "f939aa63bddfa23423e11004c412250959a4b026fcc20fbfc50252008e5cabf8"
+    },
+    {
+      "name": "all_Standard Courses.xlsx",
+      "bytes": 5963868,
+      "sha256": "fa0016a0274a65a4978df0dadf51a8dc6445fdb74e7e40f7029a2e0be6c58b9d"
+    },
+    {
+      "name": "all_Training Block Courses.xlsx",
+      "bytes": 15144,
+      "sha256": "2ccbd7830076a1b1177ce1700fca54c5b17894ed131b82fa960bfc3f766810a9"
+    },
+    {
+      "name": "LMS new list - master.xlsx",
+      "bytes": 382143,
+      "sha256": "8b074f8cdb783e3e53bfa6499f2f23fa404dead6fe91960e0c01dd211680fb6c"
+    },
+    {
+      "name": "LMS new list - Topics.xlsx",
+      "bytes": 140602,
+      "sha256": "250c20e51cdabb72fc6d0eefe9c71ab06398b7142cc30cac1c86cfd7ce1b73d9"
+    }
+  ],
+  "acceptedCounts": {
+    "courses": 18530,
+    "currentLmsSnapshots": 18406,
+    "currentMetadataRecords": 1952,
+    "lmsExportProjections": 16578,
+    "masterImportProjections": 1952,
+    "backendLinks": 1341,
+    "frontendLinks": 1341,
+    "accreditationSourcesMinimum": 19571,
+    "accreditationTopicNumbersMinimum": 513
+  }
+}
