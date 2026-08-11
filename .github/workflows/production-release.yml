@@ -39,6 +39,7 @@ jobs:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+      VERCEL_TEAM_SLUG: ${{ vars.VERCEL_TEAM_SLUG }}
     steps:
       - name: Check out main with merge history
         uses: actions/checkout@v7
@@ -84,7 +85,7 @@ jobs:
           COURSETRACK_SMOKE_EXPECTED_COMMIT: ${{ github.sha }}
         run: npm run smoke:deployment:health
       - name: Promote staged deployment
-        run: npx --yes vercel@58.0.0 promote "${{ steps.deploy.outputs.url }}" --token="$VERCEL_TOKEN"
+        run: npx --yes vercel@58.0.0 promote "${{ steps.deploy.outputs.url }}" --scope="$VERCEL_TEAM_SLUG" --token="$VERCEL_TOKEN"
       - name: Smoke stable Production URL
         env:
           COURSETRACK_SMOKE_EXPECTED_COMMIT: ${{ github.sha }}
