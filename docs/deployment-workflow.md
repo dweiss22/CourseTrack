@@ -12,7 +12,8 @@ move through `change/* -> staging -> main`; no release branch is created.
 ## Ordered release path
 
 1. `Validate application` runs lint, typecheck, contracts/components, the
-   workbook fixture contract, and a code-only build.
+   workbook fixture contract, and a code-only build. The staging release polls
+   this exact-SHA check run directly, avoiding stale parent workflow state.
 2. The trusted `CourseTrack migration plan` workflow runs protected base-branch
    code. Candidate SQL and `supabase/migrations/manifest.json` are read only as
    inert data. Existing entries must remain byte-identical; new versions must
