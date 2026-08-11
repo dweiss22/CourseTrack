@@ -121,6 +121,11 @@ test("staging release can bootstrap from the existing migration-capable staging 
     workflow,
     /COURSETRACK_MIGRATION_DATABASE_URL: \$\{\{ secrets\.COURSETRACK_MIGRATION_DATABASE_URL \|\| secrets\.STAGING_DATABASE_URL \}\}/,
   );
+  assert.match(workflow, /deployments\?sha=\$\{RELEASE_SHA\}&environment=Preview/);
+  assert.match(workflow, /select\(\.creator\.login == "vercel\[bot\]"\)/);
+  assert.match(workflow, /steps\.vercel\.outputs\.url/);
+  assert.doesNotMatch(workflow, /vercel@\d+\.\d+\.\d+ (pull|build|deploy)/);
+  assert.doesNotMatch(workflow, /VERCEL_TOKEN|VERCEL_ORG_ID|VERCEL_PROJECT_ID/);
 });
 
 test("production migrations use the scoped Supabase token and a short-lived linked login", async () => {

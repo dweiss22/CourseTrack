@@ -19,8 +19,8 @@ move through `change/* -> staging -> main`; no release branch is created.
    be appended in order with reviewed SHA-256 values.
 3. After a successful push validation on `staging`, `CourseTrack staging
    release` applies pending migrations with Supabase CLI `2.110.0`, verifies the
-   deployment contract, runs the safe data audit, builds/deploys the exact SHA
-   with Vercel CLI `58.0.0`, and smokes the unique and stable URLs.
+   deployment contract, runs the safe data audit, resolves Vercel's successful
+   Git deployment for the exact SHA, and smokes the unique and stable URLs.
 4. A `staging -> main` PR runs Production migration planning and `CourseTrack
    production preparation`. The latter verifies the exact staging release and
    a recent Supabase backup, applies pending Production migrations, and runs
@@ -31,11 +31,14 @@ move through `change/* -> staging -> main`; no release branch is created.
 6. After Production smoke succeeds, the promotion App updates `staging` to the
    released main merge commit using a non-force, fast-forward-only ref update.
 
-`COURSETRACK_CONTROLLED_RELEASES=true` makes Vercel's Git-triggered build exit
-through `scripts/vercel-ignore-build.mjs`; the workflow-controlled CLI release
-then owns database-before-code ordering. Keep Git connected for commit and
-deployment metadata. Do not create deploy hooks or a custom Vercel staging
-environment.
+The staging Preview environment leaves `COURSETRACK_CONTROLLED_RELEASES` unset,
+so Vercel's Git integration owns the staging build and deployment. The staging
+release fails closed unless the Vercel deployment belongs to the exact staging
+SHA and both deployment health checks pass. Setting
+`COURSETRACK_CONTROLLED_RELEASES=true` would make the Git-triggered build exit
+through `scripts/vercel-ignore-build.mjs` and is incompatible with this staging
+release path. Keep Git connected and do not create a deploy hook or custom
+Vercel staging environment.
 
 ## GitHub configuration checklist
 
@@ -46,8 +49,6 @@ Repository variables:
 
 Both the `staging` and `Production` environments:
 
-- secret `VERCEL_TOKEN`
-- variables `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID`
 - existing target-specific Supabase URL/key, schema-check URL, project refs,
   smoke URL, and Vercel bypass values
 
@@ -58,6 +59,8 @@ Staging only:
 
 Production only:
 
+- secret `VERCEL_TOKEN`
+- variables `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID`
 - secret `SUPABASE_ACCESS_TOKEN`, scoped to the Production project, for backup
   verification and the Supabase CLI's short-lived linked migration login
 - secret `COURSETRACK_PROMOTION_APP_PRIVATE_KEY`
