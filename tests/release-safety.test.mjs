@@ -129,6 +129,15 @@ test("production migrations use the scoped Supabase token and a short-lived link
   assert.doesNotMatch(workflow, /--include-all/);
 });
 
+test("production readiness executes only protected code against candidate migration data", async () => {
+  const workflow = await readFile(".github/workflows/production-preparation.yml", "utf8");
+  const step = workflow.match(
+    /- name: Verify Production contract from exact candidate[\s\S]*?(?=\n      - name:)/,
+  )?.[0] ?? "";
+  assert.match(step, /node scripts\/check-deployment-readiness\.mjs --candidate-dir=_candidate/);
+  assert.doesNotMatch(step, /working-directory: _candidate|npm run/);
+});
+
 test("course-data audit output is limited to safe counts, refs, versions, and optional IDs", async () => {
   const client = {
     async query(sql) {

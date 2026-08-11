@@ -72,8 +72,7 @@ jobs:
           npx --yes supabase@2.110.0 link --project-ref "$COURSETRACK_PRODUCTION_SUPABASE_REF"
           npx --yes supabase@2.110.0 migration up --linked
       - name: Verify Production contract from exact candidate
-        working-directory: _candidate
-        run: npm run check:deployment
+        run: node scripts/check-deployment-readiness.mjs --candidate-dir=_candidate
       - name: Audit Production data parity
         run: npm run audit:course-data -- --target=production --require-full-parity
       - name: Verify PR head did not move
