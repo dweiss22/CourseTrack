@@ -68,7 +68,13 @@ jobs:
         run: npm run verify:production-backup
       - name: Apply pending Production migrations
         working-directory: _candidate
+        shell: bash
         run: |
+          baseline_version="$(node -p "require('./supabase/migrations/manifest.json').productionBaseline.version")"
+          baseline_file="supabase/migrations/${baseline_version}_production_baseline.sql"
+          if ! test -e "$baseline_file"; then
+            printf '%s\n' '-- Trusted local marker for the reviewed Production baseline; already applied remotely.' > "$baseline_file"
+          fi
           npx --yes supabase@2.110.0 link --project-ref "$COURSETRACK_PRODUCTION_SUPABASE_REF"
           npx --yes supabase@2.110.0 migration up --linked
       - name: Verify Production contract from exact candidate
