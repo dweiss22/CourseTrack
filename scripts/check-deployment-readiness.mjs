@@ -19,7 +19,19 @@ export async function main(argv = process.argv.slice(2)) {
     const checkedInRows = candidateDirectory
       ? await readCandidateMigrationHistory(candidateDirectory)
       : undefined;
-    const result = await runDeploymentReadiness({ checkedInRows });
+    // Only the build preflight passes this. Verification steps in the release
+    // workflows run without it and stay strict -- they execute after the
+    // migrations have been applied, so a pending migration there is a real
+    // failure. See runDeploymentReadiness for why production never tolerates it.
+    const allowPendingMigrations = argv.includes("--allow-pending-migrations");
+    const result = await runDeploymentReadiness({ checkedInRows, allowPendingMigrations });
+    if (result.pendingMigrations?.length) {
+      console.warn(
+        `Deployment readiness passed for ${result.target} with ${result.pendingMigrations.length} migration(s) not yet applied: `
+        + `${result.pendingMigrations.join(", ")}. The release workflow applies these and verifies the contract strictly.`,
+      );
+      return;
+    }
     console.log(
       `Deployment readiness passed for ${result.target}: authentication configured, database reachable, schema contract current.`,
     );

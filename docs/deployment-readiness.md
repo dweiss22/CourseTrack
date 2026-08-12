@@ -2,12 +2,41 @@
 
 CourseTrack deployments are valid only when application code, Supabase Auth,
 and the target database migration ledger agree. Vercel runs
-`npm run build:vercel`, which executes `npm run check:deployment` before the
-code-only Next.js build. A failed contract check stops publication; it never
-changes the database.
+`npm run build:vercel`, which executes the readiness check before the code-only
+Next.js build. A failed contract check stops publication; it never changes the
+database.
 
 `npm run build:code` is the secret-free build used for local work and pull
 requests. Do not configure Vercel to use it in place of `build:vercel`.
+
+## Two entry points, deliberately different
+
+| Script | Used by | Pending migrations |
+|---|---|---|
+| `check:deployment` | release-workflow verification steps | **fail** |
+| `check:deployment:build` | `build:vercel` only | tolerated outside production |
+
+A push to `staging` starts the Vercel build immediately, while the release
+workflow applies that push's migrations seconds later. The build would
+therefore fail on a discrepancy that resolves itself, and every migration would
+need a manual redeploy before the release could pass.
+
+`check:deployment:build` adds `--allow-pending-migrations`, which forgives
+**only** migrations that are checked in but not yet applied. It changes nothing
+else:
+
+- **Production is never tolerant**, even with the flag. `production-preparation`
+  applies production migrations before the merge to `main`, so they are already
+  present when `main` builds.
+- A database holding migrations the repository does not, or a duplicated or
+  out-of-order history, still fails everywhere — unlike a pending migration,
+  applying the repository's migrations cannot reconcile those.
+- The run reports `schemaContractCurrent: false` and logs which migrations were
+  pending, rather than claiming the contract is current.
+
+The verification steps in `staging-release`, `production-release` and
+`production-preparation` run *after* migrations are applied, so they keep using
+strict `check:deployment`, where a pending migration is a genuine failure.
 
 ## Release order
 
