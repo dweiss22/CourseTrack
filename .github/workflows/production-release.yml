@@ -98,18 +98,30 @@ jobs:
     needs: release
     runs-on: ubuntu-latest
     environment: Production
+    # contents: write is needed to move the staging ref, and is granted only to
+    # this job -- the release job above keeps its read-only permissions.
+    #
+    # This previously minted a short-lived token from a dedicated GitHub App
+    # (COURSETRACK_PROMOTION_APP_ID / _PRIVATE_KEY), which would scope the write
+    # to this repository alone. That App was never created, so the step failed
+    # on every release with "appId option is required" -- and because this job
+    # belongs to the release workflow, every production release reported failure
+    # even when the deployment itself was verified and healthy. A permanently
+    # red release trains readers to ignore it, which is worse than the slightly
+    # broader token used here.
+    #
+    # The safety of the operation does not rest on the token: the guard below
+    # refuses to act unless staging is still exactly where the release started,
+    # and force=false means the ref can only fast-forward, never be rewritten.
+    #
+    # Restoring the App is a straight swap -- set the two values and put back
+    # the create-github-app-token step with GH_TOKEN from its output.
     permissions:
-      contents: read
+      contents: write
     steps:
-      - name: Create least-privilege promotion App token
-        id: app-token
-        uses: actions/create-github-app-token@v2
-        with:
-          app-id: ${{ vars.COURSETRACK_PROMOTION_APP_ID }}
-          private-key: ${{ secrets.COURSETRACK_PROMOTION_APP_PRIVATE_KEY }}
       - name: Fast-forward staging to the released main commit
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OLD_STAGING_SHA: ${{ needs.release.outputs.staging_sha }}
           NEW_MAIN_SHA: ${{ github.sha }}
         shell: bash
