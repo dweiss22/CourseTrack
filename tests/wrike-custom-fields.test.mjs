@@ -148,6 +148,51 @@ test("extractReportingYear prefers the configured field id and matches titles ca
   );
 });
 
+test("extractReportingYear reads the LCT reporting dropdowns that actually carry the year", () => {
+  // Wrike has no field named "Reporting Year"; production carries it in these
+  // two dropdowns as text like "2026 Courses" / "2025 Courses".
+  const index = indexOf(
+    { id: "IEACHQK7JUAK3XB7", title: "[LCT] Reporting (M)", type: "DropDown" },
+    { id: "IEACHQK7JUAK3VMK", title: "[LCT] Reporting (L)", type: "DropDown" },
+  );
+  assert.equal(extractReportingYear({ raw: [{ id: "IEACHQK7JUAK3XB7", value: "2026 Courses" }], index }), "2026");
+  assert.equal(extractReportingYear({ raw: [{ id: "IEACHQK7JUAK3VMK", value: "2025 Courses" }], index }), "2025");
+  // Title matching stays case- and whitespace-insensitive.
+  assert.equal(
+    extractReportingYear({ raw: [{ id: "IEA-X", value: "2024 Report" }], index: indexOf({ id: "IEA-X", title: "  [lct] REPORTING (m)  ", type: "DropDown" }) }),
+    "2024",
+  );
+  // The two are mutually exclusive in production, but agreeing values are safe.
+  assert.equal(
+    extractReportingYear({ raw: [{ id: "IEACHQK7JUAK3XB7", value: "2026 Courses" }, { id: "IEACHQK7JUAK3VMK", value: "2026 Courses" }], index }),
+    "2026",
+  );
+});
+
+test("extractReportingYear ignores the similarly named fields that carry no year", () => {
+  // The same account defines these; matching on a substring of "LCT Reporting"
+  // would wrongly treat them as the reporting year.
+  const decoys = [
+    "LCT Reporting",
+    "Assigned SME_LCT Reporting",
+    "External SME Need_LCT Reporting",
+    "Q1 Priority_LCT reporting",
+    "Course Name_LCT Reporting",
+    "Weeks_Duration_LCT Reporting_CD",
+    "Development Slot_LCT Reporting",
+    "Performance Reporting Related [B/R]",
+  ];
+  for (const [position, title] of decoys.entries()) {
+    const id = `IEA-DECOY-${position}`;
+    const index = indexOf({ id, title, type: "DropDown" });
+    assert.equal(
+      extractReportingYear({ raw: [{ id, value: "2024 Report" }], index }),
+      null,
+      `${title} must not be treated as the reporting year`,
+    );
+  }
+});
+
 test("extractReportingYear returns null for missing, blank, malformed, and conflicting values", () => {
   const index = indexOf({ id: "IEA-TITLED", title: "Reporting Year", type: "Text" });
   assert.equal(extractReportingYear({ raw: [], index }), null, "missing");

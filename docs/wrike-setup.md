@@ -75,12 +75,28 @@ Both field-id variables are optional and neither requires a Wrike change:
 
 - `WRIKE_VERSION_PUBLISHED_DATE_FIELD_ID` — custom-field id holding a linked
   version's published date.
-- `WRIKE_REPORTING_YEAR_FIELD_ID` — custom-field id holding the Reporting Year
-  shown on task search candidates. When it is set, the year resolves straight
-  from the already-synchronized task data and keeps working even if Wrike is
-  unreachable. When it is blank, CourseTrack falls back to the field titled
-  `Reporting Year` (matched case-insensitively, ignoring surrounding
-  whitespace); if two differently-valued fields share that title the year is
+- `WRIKE_REPORTING_YEAR_FIELD_ID` — optional override naming the custom-field id
+  that holds the reporting year. Normally unnecessary: the year is recognized by
+  field title instead, so no configuration is required.
+
+  **There is no Wrike field named "Reporting Year."** The value lives in the LCT
+  reporting dropdowns as display text, and CourseTrack reduces it to a year:
+
+  | Field title | Example value | Shown as |
+  |---|---|---|
+  | `[LCT] Reporting (M)` | `2026 Courses` | 2026 |
+  | `[LCT] Reporting (L)` | `2025 Courses` | 2025 |
+  | `Reporting Year` | `2026` | 2026 |
+
+  The (M) and (L) variants are mutually exclusive in practice — of 1000 sampled
+  production tasks, 75 carried (M), 237 carried (L), and none carried both.
+  Across that sample 31% of tasks resolve a year, spanning 2022–2026.
+
+  Titles are matched **exactly** (after trimming and lowercasing), never as a
+  substring, because the account also defines `LCT Reporting`,
+  `Assigned SME_LCT Reporting`, `Q1 Priority_LCT reporting`,
+  `Course Name_LCT Reporting` and others that carry no reporting year. If two
+  differently-valued recognized fields ever appear on one task, the year is
   omitted rather than guessed.
 
 To find a field id, call `GET /api/wrike/custom-fields` as an administrator or
