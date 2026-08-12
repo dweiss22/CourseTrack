@@ -47,6 +47,7 @@ import {
   getWrikeConnectionSummary,
   getWrikeSyncStatus,
   linkCourseVersionWrikeTask,
+  listWrikeCustomFieldDefinitions,
   runWrikeSync,
   searchWrikeTaskIndex,
   unlinkCourseVersionWrikeTask,
@@ -66,6 +67,10 @@ export type {
   WrikeTaskSearchFilters,
   WrikeVersionLink,
 };
+export type {
+  WrikeCustomFieldDefinition,
+  WrikeResolvedCustomField,
+} from "@/lib/wrike-custom-fields";
 import { buildWrikeTaskSearchQuery } from "@/lib/wrike-matching";
 import {
   changeUserRoleOrStatus,
@@ -649,6 +654,10 @@ export async function getWrikeSync(): Promise<WrikeSyncStatus> {
 
 export async function searchWrikeTasks(filters: WrikeTaskSearchFilters) {
   return searchWrikeTaskIndex(requireDatabaseClient(), filters);
+}
+
+export async function getWrikeCustomFieldDefinitions() {
+  return listWrikeCustomFieldDefinitions(requireDatabaseClient());
 }
 
 export async function searchWrikeTasksForCourseVersion(

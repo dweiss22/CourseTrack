@@ -1,0 +1,82 @@
+name: Wrike sync
+
+# Weekly, read-only refresh of the local Wrike task index and its reference
+# data (contacts, folder index, custom-field catalogue). Nothing is written
+# back to Wrike. See docs/wrike-setup.md.
+#
+# Runs here rather than as a platform cron because staging and production point
+# at separate Supabase projects and each needs its own run, and because the sync
+# route authenticates with a POST plus a bearer header that Vercel Cron cannot
+# send.
+
+on:
+  schedule:
+    # Sundays 07:00 UTC, an hour before the staging data refresh so the two
+    # never contend for the same database.
+    - cron: "0 7 * * 0"
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Environment to synchronize
+        required: true
+        default: production
+        type: choice
+        options: [production, staging, both]
+
+concurrency:
+  group: wrike-sync
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  production:
+    name: Synchronize production
+    # WRIKE_SYNC_ENABLED must be a REPOSITORY variable, not an environment one.
+    # A job-level `if` is evaluated before the job is assigned its environment,
+    # so environment-scoped variables read as an empty string here and the job
+    # silently skips. Verified against this repo's own history: a scheduled
+    # refresh-staging-data run was skipped on 2026-08-09 despite its
+    # environment variable having been set on 2026-08-06.
+    if: >-
+      (github.event_name == 'workflow_dispatch' && contains(fromJSON('["production", "both"]'), inputs.target))
+      || (github.event_name == 'schedule' && vars.WRIKE_SYNC_ENABLED == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Trigger Wrike synchronization
+        env:
+          COURSETRACK_SMOKE_BASE_URL: ${{ vars.COURSETRACK_SMOKE_BASE_URL }}
+          WRIKE_SYNC_CRON_SECRET: ${{ secrets.WRIKE_SYNC_CRON_SECRET }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: node scripts/trigger-wrike-sync.mjs
+
+  staging:
+    name: Synchronize staging
+    # On-demand only. Staging has no TOKEN_ENCRYPTION_KEY, so it has no Wrike
+    # connection, and a scheduled run would fail every week on "Wrike is not
+    # connected." To put staging on the schedule, give it that key, connect
+    # Wrike in its admin UI, then add the same schedule clause used above.
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      && contains(fromJSON('["staging", "both"]'), inputs.target)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: staging
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Trigger Wrike synchronization
+        env:
+          COURSETRACK_SMOKE_BASE_URL: ${{ vars.COURSETRACK_SMOKE_BASE_URL }}
+          WRIKE_SYNC_CRON_SECRET: ${{ secrets.WRIKE_SYNC_CRON_SECRET }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: node scripts/trigger-wrike-sync.mjs

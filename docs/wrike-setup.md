@@ -28,10 +28,64 @@ WRIKE_API_HOST=https://www.wrike.com
 WRIKE_PERMANENT_TOKEN=            # optional server-side token; can also be pasted in the admin UI
 TOKEN_ENCRYPTION_KEY=             # 32+ random bytes; encrypts the stored token at rest
 WRIKE_SYNC_CRON_SECRET=           # shared secret for an external scheduler, see step 5
+WRIKE_VERSION_PUBLISHED_DATE_FIELD_ID=   # optional; see "Custom fields" below
+WRIKE_REPORTING_YEAR_FIELD_ID=           # optional; see "Custom fields" below
 ```
 
 None of these are `NEXT_PUBLIC_`-prefixed; they are read only in server-side
 code and never sent to the browser.
+
+On Vercel, set them on the **Production** and **Preview** scopes. There is no
+"staging" scope: `scripts/vercel-ignore-build.mjs` builds only `main` and
+`staging`, so `main` deploys as Production and `staging` deploys as Preview
+(distinguished at runtime by `COURSETRACK_ENVIRONMENT`, see
+`lib/deployment-environment.ts`). If you scope a Preview variable to specific
+branches rather than all previews, include `staging`.
+
+`WRIKE_SYNC_CRON_SECRET` must exist in **two** places with the same value: here,
+so the app can verify an incoming scheduled request, and as a GitHub environment
+secret, so the workflow can send it. A mismatch shows up as HTTP 401 on every
+scheduled run.
+
+### Custom fields
+
+Wrike returns custom fields on a task as opaque id/value pairs with no titles.
+The titles live only in the account-level catalogue (`GET /api/v4/customfields`,
+same read-only token, same validated `WRIKE_API_HOST`).
+
+Because definitions change rarely, the **scheduled sync** refreshes them into
+`public.wrike_custom_field_index` alongside contacts and folders, and task
+search resolves names from that table. The normal path therefore costs one
+indexed database read and **zero Wrike requests** — consistent across every
+serverless instance, and unaffected by a Wrike outage. Refresh cadence equals
+your sync cadence (see step 5).
+
+A live read is used only as a fallback: before the first sync after this
+feature is deployed, or if the local copy is more than 16 days old — two missed
+weekly cycles, i.e. the schedule has stopped rather than merely run late. That
+fallback is cached in-process for 10 minutes;
+failed or empty responses are cached for only ~45 seconds so a Wrike outage
+neither retries on every keystroke nor hides names once Wrike recovers. A stale
+local copy is still preferred over an empty live result.
+
+Any field whose id, title, value, or type cannot be resolved safely is dropped —
+CourseTrack never renders a raw field id or an "unknown field" placeholder.
+
+Both field-id variables are optional and neither requires a Wrike change:
+
+- `WRIKE_VERSION_PUBLISHED_DATE_FIELD_ID` — custom-field id holding a linked
+  version's published date.
+- `WRIKE_REPORTING_YEAR_FIELD_ID` — custom-field id holding the Reporting Year
+  shown on task search candidates. When it is set, the year resolves straight
+  from the already-synchronized task data and keeps working even if Wrike is
+  unreachable. When it is blank, CourseTrack falls back to the field titled
+  `Reporting Year` (matched case-insensitively, ignoring surrounding
+  whitespace); if two differently-valued fields share that title the year is
+  omitted rather than guessed.
+
+To find a field id, call `GET /api/wrike/custom-fields` as an administrator or
+content user — it returns the normalized `{ id, title, type }` catalogue and
+nothing else (no token, no raw Wrike payload).
 
 ## 3. Connect
 
@@ -67,23 +121,59 @@ A sync reads every approved folder (`GET /folders/{id}/tasks?descendants=true`,
 one request per folder, bounded concurrency, retried with backoff on
 429/5xx), consolidates the results by Wrike task id (preserving every
 approved folder a task appears in), and upserts the normalized result into
-Supabase. Course-version search then reads that local index — it never calls
-Wrike per search.
+Supabase. It also refreshes the reference data used to make task results
+readable: contacts, the folder index, and the custom-field catalogue.
+Course-version search then reads that local index — it never calls Wrike per
+search.
 
 - **Manual**: click **Run sync now** in the admin panel, or `POST
   /api/wrike/sync` with an authenticated admin session.
-- **Scheduled** (recommended, e.g. once daily): this repo has no
-  hand-authored `wrangler.toml`/`vercel.json` checked in, so wire whichever
-  platform you deploy to:
-  - **Vercel Cron**: add a `vercel.json` `crons` entry that calls `POST
-    /api/wrike/sync` with header `Authorization: Bearer $WRIKE_SYNC_CRON_SECRET`.
-  - **Cloudflare Cron Trigger**: add a `[triggers] crons` entry to your
-    deployed Worker config with a scheduled handler that fetches the same
-    route with the same header.
+- **Scheduled**: [`.github/workflows/wrike-sync.yml`](../.github/workflows/wrike-sync.yml)
+  runs weekly (Sundays 07:00 UTC) and can be run on demand from the Actions tab
+  against `production`, `staging`, or both. It calls `POST /api/wrike/sync`
+  with the `WRIKE_SYNC_CRON_SECRET` bearer header — the route accepts either
+  that header or an authenticated admin session, since no signed-in user
+  exists for a scheduled invocation.
 
-  The route accepts either an authenticated admin session or the
-  `WRIKE_SYNC_CRON_SECRET` bearer header — no signed-in user is available for
-  a platform-scheduled invocation.
+  GitHub Actions rather than a platform cron because staging and production
+  point at separate Supabase projects and each needs its own run, and because
+  Vercel Cron issues a `GET` with no configurable headers (its own
+  `CRON_SECRET` mechanism) and only targets the production deployment.
+
+  Configure one **repository** variable:
+
+  | Name | Kind | Scope | Value |
+  |---|---|---|---|
+  | `WRIKE_SYNC_ENABLED` | variable | **repository** | `true` to enable the weekly schedule |
+
+  It must be repository-scoped, not environment-scoped. A job-level `if` is
+  evaluated before the job is assigned its environment, so an
+  environment-scoped variable reads as an empty string there and the job
+  silently skips — an easy failure to miss, because a skipped job reports as a
+  successful workflow run.
+
+  Then per environment (`Production`, `staging`):
+
+  | Name | Kind | Value |
+  |---|---|---|
+  | `COURSETRACK_SMOKE_BASE_URL` | variable | deployment origin (already set for smoke tests) |
+  | `WRIKE_SYNC_CRON_SECRET` | secret | must match the app's env var |
+  | `VERCEL_AUTOMATION_BYPASS_SECRET` | secret | required wherever Vercel deployment protection is on, which includes preview/staging by default |
+
+  Only the production job is on the schedule. Staging runs on demand only,
+  because it has no `TOKEN_ENCRYPTION_KEY` and therefore no Wrike connection;
+  a scheduled staging run would fail weekly on "Wrike is not connected." To add
+  it later: set that key on the Vercel Preview scope, connect Wrike in
+  staging's admin UI, then give the staging job the same schedule clause the
+  production job uses.
+
+  Manual `workflow_dispatch` runs ignore `WRIKE_SYNC_ENABLED`, so you can
+  trigger a sync before enabling the schedule.
+
+Only one sync runs at a time: a second trigger returns HTTP 409 and the
+workflow treats that as a no-op. A run whose process died is left marked
+`running` and would otherwise block task search indefinitely, so a later sync
+reclaims any run still open after an hour and marks it failed.
 
 A sync that fails on some folders still commits the successful folders'
 results (`status: "partial"`); tasks are only marked inactive after a fully

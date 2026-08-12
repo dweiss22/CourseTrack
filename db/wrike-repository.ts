@@ -5,6 +5,16 @@ import { callWrikeApi, fetchAllWrikePages } from "@/lib/wrike-http-client";
 import { syncApprovedWrikeFolders, type RawWrikeTask } from "@/lib/wrike-sync";
 import { WRIKE_TASK_OPTIONAL_FIELDS } from "@/lib/integration-mappings";
 import { isApprovedWrikeFolderId } from "@/lib/wrike-source-folders";
+import { getCachedCustomFieldDefinitions } from "@/lib/wrike-custom-field-cache";
+import {
+  buildCustomFieldIndex,
+  extractReportingYear,
+  findCustomFieldValueById,
+  normalizeWrikeCustomFieldDefinitions,
+  resolveTaskCustomFields,
+  type WrikeCustomFieldDefinition,
+  type WrikeResolvedCustomField,
+} from "@/lib/wrike-custom-fields";
 
 type Row = Record<string, unknown>;
 
@@ -14,8 +24,8 @@ function repositoryError(context: string, error: { message: string }): Error {
 
 function mappedWrikePublishedDate(customFields: unknown): string | null {
   const fieldId = process.env.WRIKE_VERSION_PUBLISHED_DATE_FIELD_ID?.trim();
-  if (!fieldId || !Array.isArray(customFields)) return null;
-  const value = customFields.find((item): item is { id: string; value: string } => Boolean(item && typeof item === "object" && (item as { id?: unknown }).id === fieldId && typeof (item as { value?: unknown }).value === "string"))?.value;
+  if (!fieldId) return null;
+  const value = findCustomFieldValueById(customFields, fieldId);
   if (!value) return null;
   const match = /^(\d{4}-\d{2}-\d{2})/.exec(value);
   return match?.[1] ?? null;
@@ -73,16 +83,17 @@ export async function getWrikeConnectionSummary(client: SupabaseClient): Promise
 
 async function getDecryptedConnection(
   client: SupabaseClient,
-): Promise<{ apiHost: string; accessToken: string } | null> {
+): Promise<{ apiHost: string; accountId: string | null; accessToken: string } | null> {
   const { data, error } = await client
     .from("wrike_connection")
-    .select("api_host,access_token_encrypted,status")
+    .select("api_host,account_id,access_token_encrypted,status")
     .eq("connection_key", "default")
     .maybeSingle();
   if (error) throw repositoryError("Could not read the Wrike connection", error);
   if (!data || data.status !== "connected") return null;
   return {
     apiHost: data.api_host as string,
+    accountId: (data.account_id as string) ?? null,
     accessToken: decryptSecret(data.access_token_encrypted as string, getTokenEncryptionKey()),
   };
 }
@@ -193,9 +204,45 @@ function toSyncRunSummary(row: Row): WrikeSyncRunSummary {
   };
 }
 
+/**
+ * A run still marked "running" after this long is abandoned -- the process that
+ * started it died without recording an outcome. Reclaiming it matters because
+ * searchWrikeTaskIndex refuses to return candidates while a run is in flight,
+ * so a crashed sync would otherwise block task search indefinitely.
+ */
+const WRIKE_SYNC_RUN_ABANDONED_AFTER_MS = 60 * 60 * 1000;
+
 export async function runWrikeSync(client: SupabaseClient, triggeredBy: string, actorId: string | null = null): Promise<WrikeSyncRunSummary> {
   const connection = await getDecryptedConnection(client);
   if (!connection) throw new Error("Wrike is not connected.");
+
+  // Scheduled delivery is best effort and can duplicate an invocation, and an
+  // admin can always click "Run sync now". Two concurrent runs would race on
+  // the same task rows, and the loser's stale view could wrongly mark live
+  // tasks inactive -- so only one run at a time.
+  const { data: activeRuns, error: activeError } = await client
+    .from("wrike_sync_runs")
+    .select("id,started_at")
+    .eq("status", "running");
+  if (activeError) throw repositoryError("Could not read Wrike sync runs", activeError);
+
+  const abandonedCutoff = Date.now() - WRIKE_SYNC_RUN_ABANDONED_AFTER_MS;
+  const abandoned: string[] = [];
+  for (const run of (activeRuns ?? []) as Row[]) {
+    const startedAt = Date.parse((run.started_at as string) ?? "");
+    if (Number.isFinite(startedAt) && startedAt < abandonedCutoff) abandoned.push(run.id as string);
+    else throw new Error("A Wrike synchronization is already running.");
+  }
+  if (abandoned.length > 0) {
+    await client
+      .from("wrike_sync_runs")
+      .update({
+        status: "failed",
+        completed_at: new Date().toISOString(),
+        errors: [{ folderId: null, folderName: null, error: "Abandoned run reclaimed by a later synchronization." }],
+      })
+      .in("id", abandoned);
+  }
 
   const { data: runRow, error: insertError } = await client
     .from("wrike_sync_runs")
@@ -214,7 +261,7 @@ export async function runWrikeSync(client: SupabaseClient, triggeredBy: string, 
   if (unapprovedFolders.length > 0) throw new Error("Invalid Wrike folder configuration. Only the approved read-only folder allowlist may be synchronized.");
   const folders = (folderRows ?? []).map((row) => ({ id: row.folder_id as string, name: row.name as string }));
 
-  const [contacts, folderIndex] = await Promise.all([
+  const [contacts, folderIndex, customFieldDefinitions] = await Promise.all([
     fetchAllWrikePages<{ id: string; firstName?: string; lastName?: string; profiles?: Array<{ email?: string }>; type?: string; deleted?: boolean }>({
       apiHost: connection.apiHost,
       accessToken: connection.accessToken,
@@ -227,6 +274,19 @@ export async function runWrikeSync(client: SupabaseClient, triggeredBy: string, 
           path: `/api/v4/folders/${folders.map((folder) => encodeURIComponent(folder.id)).join(",")}`,
         }).then((response) => response.data)
       : Promise.resolve([]),
+    // Custom-field definitions change rarely, so they ride along with the other
+    // reference data instead of being fetched on the interactive search path.
+    // Isolated deliberately: field titles are decoration, so losing them must
+    // never fail a task sync. The previous catalogue simply stays in place, and
+    // the staleness fallback in listWrikeCustomFieldDefinitions takes over if
+    // the failure persists.
+    callWrikeApi<{ kind: string; data: unknown[] }>({
+      apiHost: connection.apiHost,
+      accessToken: connection.accessToken,
+      path: "/api/v4/customfields",
+    })
+      .then((response) => normalizeWrikeCustomFieldDefinitions(response))
+      .catch(() => [] as WrikeCustomFieldDefinition[]),
   ]);
 
   const contactNameById = new Map(contacts.map((contact) => [
@@ -256,6 +316,16 @@ export async function runWrikeSync(client: SupabaseClient, triggeredBy: string, 
       last_synced_at: new Date().toISOString(),
     })), { onConflict: "folder_id" });
     if (folderIndexError) throw repositoryError("Could not synchronize Wrike folders", folderIndexError);
+  }
+  if (customFieldDefinitions.length > 0) {
+    const { error: customFieldError } = await client.from("wrike_custom_field_index").upsert(customFieldDefinitions.map((definition) => ({
+      field_id: definition.id,
+      title: definition.title,
+      field_type: definition.type || null,
+      raw_payload: definition,
+      last_synced_at: new Date().toISOString(),
+    })), { onConflict: "field_id" });
+    if (customFieldError) throw repositoryError("Could not synchronize Wrike custom fields", customFieldError);
   }
 
   const result = await syncApprovedWrikeFolders(folders, async (folderId) =>
@@ -457,6 +527,10 @@ export interface WrikeTaskCandidate {
   projectTitles: string[];
   assigneeNames: string[];
   dueDate: string | null;
+  /** Four-digit year, or null when absent/blank/unparseable. Never a raw value. */
+  reportingYear: string | null;
+  /** Only fields whose id resolved to a human-readable title with a usable value. */
+  customFields: WrikeResolvedCustomField[];
   lastSyncedAt: string;
   indexState: WrikeConnectorState;
 }
@@ -503,12 +577,166 @@ export async function searchLocalWrikeTasks(
       projectTitles,
       assigneeNames: (row.assignee_names as string[]) ?? [],
       dueDate: (row.due_date as string) ?? null,
+      // Defaults only. The search RPC does not return custom_fields; they are
+      // attached by enrichWrikeCandidatesWithCustomFields so this stays a pure
+      // index reader.
+      reportingYear: null,
+      customFields: [] as WrikeResolvedCustomField[],
       lastSyncedAt: row.last_synced_at as string,
       indexState: state,
     };
   });
   const total = Number(((data ?? [])[0] as Row | undefined)?.total_count ?? items.length);
   return { items, total, hasMore: total > page * pageSize, state };
+}
+
+/**
+ * How long the locally synchronized catalogue is trusted without a fresh sync.
+ *
+ * The schedule is weekly (.github/workflows/wrike-sync.yml), so this must clear
+ * a full cycle with room to spare -- a threshold at or near 7 days would sit on
+ * the boundary and send almost every search down the live fallback. Two missed
+ * cycles means the schedule has genuinely stopped.
+ */
+const CUSTOM_FIELD_INDEX_STALE_AFTER_MS = 16 * 24 * 60 * 60 * 1000;
+
+/** Reads the locally synchronized catalogue written by the scheduled sync. */
+async function readWrikeCustomFieldIndex(
+  client: SupabaseClient,
+): Promise<{ definitions: WrikeCustomFieldDefinition[]; lastSyncedAt: string | null }> {
+  const { data, error } = await client
+    .from("wrike_custom_field_index")
+    .select("field_id,title,field_type,last_synced_at");
+  if (error) throw repositoryError("Could not read the Wrike custom-field index", error);
+
+  const rows = (data ?? []) as Row[];
+  const definitions = normalizeWrikeCustomFieldDefinitions(
+    rows.map((row) => ({ id: row.field_id, title: row.title, type: row.field_type ?? "" })),
+  );
+  const lastSyncedAt = rows.reduce<string | null>((latest, row) => {
+    const value = (row.last_synced_at as string) ?? null;
+    return value && (!latest || value > latest) ? value : latest;
+  }, null);
+  return { definitions, lastSyncedAt };
+}
+
+/**
+ * Fetches the account-level Wrike custom-field catalogue live.
+ *
+ * The host comes from the stored connection, which was validated through
+ * assertValidWrikeApiHost before it was saved -- no default host is hardcoded
+ * here, because Wrike accounts can live on different API hosts. The token stays
+ * server-side; only normalized {id, title, type} records ever leave here.
+ *
+ * Results are cached per account (see lib/wrike-custom-field-cache.ts). Retries
+ * are disabled and the request is time-boxed because this can run inline with
+ * an interactive search: a slow catalogue must not become a slow search.
+ */
+async function fetchWrikeCustomFieldDefinitions(
+  client: SupabaseClient,
+): Promise<WrikeCustomFieldDefinition[]> {
+  const connection = await getDecryptedConnection(client);
+  if (!connection) return [];
+  return getCachedCustomFieldDefinitions(
+    `${connection.apiHost}|${connection.accountId ?? ""}`,
+    async () => {
+      // No searchParams: the catalogue is a few dozen records and is cached, so
+      // filtering saves nothing while every extra parameter is another way for
+      // Wrike to reject the request and blank out all field titles at once.
+      // WorkItem compatibility is enforced downstream by the renderable-type
+      // safelist; add applicableEntityTypes=["WorkItem"] here if it ever needs
+      // trimming at the source.
+      const payload = await callWrikeApi<{ kind: string; data: unknown[] }>({
+        apiHost: connection.apiHost,
+        accessToken: connection.accessToken,
+        path: "/api/v4/customfields",
+        maxRetries: 0,
+        timeoutMs: 4_000,
+      });
+      return normalizeWrikeCustomFieldDefinitions(payload);
+    },
+  );
+}
+
+/**
+ * Resolves the custom-field catalogue, preferring the locally synchronized copy.
+ *
+ * The scheduled sync refreshes public.wrike_custom_field_index alongside
+ * contacts and folders, so the common path costs one indexed read and zero
+ * Wrike requests -- consistent across every serverless instance, and unaffected
+ * by a Wrike outage.
+ *
+ * The live fetch is only a fallback, for the window before the first sync after
+ * this feature ships and for the case where the sync has stopped running. A
+ * stale local copy still beats no field names, so it is preferred over an empty
+ * live result.
+ */
+export async function listWrikeCustomFieldDefinitions(
+  client: SupabaseClient,
+): Promise<WrikeCustomFieldDefinition[]> {
+  const indexed = await readWrikeCustomFieldIndex(client);
+  const isFresh =
+    indexed.lastSyncedAt !== null &&
+    Date.now() - Date.parse(indexed.lastSyncedAt) < CUSTOM_FIELD_INDEX_STALE_AFTER_MS;
+  if (indexed.definitions.length > 0 && isFresh) return indexed.definitions;
+
+  const live = await fetchWrikeCustomFieldDefinitions(client);
+  return live.length > 0 ? live : indexed.definitions;
+}
+
+/**
+ * Decorates locally indexed candidates with resolved custom fields.
+ *
+ * The synchronized index remains the source of truth for which tasks match a
+ * search; the Wrike catalogue only supplies titles. Both reads are individually
+ * isolated, so a Wrike outage or a database hiccup degrades the extra metadata
+ * without failing the search. When WRIKE_REPORTING_YEAR_FIELD_ID is configured
+ * the Reporting Year resolves from the already-synchronized jsonb and needs no
+ * Wrike call at all.
+ */
+async function enrichWrikeCandidatesWithCustomFields(
+  client: SupabaseClient,
+  items: WrikeTaskCandidate[],
+): Promise<WrikeTaskCandidate[]> {
+  if (items.length === 0) return items;
+
+  const [rawByTaskId, definitions] = await Promise.all([
+    (async () => {
+      const map = new Map<string, unknown>();
+      try {
+        const { data, error } = await client
+          .from("wrike_tasks")
+          .select("wrike_task_id,custom_fields")
+          .in("wrike_task_id", items.map((item) => item.wrikeTaskId));
+        if (error) return map;
+        for (const row of (data ?? []) as Row[]) {
+          map.set(row.wrike_task_id as string, row.custom_fields);
+        }
+      } catch {
+        // Decoration only -- fall through with an empty map.
+      }
+      return map;
+    })(),
+    (async () => {
+      try {
+        return await listWrikeCustomFieldDefinitions(client);
+      } catch {
+        return [] as WrikeCustomFieldDefinition[];
+      }
+    })(),
+  ]);
+
+  const index = buildCustomFieldIndex(definitions);
+  const configuredFieldId = process.env.WRIKE_REPORTING_YEAR_FIELD_ID?.trim() ?? "";
+  return items.map((item) => {
+    const raw = rawByTaskId.get(item.wrikeTaskId);
+    if (raw === undefined) return item;
+    return {
+      ...item,
+      reportingYear: extractReportingYear({ raw, index, configuredFieldId }),
+      customFields: resolveTaskCustomFields(index, raw),
+    };
+  });
 }
 
 export async function searchWrikeTaskIndex(client: SupabaseClient, filters: WrikeTaskSearchFilters): Promise<WrikeTaskSearchResult> {
@@ -529,7 +757,8 @@ export async function searchWrikeTaskIndex(client: SupabaseClient, filters: Wrik
     const state: WrikeConnectorState = { status: "provider_failure", message: "The latest Wrike synchronization failed." };
     return { items: [], total: 0, hasMore: false, state };
   }
-  return searchLocalWrikeTasks(client, filters);
+  const result = await searchLocalWrikeTasks(client, filters);
+  return { ...result, items: await enrichWrikeCandidatesWithCustomFields(client, result.items) };
 }
 
 export async function getCourseVersionSearchContext(

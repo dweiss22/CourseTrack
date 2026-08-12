@@ -27,6 +27,11 @@ export async function POST(request: Request) {
     const run = await triggerWrikeSync(triggeredBy, actorId);
     return NextResponse.json({ run, message: "Wrike synchronization completed." });
   } catch (error) {
+    // Overlapping runs are an expected outcome, not a failure: scheduled
+    // delivery is best effort and an admin can trigger one at any time.
+    if (error instanceof Error && /already running/i.test(error.message)) {
+      return NextResponse.json({ code: "conflict", message: "A Wrike synchronization is already running." }, { status: 409 });
+    }
     const response = apiError(error);
     return response.status === 500 ? NextResponse.json({ code: "service_unavailable", message: "The Wrike synchronization could not run." }, { status: 503 }) : response;
   }

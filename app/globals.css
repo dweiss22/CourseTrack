@@ -1814,6 +1814,15 @@ kbd {
   font-size: 11px;
 }
 
+/* Reporting year sits directly under the title as primary metadata, so it is
+   read at full strength rather than in the muted supporting-line treatment. */
+.wrike-combobox .wrike-candidate-list span.wrike-candidate-reporting-year {
+  overflow-wrap: anywhere;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .integration-mapping-stack {
   display: grid;
   gap: 28px;
