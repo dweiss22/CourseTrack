@@ -71,10 +71,10 @@ Use two rulesets, both bypassable only by the repository admin role:
 - `main`: pull request with conversation resolution, required status checks
   (`Validate application`, `Vercel`) with branches required to be current;
   block force pushes and deletion.
-- `staging`: required status checks, force pushes and deletion blocked. **No
-  pull-request requirement** — see below.
+- `staging`: force pushes and deletion blocked. **No pull-request rule and no
+  required status checks** — see below.
 
-### Why `staging` does not require a pull request
+### Why `staging` carries neither a pull-request rule nor status checks
 
 The production release ends by fast-forwarding `staging` to the released `main`
 commit, so the two branches do not drift. A pull-request rule on `staging`
@@ -90,11 +90,31 @@ and because that job belongs to the release workflow, **every production
 release reported failure even when the deployment was verified and healthy**,
 which trains readers to ignore a red release.
 
-Dropping the pull-request rule on `staging` only is the narrower trade. `main`
-— the branch that actually reaches production — keeps every protection, and
-`staging` still cannot be force-pushed or deleted, and still requires passing
-status checks. What changes is that `staging` can be written directly, which is
-how the release automation and routine integration work already behave.
+Removing the pull-request rule alone was not sufficient. With it gone the ref
+update was still refused:
+
+```
+Repository rule violations found
+Required status check "Validate application" is in progress.  (HTTP 422)
+```
+
+Required status checks are evaluated on direct ref updates, not only on pull
+request merges. Merging to `main` starts a fresh `Validate application` run, and
+the release's sync job reaches the ref update while that run is still going —
+so the rule fails on timing, every time, and would keep failing however long the
+job waited, because each release re-triggers the check.
+
+Re-verifying the commit on `staging` is redundant in any case: it is the exact
+commit that already passed `Validate application` and `Vercel` as part of the
+`main` pull request minutes earlier.
+
+`main` — the branch that actually reaches production — keeps every protection:
+pull request, conversation resolution, required status checks, branch currency,
+and force-push and deletion blocks. `staging` still cannot be force-pushed or
+deleted, and every push to it still runs the full staging release: CI,
+migrations, contract verification and smoke tests. What changes is only that
+`staging` can be written directly, which is how the release automation and
+routine integration work already behave.
 
 To restore the stricter arrangement later: create the App, install it on
 CourseTrack with contents read/write, set the two values on the Production
