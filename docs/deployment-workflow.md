@@ -99,22 +99,48 @@ Required status check "Validate application" is in progress.  (HTTP 422)
 ```
 
 Required status checks are evaluated on direct ref updates, not only on pull
-request merges. Merging to `main` starts a fresh `Validate application` run, and
-the release's sync job reaches the ref update while that run is still going —
-so the rule fails on timing, every time, and would keep failing however long the
-job waited, because each release re-triggers the check.
+request merges. Merging to `main` starts a fresh `Validate application` run for
+that commit, and the release's sync job reaches the ref update while it is still
+in flight.
 
-Re-verifying the commit on `staging` is redundant in any case: it is the exact
-commit that already passed `Validate application` and `Vercel` as part of the
-`main` pull request minutes earlier.
+That particular failure was solvable by waiting: the check belongs to the
+commit, and the sync's own push starts no new one (see below), so polling the
+in-flight run to completion would have satisfied the rule.
+
+The rule was removed for a broader reason. A commit pushed directly to `staging`
+has no completed checks *at the moment of the push*, so the rule refuses every
+ordinary direct push from anyone without the admin bypass — recreating exactly
+the friction this change set out to remove. Timing out the release job was the
+symptom; blocking routine work was the cost. Re-verifying on `staging` is also
+redundant: the fast-forward target is the exact commit that already passed
+`Validate application` and `Vercel` as part of the `main` pull request minutes
+earlier.
 
 `main` — the branch that actually reaches production — keeps every protection:
 pull request, conversation resolution, required status checks, branch currency,
 and force-push and deletion blocks. `staging` still cannot be force-pushed or
-deleted, and every push to it still runs the full staging release: CI,
-migrations, contract verification and smoke tests. What changes is only that
-`staging` can be written directly, which is how the release automation and
-routine integration work already behave.
+deleted.
+
+### What the fast-forward does and does not run
+
+A **human** push to `staging` runs the full staging release: CI, migrations,
+contract verification and smoke tests.
+
+The release's fast-forward does **not**. GitHub suppresses workflow runs for
+pushes authored by `secrets.GITHUB_TOKEN`, so that ref update starts neither
+`ci.yml` nor `staging-release.yml`. Confirmed in practice: after `staging` was
+fast-forwarded to `d9623b5`, no push-triggered run exists for that commit on
+`staging`.
+
+This is correct rather than a gap. The fast-forward target has already been
+through the entire pipeline as part of the release — staging release, production
+preparation, production deployment and smoke tests — so re-running staging
+verification against it would test the same commit a second time. It also means
+the sync cannot start a check that would block its own ref update.
+
+If a future change makes the fast-forward target something *other* than an
+already-released commit, that reasoning no longer holds and the sync should
+dispatch `staging-release.yml` explicitly.
 
 To restore the stricter arrangement later: create the App, install it on
 CourseTrack with contents read/write, set the two values on the Production
