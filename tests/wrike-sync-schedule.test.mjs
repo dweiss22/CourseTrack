@@ -108,6 +108,24 @@ test("only one Wrike sync runs at a time, and an abandoned run cannot block sear
   assert.match(route, /status: 409/);
 });
 
+test("a scheduled sync can complete its audit record without a human actor", async () => {
+  const repository = await source("db/wrike-repository.ts");
+
+  // audit_logs.actor_email is NOT NULL. Passing null for a cron-triggered run
+  // meant the sync did all its work, marked the run succeeded, and then failed
+  // the audit insert -- reporting failure for work that had finished.
+  assert.match(repository, /function auditActorEmail/);
+  assert.match(repository, /actor_email: auditActorEmail\(triggeredBy\)/);
+  assert.doesNotMatch(repository, /actor_email:[^,\n]*startsWith\("manual:"\)[^,\n]*: null/);
+
+  const start = repository.indexOf("function auditActorEmail");
+  const body = repository.slice(start, repository.indexOf("\n}", start));
+  assert.match(body, /startsWith\("manual:"\)/, "a human trigger still records the real actor");
+  assert.match(body, /SCHEDULED_ACTOR_EMAIL/);
+  // A reserved domain records the automated actor without implying a mailbox.
+  assert.match(repository, /SCHEDULED_ACTOR_EMAIL = "scheduled@coursetrack\.invalid"/);
+});
+
 test("the scheduled sync stays read-only against Wrike", async () => {
   const [workflow, script, route] = await Promise.all([
     source(".github/workflows/wrike-sync.yml"),

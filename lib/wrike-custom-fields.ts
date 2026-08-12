@@ -55,7 +55,26 @@ const RENDERABLE_TYPE_SET = new Set<string>(
   RENDERABLE_WRIKE_CUSTOM_FIELD_TYPES.map((type) => type.toLowerCase()),
 );
 
-const REPORTING_YEAR_TITLE = "reporting year";
+/**
+ * Custom-field titles that carry a task's reporting year, normalized for
+ * comparison. Wrike has no field literally named "Reporting Year"; the value
+ * lives in the LCT reporting dropdowns as text like "2026 Courses" or
+ * "2024 Report", which parseReportingYear reduces to the year.
+ *
+ * Matching is exact, never substring: the same account defines several
+ * similarly named fields -- "LCT Reporting", "Assigned SME_LCT Reporting",
+ * "Q1 Priority_LCT reporting", "Course Name_LCT Reporting" and others -- none
+ * of which carry a reporting year.
+ *
+ * The (M) and (L) variants are mutually exclusive in practice: across 1000
+ * sampled production tasks, 75 carried (M), 237 carried (L), and none carried
+ * both, so the agreement rule below is never forced to arbitrate between them.
+ */
+const REPORTING_YEAR_TITLES = new Set([
+  "reporting year",
+  "[lct] reporting (m)",
+  "[lct] reporting (l)",
+]);
 const MIN_REPORTING_YEAR = 1900;
 const MAX_REPORTING_YEAR = 2100;
 
@@ -228,7 +247,7 @@ export function extractReportingYear(input: {
   for (const field of readRawCustomFields(input.raw)) {
     const definition = index.get(field.id);
     if (!definition) continue;
-    if (normalizeCustomFieldTitle(definition.title) !== REPORTING_YEAR_TITLE) continue;
+    if (!REPORTING_YEAR_TITLES.has(normalizeCustomFieldTitle(definition.title))) continue;
     const year = parseReportingYear(field.value);
     if (year) years.add(year);
   }

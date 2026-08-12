@@ -220,6 +220,24 @@ function toSyncRunSummary(row: Row): WrikeSyncRunSummary {
  */
 const WRIKE_SYNC_RUN_ABANDONED_AFTER_MS = 60 * 60 * 1000;
 
+/**
+ * audit_logs.actor_email is NOT NULL, but a scheduled sync has no human actor.
+ * A reserved .invalid address (RFC 2606) records the automated actor honestly
+ * without implying a real mailbox, matching the placeholder-domain convention
+ * in scripts/refresh-staging-from-production.mjs.
+ *
+ * Without this the cron path could not complete: the sync itself succeeded and
+ * the run row was marked succeeded, then the audit insert violated the NOT NULL
+ * constraint and the caller saw a failure for work that had actually finished.
+ */
+const SCHEDULED_ACTOR_EMAIL = "scheduled@coursetrack.invalid";
+
+function auditActorEmail(triggeredBy: string): string {
+  return triggeredBy.startsWith("manual:")
+    ? triggeredBy.slice("manual:".length).toLowerCase()
+    : SCHEDULED_ACTOR_EMAIL;
+}
+
 export async function runWrikeSync(client: SupabaseClient, triggeredBy: string, actorId: string | null = null): Promise<WrikeSyncRunSummary> {
   const connection = await getDecryptedConnection(client);
   if (!connection) throw new Error("Wrike is not connected.");
@@ -481,7 +499,7 @@ export async function runWrikeSync(client: SupabaseClient, triggeredBy: string, 
     })
     .eq("id", runId);
   if (completeError) throw repositoryError("Could not record the Wrike sync result", completeError);
-  const { error: auditError } = await client.from("audit_logs").insert({ actor_id: actorId, actor_email: triggeredBy.startsWith("manual:") ? triggeredBy.slice(7).toLowerCase() : null, action: "wrike.synchronization.completed", record_type: "integration", record_id: "wrike", new_values: { runId, status, tasksUpserted: taskRows.length, foldersFailed }, source: "CourseTrack" });
+  const { error: auditError } = await client.from("audit_logs").insert({ actor_id: actorId, actor_email: auditActorEmail(triggeredBy), action: "wrike.synchronization.completed", record_type: "integration", record_id: "wrike", new_values: { runId, status, tasksUpserted: taskRows.length, foldersFailed }, source: "CourseTrack" });
   if (auditError) throw repositoryError("Could not audit the Wrike synchronization", auditError);
 
   return {
