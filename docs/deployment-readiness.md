@@ -38,6 +38,33 @@ The verification steps in `staging-release`, `production-release` and
 `production-preparation` run *after* migrations are applied, so they keep using
 strict `check:deployment`, where a pending migration is a genuine failure.
 
+### The accepted trade-off
+
+This is a deliberate exchange, not a free win. Because the build now succeeds,
+Vercel's Git integration publishes the staging deployment while the migration
+is still pending, so **staging serves the new code against the old schema for
+roughly one to three minutes** until the workflow applies it.
+
+- **Staging only.** Production never tolerates a pending migration, and its
+  migrations are applied before the merge to `main`, so `main` always builds
+  against a current schema.
+- **If migration application fails**, staging stays on new code with the old
+  schema until someone intervenes. `staging-release` goes red at "Apply pending
+  staging migrations", so the condition is loud rather than silent — but it is
+  not automatically reverted.
+- Code that must survive this window should degrade rather than throw when a
+  table or column is absent. The Wrike custom-field enrichment is written this
+  way: a missing catalogue table leaves candidates undecorated instead of
+  failing the search.
+
+The alternative that removes the window entirely is controlled releases —
+setting `COURSETRACK_CONTROLLED_RELEASES=true` so Vercel stops auto-publishing
+`main`/`staging`, and having the release workflows deploy explicitly after
+strict verification passes. That was weighed and deferred: it replaces the
+"Resolve exact Vercel Git deployment" step and touches the production release
+path, so it warrants its own change and validation rather than riding along
+with this fix. Revisit it if the window ever causes a real incident.
+
 ## Release order
 
 Staging:
