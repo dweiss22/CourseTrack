@@ -47,6 +47,7 @@ import {
   getWrikeConnectionSummary,
   getWrikeSyncStatus,
   linkCourseVersionWrikeTask,
+  listWrikeCustomFieldDefinitions,
   runWrikeSync,
   searchWrikeTaskIndex,
   unlinkCourseVersionWrikeTask,
@@ -66,6 +67,10 @@ export type {
   WrikeTaskSearchFilters,
   WrikeVersionLink,
 };
+export type {
+  WrikeCustomFieldDefinition,
+  WrikeResolvedCustomField,
+} from "@/lib/wrike-custom-fields";
 import { buildWrikeTaskSearchQuery } from "@/lib/wrike-matching";
 import {
   changeUserRoleOrStatus,
@@ -649,6 +654,15 @@ export async function getWrikeSync(): Promise<WrikeSyncStatus> {
 
 export async function searchWrikeTasks(filters: WrikeTaskSearchFilters) {
   return searchWrikeTaskIndex(requireDatabaseClient(), filters);
+}
+
+/**
+ * Strict by design: this backs the diagnostic endpoint used to discover field
+ * ids, so a Wrike outage must surface as an error rather than an empty
+ * catalogue. Candidate enrichment uses the failure-tolerant path instead.
+ */
+export async function getWrikeCustomFieldDefinitions() {
+  return listWrikeCustomFieldDefinitions(requireDatabaseClient(), { strict: true });
 }
 
 export async function searchWrikeTasksForCourseVersion(

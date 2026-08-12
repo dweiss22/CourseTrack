@@ -128,7 +128,9 @@ test("production accepts its reviewed Supabase baseline plus explicit later migr
 });
 
 test("production baseline still requires migrations added after the covered version", () => {
-  const nextVersion = "202608120001";
+  // Deliberately far-future and synthetic: a plausible-looking version would
+  // collide with the next real migration and break this test on every release.
+  const nextVersion = "209912310001";
   const postBaseline = DEPLOYMENT_MIGRATION_CONTRACT.filter(
     (version) => version > PRODUCTION_MIGRATION_BASELINE.coversThrough,
   );
@@ -141,7 +143,7 @@ test("production baseline still requires migrations added after the covered vers
     [...postBaseline, PRODUCTION_MIGRATION_BASELINE.version].sort(),
     { baseline: PRODUCTION_MIGRATION_BASELINE },
   );
-  assert.match(missing.errors.join("\n"), /Missing database migration 202608120001_next.sql/);
+  assert.match(missing.errors.join("\n"), new RegExp(`Missing database migration ${nextVersion}_next\\.sql`));
 
   const current = compareMigrationHistory(
     checkedInRows,
