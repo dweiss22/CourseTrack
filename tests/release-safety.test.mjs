@@ -180,6 +180,33 @@ test("staging fast-forward holds write access to one job and can only fast-forwa
   assert.doesNotMatch(directives, /create-github-app-token|COURSETRACK_PROMOTION_APP/);
 });
 
+test("production readiness waits for the staging release instead of racing it", async () => {
+  const workflow = await readFile(".github/workflows/production-preparation.yml", "utf8");
+  const step = workflow.match(
+    /- name: Verify exact SHA has a successful staging release[\s\S]*?(?=\n      - name:)/,
+  )?.[0] ?? "";
+  assert.ok(step, "the staging-release gate should exist");
+
+  // This runs on pull_request_target, so it starts while staging-release for
+  // the same commit is usually still going. Checking once made every
+  // main-targeting pull request fail here on first attempt.
+  assert.match(step, /POLL_ATTEMPTS/);
+  assert.match(step, /for attempt in \$\(seq 1 "\$POLL_ATTEMPTS"\)/);
+  assert.match(step, /status=success/, "only a successful run satisfies the gate");
+  assert.match(step, /exit 1/, "exhausting the wait window must fail, not pass");
+
+  // The wait must fit inside the job budget with room for the migration and
+  // verification steps that follow.
+  const attempts = Number(/POLL_ATTEMPTS: "(\d+)"/.exec(step)?.[1]);
+  const interval = Number(/POLL_INTERVAL_SECONDS: "(\d+)"/.exec(step)?.[1]);
+  const jobTimeout = Number(/^\s{4}timeout-minutes:\s*(\d+)$/m.exec(workflow)?.[1]);
+  assert.ok(attempts > 0 && interval > 0 && jobTimeout > 0, "poll and timeout values should parse");
+  assert.ok(
+    (attempts * interval) / 60 < jobTimeout,
+    `poll window ${(attempts * interval) / 60}m must stay under the ${jobTimeout}m job timeout`,
+  );
+});
+
 test("production readiness executes only protected code against candidate migration data", async () => {
   const workflow = await readFile(".github/workflows/production-preparation.yml", "utf8");
   const step = workflow.match(

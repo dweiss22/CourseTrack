@@ -57,11 +57,34 @@ jobs:
           cache: npm
       - name: Install protected production dependencies
         run: npm ci --ignore-scripts
+      # Waits rather than failing immediately. This runs on pull_request_target,
+      # so it starts as soon as the pull request opens or updates -- typically
+      # while staging-release for the same commit is still running. Checking
+      # once made every main-targeting pull request fail here on first attempt
+      # and require a manual re-dispatch, which also left a permanently red
+      # check on the pull request even after the re-run succeeded.
+      #
+      # A completed non-success run does not end the wait: a push-triggered run
+      # can fail and a later dispatch of the same commit succeed, and it is the
+      # existence of a success that this gate requires. Only the timeout ends it.
       - name: Verify exact SHA has a successful staging release
         shell: bash
+        env:
+          POLL_ATTEMPTS: "60"
+          POLL_INTERVAL_SECONDS: "20"
         run: |
-          count="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/staging-release.yml/runs?head_sha=${RELEASE_SHA}&status=success" --jq '.total_count')"
-          test "$count" -ge 1
+          for attempt in $(seq 1 "$POLL_ATTEMPTS"); do
+            count="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/staging-release.yml/runs?head_sha=${RELEASE_SHA}&status=success" --jq '.total_count')"
+            if test "$count" -ge 1; then
+              echo "Staging release succeeded for ${RELEASE_SHA}."
+              exit 0
+            fi
+            in_progress="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/staging-release.yml/runs?head_sha=${RELEASE_SHA}" --jq '[.workflow_runs[] | select(.status != "completed")] | length')"
+            echo "Attempt ${attempt}/${POLL_ATTEMPTS}: no successful staging release yet (${in_progress} still running)."
+            sleep "$POLL_INTERVAL_SECONDS"
+          done
+          echo "No successful staging release for ${RELEASE_SHA} within the wait window." >&2
+          exit 1
       - name: Revalidate candidate migration data
         run: node scripts/plan-migrations.mjs --target=production --base-dir=. --candidate-dir=_candidate
       - name: Verify recent Production backup
