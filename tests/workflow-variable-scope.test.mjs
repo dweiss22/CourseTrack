@@ -53,8 +53,15 @@ function jobLevelValues(text, key) {
     if (value === "" || /^[>|]/.test(value)) {
       if (/^[>|]/.test(value)) value = "";
       for (let next = index + 1; next < lines.length; next += 1) {
-        if (!/^ {6,}\S/.test(lines[next])) break;
-        value += ` ${lines[next].trim()}`;
+        const line = lines[next];
+        // Blank lines are legal inside a block scalar or a mapping and do not
+        // end the value -- stopping at one would leave everything after it
+        // uninspected. Only a non-blank line back at job-level indentation
+        // (or shallower) ends it.
+        if (line.trim() === "") continue;
+        if (!/^ {6,}\S/.test(line)) break;
+        if (line.trim().startsWith("#")) continue;
+        value += ` ${line.trim()}`;
       }
     }
     values.push(value.trim());
