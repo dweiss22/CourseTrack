@@ -103,7 +103,7 @@ export function assessAccreditationHistory(
   const expirationWindowDays = options.expirationWindowDays ?? 90;
   const grouped = new Map<string, AccreditationRecord[]>();
 
-  for (const record of records.filter((item) => !item.archivedAt)) {
+  for (const record of records) {
     const organizationKey = normalizeAccreditationKey(record.organization);
     const jurisdictionKey = normalizeAccreditationKey(record.jurisdiction);
     const key = `${courseKey}::${organizationKey}::${jurisdictionKey}`;
@@ -123,7 +123,7 @@ export function assessAccreditationHistory(
       else seenDuplicates.add(fingerprint);
     }
 
-    const canonical = sorted.filter((record) => !duplicateIds.has(record.id));
+    const canonical = sorted.filter((record) => !duplicateIds.has(record.id) && !record.archivedAt);
     const currentRecord = canonical.find(
       (record) => !record.effectiveDate || record.effectiveDate <= asOfDate,
     ) ?? null;

@@ -96,20 +96,23 @@ test("dashboard aggregation stays server-side and returns bounded queues", async
   assert.doesNotMatch(dashboard, /courses:\s*DashboardCourse\[\]/);
 });
 
-test("Data Comparison and managed-record endpoints expose the required workflows", async () => {
+test("inline comparison indicators and managed-record endpoints expose the required workflows", async () => {
   const [detail, comparisonRoute, accreditationRestore, versionRestore] = await Promise.all([
     read("components/course-detail/course-detail.tsx"),
     read("app/api/courses/[id]/data-comparisons/[comparisonId]/confirm/route.ts"),
     read("app/api/accreditations/[id]/restore/route.ts"),
     read("app/api/course-versions/[id]/restore/route.ts"),
   ]);
-  assert.match(detail, /"Data Comparison"/);
-  assert.match(detail, /Uploaded metadata/);
-  assert.match(detail, /Confirm LMS updated/);
+  assert.doesNotMatch(detail, /"Data Comparison"/);
+  assert.doesNotMatch(detail, /"LMS Data"/);
+  assert.match(detail, /inline-field-grid/);
+  assert.match(detail, /CourseTrack value/);
+  assert.match(detail, /LMS value/);
+  assert.match(detail, /expectedUpdatedAt: course\.updatedAt/);
   assert.match(detail, /Create version/);
   assert.match(detail, /Add accreditation/);
   assert.match(comparisonRoute, /confirmDataAlignment/);
-  assert.match(accreditationRestore, /requireApiRole\("super_admin", "admin"\)/);
+  assert.match(accreditationRestore, /requireApiRole\("super_admin", "admin", "accreditation"\)/);
   assert.match(versionRestore, /requireApiRole\("super_admin", "admin"\)/);
 });
 
@@ -135,7 +138,8 @@ test("responsive version and course-header accessibility contracts are present",
   ]);
   assert.match(component, /aria-expanded=.*version-details/);
   assert.match(component, /version-card-list/);
-  assert.match(detail, /aria-expanded/);
+  assert.match(detail, /<details className="panel accreditation-accordion">/);
+  assert.match(detail, /<summary>/);
   assert.match(detail, /data-tooltip/);
   assert.match(detail, /aria-label=.*LMS refresh unavailable/);
   assert.match(css, /@media \(max-width: 699px\)[\s\S]*\.versions-table[\s\S]*display: none/);

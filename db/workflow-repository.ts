@@ -91,17 +91,30 @@ export async function getFavoriteCourseIds(userId: string): Promise<string[]> {
 
 export async function createCourseProjection(input: {
   courseCode: string; title: string; shortTitle: string | null; description: string;
-  primaryVertical: string; lifecycleStatus: string; publicationStatus: string; actor: Actor;
+  verticals: string[]; lifecycleStatus: string; publicationStatus: string; actor: Actor;
 }): Promise<{ id: string; updatedAt: string }> {
   const client = database();
-  const { data, error } = await client.rpc("create_course_projection", {
+  const { data, error } = await client.rpc("create_course_projection_v2", {
     p_course_code: input.courseCode, p_title: input.title, p_short_title: input.shortTitle,
-    p_description: input.description, p_primary_vertical: input.primaryVertical,
+    p_description: input.description, p_verticals: input.verticals,
     p_lifecycle_status: input.lifecycleStatus, p_publication_status: input.publicationStatus,
     p_actor_id: input.actor.userId, p_actor_email: input.actor.email,
   });
   if (error) throw new Error(`Could not create the course: ${error.message}`);
   const row = data as Row; return { id: row.app_id as string, updatedAt: row.updated_at as string };
+}
+
+export async function deleteArchivedAccreditation(input: {
+  id: string;
+  expectedUpdatedAt: string;
+  actor: Actor;
+}): Promise<boolean> {
+  const { data, error } = await database().rpc("delete_archived_accreditation", {
+    p_record_id: input.id, p_expected_updated_at: input.expectedUpdatedAt,
+    p_actor_id: input.actor.userId, p_actor_email: input.actor.email,
+  });
+  if (error || data !== true) throw new Error(`Could not permanently delete the accreditation: ${error?.message ?? "Database did not confirm deletion."}`);
+  return true;
 }
 
 export async function setCourseArchived(input: { courseId: string; archived: boolean; expectedUpdatedAt?: string; actor: Actor }): Promise<void> {

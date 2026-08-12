@@ -23,6 +23,7 @@
     { "version": "202608100001", "file": "202608100001_backfill_course_links.sql", "sha256": "ddfa4b7fefabc7cb73b875cdef85eff22193d90b67ea1fed5c39bfe272825230" },
     { "version": "202608110001", "file": "202608110001_management_classification_authority.sql", "sha256": "8d8bd0513b613494370e90c43872e6503ea88e320df3d7ce1c6b7800986d975b" },
     { "version": "202608120001", "file": "202608120001_wrike_custom_field_index.sql", "sha256": "63710c9251d8dc5207b66d37f73cdf1141d541d36ddf83f7017db562457b55f6" },
-    { "version": "202608120002", "file": "202608120002_wrike_sync_run_exclusion.sql", "sha256": "75c5794e62ff1fe655c9865a71e59351b0f14725be45d9f1e870a2cdd0d57543" }
+    { "version": "202608120002", "file": "202608120002_wrike_sync_run_exclusion.sql", "sha256": "75c5794e62ff1fe655c9865a71e59351b0f14725be45d9f1e870a2cdd0d57543" },
+    { "version": "202608120003", "file": "202608120003_course_membership_lms_link.sql", "sha256": "7fdea1cc509ffa6c71678f97e72a6507bb3ecdd5c776912e3feb0461a6980260" }
   ]
 }

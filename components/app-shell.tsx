@@ -3,7 +3,6 @@
 import {
   Award,
   BarChart3,
-  Bell,
   BookOpen,
   ChevronRight,
   Command,
@@ -93,7 +92,6 @@ export function AppShell({
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
-  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [commandQuery, setCommandQuery] = useState("");
   const [commandCourses, setCommandCourses] = useState<CourseIndexEntry[]>([]);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -175,6 +173,10 @@ export function AppShell({
   };
 
   const handleSignOut = async () => {
+    for (let index = sessionStorage.length - 1; index >= 0; index -= 1) {
+      const key = sessionStorage.key(index);
+      if (key?.startsWith(`coursetrack:${authContext?.userId}:`)) sessionStorage.removeItem(key);
+    }
     try {
       const supabase = await createSupabaseBrowserClient();
       await supabase.auth.signOut();
@@ -251,9 +253,6 @@ export function AppShell({
               >
                 <Icon size={18} aria-hidden="true" />
                 <span>{item.label}</span>
-                {item.label === "Tasks & Callouts" && (
-                  <span className="nav-count">6</span>
-                )}
               </Link>
             );
           })}
@@ -285,8 +284,9 @@ export function AppShell({
       )}
 
       <div className="main-column">
-        {environmentBanner}
-        <header className="topbar">
+        <div className="sticky-app-chrome">
+          {environmentBanner}
+          <header className="topbar">
           <button
             className="icon-button mobile-menu"
             onClick={() => setMobileOpen(true)}
@@ -309,30 +309,12 @@ export function AppShell({
             >
               <SunMoon size={18} />
             </button>
-            <div className="popover-anchor">
-              <button
-                className="icon-button notification-button"
-                onClick={() => setNotificationsOpen((value) => !value)}
-                aria-label="Open notifications"
-                aria-expanded={notificationsOpen}
-              >
-                <Bell size={18} />
-              </button>
-              {notificationsOpen && (
-                <div className="notification-popover">
-                  <div className="popover-heading">
-                    <strong>Notifications</strong>
-                    <span>0 unread</span>
-                  </div>
-                  <div className="notification-empty">No unread notifications.</div>
-                </div>
-              )}
-            </div>
             <Link href="/profile" className="topbar-avatar" aria-label="Open user profile">
               {initialsFor(authContext.displayName)}
             </Link>
           </div>
-        </header>
+          </header>
+        </div>
 
         <div className="breadcrumb-row" aria-label="Breadcrumb">
           <Link href="/">CourseTrack</Link>

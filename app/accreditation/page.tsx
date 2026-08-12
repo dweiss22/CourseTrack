@@ -9,12 +9,15 @@ export const metadata: Metadata = { title: "Accreditation" };
 
 export const dynamic = "force-dynamic";
 
-export default async function AccreditationPage({ searchParams }: { searchParams: Promise<{ page?: string }> }) {
+export default async function AccreditationPage({ searchParams }: { searchParams: Promise<{ page?: string; pageSize?: string }> }) {
   const auth = await requirePageRole("super_admin", "admin", "accreditation");
-  const page = Math.max(1, Number((await searchParams).page ?? 1) || 1);
+  const params = await searchParams;
+  const page = Math.max(1, Number(params.page ?? 1) || 1);
+  const requestedSize = Number(params.pageSize ?? 100);
+  const pageSize = [25, 50, 100, 200].includes(requestedSize) ? requestedSize : 100;
   const [result, preferences, authorityMode] = await withServerOperation(
     { route: "/accreditation", operation: "load accreditation workspace" },
-    () => Promise.all([getAccreditationBoardPage(page, 100), getAccreditationTablePreferences(auth.userId), getLmsAuthorityMode()]),
+    () => Promise.all([getAccreditationBoardPage(page, pageSize), getAccreditationTablePreferences(auth.userId), getLmsAuthorityMode()]),
   );
-  return <AccreditationWorkspace entries={result.items} initialPreferences={preferences} canRestore={["super_admin", "admin"].includes(auth.role)} page={page} total={result.total} authorityMode={authorityMode} />;
+  return <AccreditationWorkspace entries={result.items} initialPreferences={preferences} canRestore={["super_admin", "admin", "accreditation"].includes(auth.role)} page={page} pageSize={pageSize} total={result.total} authorityMode={authorityMode} userId={auth.userId} />;
 }

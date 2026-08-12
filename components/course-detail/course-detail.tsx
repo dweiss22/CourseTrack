@@ -47,23 +47,23 @@ import type { WrikeTaskCandidate } from "@/db";
 import { StatusBadge } from "../status-badge";
 import { HealthAboutDialog } from "../health-about-dialog";
 import { WrikeTaskLinkControl } from "../wrike-task-link-control";
-import { accreditationDisplayLabel, accreditationRiskLabels, groupAccreditationRecords } from "@/lib/accreditation-grouping";
+import { accreditationDisplayLabel, groupAccreditationRecords } from "@/lib/accreditation-grouping";
 import { statusesForKind, TASK_CALLOUT_KINDS, TASK_CALLOUT_PRIORITIES, taskCalloutDueState, taskCalloutStatusAction } from "@/lib/task-callouts";
 import { AsyncCourseSelect } from "../async-course-select";
 import { AccreditationRecordEditor, VersionRecordEditor } from "../record-editors";
 import { AlignmentGlossary, AlignmentStatusBadge } from "../alignment-help";
 import { LmsLinkAction, LmsLinkActions, RestrictedLinkPresence, type LmsLinkKind } from "../lms-link-actions";
+import type { EditableCourseField } from "@/lib/workflow-validation";
+import { TablePagination, useLocalTablePagination } from "../table-pagination";
 
 const tabs = [
   "Overview",
-  "Data Comparison",
   "Versions",
   "Accreditation",
   "Topics & Tags",
   "Notes",
   "Tasks & Callouts",
   "Revamp Planning",
-  "LMS Data",
   "Activity",
 ] as const;
 
@@ -71,12 +71,12 @@ type Tab = (typeof tabs)[number];
 type ProjectionForm = Omit<CourseProjectionUpdate, "expectedUpdatedAt">;
 const editableLifecycleStatuses: ProjectionForm["lifecycleStatus"][] = ["In Development", "Internal Review", "Published", "Under Maintenance", "Scheduled for Revamp", "Retired", "Archived"];
 const publicationStatuses: ProjectionForm["publicationStatus"][] = ["Unknown", "Not in LMS", "Draft", "Testing", "Published", "Hidden", "Inactive", "Retired", "Retrieval Error"];
-const managementLabel = (value: ProjectionForm["managementClassification"]) => value === "Lexipol managed" ? "Lexipol Managed" : value;
+const managementLabel = (value: Course["managementClassification"]) => value === "Lexipol managed" ? "Lexipol Managed" : "Unmanaged";
 
 function projectionForm(course: Course): ProjectionForm {
   return {
     courseCode: course.courseCode, title: course.title, shortTitle: course.shortTitle ?? "", description: course.description,
-    learningAudience: course.learningAudience, primaryVertical: course.primaryVertical, secondaryVerticals: course.secondaryVerticals,
+    learningAudience: course.learningAudience, verticals: course.verticals,
     primaryTopic: course.primaryTopic, managementClassification: course.managementClassification, monitoringEnabled: course.monitoringEnabled,
     lifecycleStatus: editableLifecycleStatuses.includes(course.lifecycleStatus as ProjectionForm["lifecycleStatus"]) ? course.lifecycleStatus as ProjectionForm["lifecycleStatus"] : "In Development",
     publicationStatus: course.publicationStatus, contentType: course.deliveryFormat, durationMinutes: course.durationMinutes,
@@ -103,6 +103,7 @@ export function CourseDetail({
   isAdministrator,
   lmsAuthorityMode,
   assignees,
+  userId,
 }: {
   course: Course;
   topicSuggestions: string[];
@@ -114,6 +115,7 @@ export function CourseDetail({
   isAdministrator: boolean;
   lmsAuthorityMode: "workbook" | "api";
   assignees: TaskCalloutActor[];
+  userId: string;
 }) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<Tab>("Overview");
@@ -131,6 +133,7 @@ export function CourseDetail({
 
   const [form, setForm] = useState<ProjectionForm>(() => projectionForm(course));
   const beginEditing = () => { setForm(projectionForm(currentCourse)); setEditing(true); };
+  void beginEditing;
   const updateForm = <K extends keyof ProjectionForm>(key: K, value: ProjectionForm[K]) => setForm((current) => ({ ...current, [key]: value }));
 
   const toggleFavorite = async () => {
@@ -281,6 +284,7 @@ export function CourseDetail({
     }
   };
 
+  void resolveField;
   return (
     <div className="page-stack">
       <Link href="/courses" className="back-link">
@@ -291,7 +295,7 @@ export function CourseDetail({
       <section className="course-heading course-heading-expanded">
         <div className="course-heading-main">
           <div className="course-monogram" aria-hidden="true">
-            {currentCourse.primaryVertical
+            {(currentCourse.verticals[0] ?? currentCourse.courseCode)
               .split(" ")
               .slice(0, 2)
               .map((part) => part[0])
@@ -304,13 +308,13 @@ export function CourseDetail({
               >
                 {managementLabel(currentCourse.managementClassification)}
               </StatusBadge>
-              <StatusBadge>{currentCourse.reconciliationStatus}</StatusBadge>
+              <StatusBadge tone={currentCourse.lmsLinkStatus === "linked" ? "success" : "neutral"}>{currentCourse.lmsLinkStatus === "linked" ? "LMS linked" : "Not LMS linked"}</StatusBadge>
               <StatusBadge>{currentCourse.lifecycleStatus}</StatusBadge>
               <StatusBadge>{currentCourse.healthStatus}</StatusBadge>
             </div>
             <h1>{currentCourse.title}</h1>
             <p>
-              {currentCourse.courseCode} · {currentCourse.primaryVertical} · v
+              {currentCourse.courseCode} · {currentCourse.verticals.join(", ") || "No vertical"} · v
               {currentCourse.currentVersion}
             </p>
             <div className="course-action-row" aria-label="Course actions">
@@ -334,7 +338,7 @@ export function CourseDetail({
                 <RefreshCw size={18} className={retrievalState === "running" ? "spin" : ""} />
               </button>
               {canEditCourse && (
-                <><button className="icon-action" onClick={beginEditing} aria-label="Edit CourseTrack fields" data-tooltip="Edit CourseTrack fields"><Pencil size={18} /></button><button className="icon-action" onClick={archiveCourse} aria-label="Archive course" data-tooltip="Archive course"><Archive size={18} /></button></>
+                <button className="icon-action" onClick={archiveCourse} aria-label="Archive course" data-tooltip="Archive course"><Archive size={18} /></button>
               )}
             </div>
           </div>
@@ -420,18 +424,6 @@ export function CourseDetail({
         </div>
       )}
 
-      <div className="provenance-banner">
-        <ShieldCheck size={20} />
-        <div>
-          <strong>Immutable sources, editable projection</strong>
-          <span>
-            Uploaded values can be edited in CourseTrack while the original
-            upload remains unchanged. Connected via LMS API fields are read-only.
-          </span>
-        </div>
-        <span>Last retrieved {currentCourse.lastRetrievedAt ?? "Not available"}</span>
-      </div>
-
       <div className="detail-tabs" role="tablist" aria-label="Course detail sections">
         {tabs.map((tab) => (
           <button
@@ -442,9 +434,6 @@ export function CourseDetail({
             onClick={() => setActiveTab(tab)}
           >
             {tab}
-            {tab === "Data Comparison" && (
-              <span aria-label={`${currentCourse.sourceDifferenceCount} source differences`}>{currentCourse.sourceDifferenceCount}</span>
-            )}
             {tab === "Tasks & Callouts" && currentCourse.flags.filter((flag) => !flag.archivedAt).length > 0 && (
               <span>{currentCourse.flags.filter((flag) => !flag.archivedAt).length}</span>
             )}
@@ -491,8 +480,7 @@ export function CourseDetail({
               <label className="form-field form-field-wide"><span>Source notes</span><textarea value={form.contentNotes} onChange={(event) => updateForm("contentNotes", event.target.value)} maxLength={2000} /></label>
             </fieldset>
             <fieldset><legend>Classification and ownership</legend>
-              <label className="form-field"><span>Primary vertical</span><select value={form.primaryVertical} onChange={(event) => updateForm("primaryVertical", event.target.value as ProjectionForm["primaryVertical"])}>{verticals.map((value) => <option key={value}>{value}</option>)}</select></label>
-              <label className="form-field"><span>Secondary verticals</span><select multiple value={form.secondaryVerticals} onChange={(event) => updateForm("secondaryVerticals", Array.from(event.currentTarget.selectedOptions, (option) => option.value).filter((value) => value !== form.primaryVertical) as ProjectionForm["secondaryVerticals"])}>{verticals.filter((value) => value !== form.primaryVertical).map((value) => <option key={value}>{value}</option>)}</select></label>
+              <label className="form-field"><span>Verticals</span><select multiple value={form.verticals} onChange={(event) => updateForm("verticals", Array.from(event.currentTarget.selectedOptions, (option) => option.value) as ProjectionForm["verticals"])}>{verticals.map((value) => <option key={value}>{value}</option>)}</select></label>
               <label className="form-field"><span>Primary topic</span><input value={form.primaryTopic} onChange={(event) => updateForm("primaryTopic", event.target.value)} /></label>
               <label className="form-field"><span>Management classification</span><select value={form.managementClassification} disabled={Boolean(currentCourse.contentMetadata)} onChange={(event) => updateForm("managementClassification", event.target.value as ProjectionForm["managementClassification"])}>{managementClassifications.map((value) => <option key={value} value={value}>{managementLabel(value)}</option>)}</select>{currentCourse.contentMetadata && <small>Managed by the current uploaded master metadata record.</small>}</label>
               <label className="form-field checkbox-field"><input type="checkbox" checked={form.monitoringEnabled} onChange={(event) => updateForm("monitoringEnabled", event.target.checked)} /><span>Monitoring enabled</span></label>
@@ -528,23 +516,13 @@ export function CourseDetail({
       <section className="course-detail-grid course-detail-grid-single">
         <div className="detail-main">
           {activeTab === "Overview" && (
-            <OverviewTab course={currentCourse} />
-          )}
-          {activeTab === "Data Comparison" && (
-            <DataComparisonTab
-              course={currentCourse}
-              resolving={saveState === "saving"}
-              onResolve={resolveField}
-              onCourseChange={setCurrentCourse}
-              canEdit={canEditCourse}
-              authorityMode={lmsAuthorityMode}
-            />
+            <OverviewTab course={currentCourse} onCourseChange={setCurrentCourse} canEdit={canEditCourse} />
           )}
           {activeTab === "Versions" && (
-            <VersionsTab course={currentCourse} onCourseChange={setCurrentCourse} canManage={canManageVersions} isAdministrator={isAdministrator} />
+            <VersionsTab course={currentCourse} onCourseChange={setCurrentCourse} canManage={canManageVersions} isAdministrator={isAdministrator} userId={userId} />
           )}
           {activeTab === "Accreditation" && (
-            <AccreditationTab course={currentCourse} onCourseChange={setCurrentCourse} canManage={canManageAccreditations} isAdministrator={isAdministrator} authorityMode={lmsAuthorityMode} />
+            <AccreditationTab course={currentCourse} onCourseChange={setCurrentCourse} canManage={canManageAccreditations} authorityMode={lmsAuthorityMode} userId={userId} />
           )}
           {activeTab === "Topics & Tags" && (
             <TopicsTab
@@ -559,9 +537,6 @@ export function CourseDetail({
           {activeTab === "Revamp Planning" && (
             <RevampTab course={currentCourse} />
           )}
-          {activeTab === "LMS Data" && (
-            <LmsTab course={currentCourse} />
-          )}
           {activeTab === "Activity" && <ActivityTab course={currentCourse} />}
         </div>
 
@@ -569,40 +544,118 @@ export function CourseDetail({
     </div>
   );
 }
-function OverviewTab({ course }: { course: Course }) {
+type InlineCourseField = {
+  field: EditableCourseField;
+  label: string;
+  lmsKey?: string;
+  multiline?: boolean;
+  kind?: "text" | "number" | "date" | "boolean" | "verticals" | "credits";
+};
+
+const inlineCourseFields: InlineCourseField[] = [
+  { field: "courseCode", label: "Course code" }, { field: "title", label: "Course name", lmsKey: "courseName" },
+  { field: "shortTitle", label: "Short title" }, { field: "description", label: "Description", lmsKey: "description", multiline: true },
+  { field: "learningAudience", label: "Learning audience", multiline: true }, { field: "verticals", label: "Verticals", kind: "verticals" },
+  { field: "primaryTopic", label: "Topic" }, { field: "managementClassification", label: "Management" },
+  { field: "monitoringEnabled", label: "Monitoring enabled", kind: "boolean" }, { field: "lifecycleStatus", label: "Lifecycle" },
+  { field: "publicationStatus", label: "Publication status" }, { field: "contentType", label: "Content type", lmsKey: "contentType" },
+  { field: "durationMinutes", label: "Duration", lmsKey: "durationMinutes", kind: "number" },
+  { field: "trainingCredits", label: "Training credits", lmsKey: "trainingCredits", kind: "credits" },
+  { field: "published", label: "Published", lmsKey: "published", kind: "boolean" }, { field: "authoringTool", label: "Authoring tool", lmsKey: "authoringTool" },
+  { field: "stateCode", label: "State code" }, { field: "owner", label: "Owner" },
+  { field: "instructionalDesigner", label: "Instructional designer" }, { field: "publishedDate", label: "Published date", lmsKey: "publishedDate", kind: "date" },
+  { field: "lastMajorRevisionDate", label: "Last major revision", kind: "date" }, { field: "nextReviewDate", label: "Next review", kind: "date" },
+  { field: "backendLink", label: "Backend link", lmsKey: "backendLink" }, { field: "frontendLink", label: "Course link", lmsKey: "frontendLink" },
+  { field: "updateType", label: "Update type", lmsKey: "updateType" }, { field: "contentUpdatedAt", label: "Content updated", lmsKey: "contentUpdatedAt", kind: "date" },
+  { field: "contentNotes", label: "Content notes", lmsKey: "notes", multiline: true }, { field: "internalSummary", label: "Internal summary", multiline: true },
+];
+
+function courseFieldValue(course: Course, field: EditableCourseField): unknown {
+  const values: Record<EditableCourseField, unknown> = {
+    courseCode: course.courseCode, title: course.title, shortTitle: course.shortTitle, description: course.description,
+    learningAudience: course.learningAudience, verticals: course.verticals, primaryTopic: course.primaryTopic,
+    managementClassification: course.managementClassification, monitoringEnabled: course.monitoringEnabled,
+    lifecycleStatus: course.lifecycleStatus, publicationStatus: course.publicationStatus, contentType: course.deliveryFormat,
+    durationMinutes: course.durationMinutes, trainingCredits: course.trainingCredits, published: course.published,
+    authoringTool: course.authoringTool, stateCode: course.stateCode ?? "", owner: course.owner ?? "",
+    instructionalDesigner: course.instructionalDesigner ?? "", publishedDate: course.originalPublishDate ?? "",
+    lastMajorRevisionDate: course.lastMajorRevisionDate ?? "", nextReviewDate: course.nextReviewDate ?? "",
+    backendLink: course.backendLink ?? "", frontendLink: course.frontendLink ?? "", updateType: course.updateType ?? "",
+    contentUpdatedAt: course.contentUpdatedAt ?? "", contentNotes: course.contentNotes ?? "", internalSummary: course.internalSummary,
+  };
+  return values[field];
+}
+
+function draftValue(value: unknown, kind: InlineCourseField["kind"]): string {
+  if (kind === "verticals") return (value as string[]).join("|");
+  if (kind === "credits") return String((value as Course["trainingCredits"])?.amount ?? "");
+  if (kind === "boolean") return value === null ? "unknown" : value ? "true" : "false";
+  return value === null || value === undefined ? "" : String(value);
+}
+
+function parsedDraft(draft: string, definition: InlineCourseField, course: Course): unknown {
+  if (definition.kind === "verticals") return draft ? draft.split("|") : [];
+  if (definition.kind === "number") return draft === "" ? null : Number(draft);
+  if (definition.kind === "boolean") return draft === "unknown" ? null : draft === "true";
+  if (definition.kind === "credits") return { ...course.trainingCredits, rawDisplay: draft || null, amount: draft === "" ? null : Number(draft) };
+  return draft;
+}
+
+function OverviewTab({ course, onCourseChange, canEdit }: { course: Course; onCourseChange: Dispatch<SetStateAction<Course>>; canEdit: boolean }) {
+  const [editingField, setEditingField] = useState<EditableCourseField | null>(null);
+  const [draft, setDraft] = useState("");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+
+  const begin = (definition: InlineCourseField) => {
+    setEditingField(definition.field); setDraft(draftValue(courseFieldValue(course, definition.field), definition.kind)); setError("");
+  };
+  const save = async (definition: InlineCourseField) => {
+    if (!course.updatedAt) { setError("Refresh the page before editing this course."); return; }
+    setPending(true); setError("");
+    try {
+      const response = await fetch(`/api/courses/${course.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ field: definition.field, value: parsedDraft(draft, definition, course), expectedUpdatedAt: course.updatedAt }) });
+      const result = await response.json() as { course?: Course; message?: string };
+      if (!response.ok || !result.course) throw new Error(result.message || "The saved course was not returned.");
+      onCourseChange(result.course); setEditingField(null);
+    } catch (saveError) { setError(saveError instanceof Error ? saveError.message : "This field could not be saved."); }
+    finally { setPending(false); }
+  };
+
   return (
     <div className="detail-section-stack">
       <article className="panel">
         <div className="panel-heading">
           <div>
             <h2>Course overview</h2>
-            <p>Current normalized metadata and field provenance</p>
+            <p>Edit CourseTrack values in place. LMS values are reference-only.</p>
           </div>
-          <StatusBadge>{provenanceLabels[course.dataSource]}</StatusBadge>
+          <StatusBadge tone={course.lmsLinkStatus === "linked" ? "success" : "neutral"}>{course.lmsLinkStatus === "linked" ? "LMS linked" : "Not LMS linked"}</StatusBadge>
         </div>
-        <p className="course-description">{course.description}</p>
-        <div className="field-grid">
-          <ProvenanceField label="LMS course ID" value={course.lmsCourseId ?? "Not mapped"} source="LMS" locked />
-          <ProvenanceField label="Management classification" value={managementLabel(course.managementClassification)} source={course.contentMetadata ? "Content Metadata" : "CourseTrack"} />
-          <ProvenanceField label="Reconciliation" value={course.reconciliationStatus} source="Calculated" />
-          <ProvenanceField label="Duration" value={course.durationMinutes === null ? "Not supplied" : `${course.durationMinutes} minutes`} source="Resolved value" />
-          <ProvenanceField label="Authoring tool" value={course.contentMetadata?.authoringTool ?? course.authoringTool} source="Content Metadata" />
-          <ProvenanceField label="Primary vertical" value={course.primaryVertical} source="CourseTrack" />
-          <ProvenanceField label="Lifecycle status" value={course.lifecycleStatus} source="CourseTrack" />
-          <ProvenanceField label="Course owner" value={course.owner ?? "Unassigned"} source="CourseTrack" />
-          <ProvenanceField label="Next review date" value={course.nextReviewDate ?? "Not set"} source="CourseTrack" />
+        <div className="inline-field-grid">
+          <div className="inline-field-cell inline-field-readonly"><span>LMS course ID</span><strong>{course.lmsCourseId ?? "Not LMS linked"}</strong><small><LockKeyhole size={11} /> LMS · read only</small></div>
+          {inlineCourseFields.map((definition) => {
+            const value = courseFieldValue(course, definition.field);
+            const comparison = course.fieldComparisons.find((item) => item.fieldKey === (definition.lmsKey ?? definition.field));
+            const mismatch = comparison && !["In sync", "Manually confirmed"].includes(comparison.alignmentStatus);
+            const editable = canEdit && !(definition.field === "managementClassification" && Boolean(course.contentMetadata));
+            const isEditing = editingField === definition.field;
+            return <div className={`inline-field-cell ${mismatch ? "has-mismatch" : ""}`} key={definition.field}>
+              <div className="inline-field-heading"><span>{definition.label}</span>{mismatch && <ComparisonState comparison={comparison} />}</div>
+              {isEditing ? <div className="inline-field-editor">
+                {definition.kind === "verticals" ? <select multiple value={draft ? draft.split("|") : []} onChange={(event) => setDraft(Array.from(event.currentTarget.selectedOptions, (option) => option.value).join("|"))}>{verticals.map((vertical) => <option key={vertical}>{vertical}</option>)}</select>
+                  : definition.kind === "boolean" ? <select value={draft} onChange={(event) => setDraft(event.target.value)}><option value="unknown">Not supplied</option><option value="true">Yes</option><option value="false">No</option></select>
+                    : definition.multiline ? <textarea autoFocus value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setEditingField(null); if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); void save(definition); } }} />
+                      : <input autoFocus type={definition.kind === "number" || definition.kind === "credits" ? "number" : definition.kind === "date" ? "date" : "text"} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setEditingField(null); if (event.key === "Enter") { event.preventDefault(); void save(definition); } }} />}
+                <div className="inline-field-actions"><button disabled={pending} onClick={() => void save(definition)}><Save size={13} /> Save</button><button disabled={pending} onClick={() => setEditingField(null)}>Cancel</button></div>
+                {error && <small className="taxonomy-editor-error" role="alert">{error}</small>}
+              </div> : <>
+                <div className="source-lane"><small>CourseTrack</small><strong>{definition.field === "managementClassification" ? managementLabel(value as Course["managementClassification"]) : formatSourceValue(value)}</strong>{editable && <button aria-label={`Edit ${definition.label}`} onClick={() => begin(definition)}><Pencil size={13} /></button>}</div>
+                {comparison && <div className="source-lane source-lane-lms"><small><LockKeyhole size={11} /> LMS</small><span>{formatSourceValue(comparison.lmsNormalizedValue)}</span></div>}
+              </>}
+            </div>;
+          })}
         </div>
-      </article>
-
-      <article className="panel">
-        <div className="panel-heading">
-          <div>
-            <h2>Internal summary</h2>
-            <p>CourseTrack-owned planning context</p>
-          </div>
-          <StatusBadge tone="info">CourseTrack</StatusBadge>
-        </div>
-        <p className="internal-summary">{course.internalSummary}</p>
       </article>
     </div>
   );
@@ -799,7 +852,7 @@ function DataComparisonTab({
             <h3>Vertical membership and LMS availability</h3>
             {course.verticalAssignments.map((assignment, index) => (
               <span key={`${assignment.source}-${assignment.vertical}-${index}`}>
-                <strong>{assignment.kind === "availability" ? `Available on ${assignment.vertical}` : assignment.vertical}{assignment.isPrimary ? " · Primary" : ""}</strong>
+                <strong>{assignment.kind === "availability" ? `Available on ${assignment.vertical}` : assignment.vertical}</strong>
                 <small>{assignment.source} · {assignment.sourceValue}</small>
               </span>
             ))}
@@ -865,17 +918,20 @@ function VersionsTab({
   onCourseChange,
   canManage,
   isAdministrator,
+  userId,
 }: {
   course: Course;
   onCourseChange: Dispatch<SetStateAction<Course>>;
   canManage: boolean;
   isAdministrator: boolean;
+  userId: string;
 }) {
   const [editingVersion, setEditingVersion] = useState<CourseVersion | "new" | null>(null);
   const [pending, setPending] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [versionMessage, setVersionMessage] = useState("");
   const visibleVersions = course.versions.filter((version) => showArchived ? Boolean(version.archivedAt) : !version.archivedAt);
+  const versionPagination = useLocalTablePagination([...visibleVersions].reverse(), `coursetrack:${userId}:table:course:${course.id}:versions`);
   const saveVersionRecord = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); const form = new FormData(event.currentTarget); const current = editingVersion === "new" ? null : editingVersion;
     const payload = { versionNumber: String(form.get("versionNumber")), versionType: String(form.get("versionType")), publicationDate: String(form.get("publicationDate")), versionStatus: String(form.get("versionStatus")), isCurrent: form.get("isCurrent") === "on", releaseNotes: String(form.get("releaseNotes")), authoringTool: String(form.get("authoringTool")), packageStandard: String(form.get("packageStandard")), expectedUpdatedAt: current?.updatedAt };
@@ -896,17 +952,6 @@ function VersionsTab({
   };
   return (
     <div className="detail-section-stack">
-      <section className="version-governance-banner">
-        <ShieldCheck size={22} />
-        <div>
-          <strong>Version history is owned by CourseTrack</strong>
-          <span>
-            The LMS does not communicate its internal versioning to CourseTrack.
-            These version numbers, current-version decisions, notes, and Wrike
-            references are created and maintained in this app.
-          </span>
-        </div>
-      </section>
       <article className="panel">
         <div className="panel-heading">
           <div>
@@ -932,7 +977,7 @@ function VersionsTab({
               </tr>
             </thead>
             <tbody>
-              {[...visibleVersions].reverse().map((version) => (
+              {versionPagination.pageItems.map((version) => (
                 <tr key={version.id}>
                   <td className="mono-cell">v{version.versionNumber}</td>
                   <td>{version.versionType}</td>
@@ -949,10 +994,7 @@ function VersionsTab({
             </tbody>
           </table>{visibleVersions.length === 0 && <div className="empty-state compact-empty"><History size={22} /><p>No {showArchived ? "archived" : "active"} versions.</p></div>}
         </div>
-        <div className="readonly-callout">
-          <ShieldCheck size={18} />
-          <span><strong>Wrike remains read-only</strong>Task details are presented as work context for a version. Linking or unlinking a reference changes CourseTrack only.</span>
-        </div>
+        <TablePagination page={versionPagination.page} pageSize={versionPagination.pageSize} total={visibleVersions.length} onPageChange={versionPagination.setPage} onPageSizeChange={versionPagination.setPageSize} noun="versions" />
       </article>
     </div>
   );
@@ -1200,14 +1242,13 @@ type VersionWrikeCellLink = { id: string; wrikeTaskId: string; taskTitle: string
 
 void VersionWrikeCellLegacy;
 
-function AccreditationTab({ course, onCourseChange, canManage, isAdministrator, authorityMode }: { course: Course; onCourseChange: Dispatch<SetStateAction<Course>>; canManage: boolean; isAdministrator: boolean; authorityMode: "workbook" | "api" }) {
+function AccreditationTab({ course, onCourseChange, canManage, authorityMode, userId }: { course: Course; onCourseChange: Dispatch<SetStateAction<Course>>; canManage: boolean; authorityMode: "workbook" | "api"; userId: string }) {
   const [editingRecord, setEditingRecord] = useState<AccreditationRecord | "new" | null>(null);
   const [pending, setPending] = useState(false);
-  const [showArchived, setShowArchived] = useState(false);
   const [accreditationMessage, setAccreditationMessage] = useState("");
   const activeRecords = course.accreditations.filter((record) => !record.archivedAt);
   const archivedRecords = course.accreditations.filter((record) => record.archivedAt);
-  const groups = groupAccreditationRecords(activeRecords);
+  const groups = groupAccreditationRecords(course.accreditations);
   const saveRecord = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); const form = new FormData(event.currentTarget); const current = editingRecord === "new" ? null : editingRecord;
     const value = (name: string, fallback: string | null = null) => form.get(name) === null ? fallback : String(form.get(name));
@@ -1222,68 +1263,64 @@ function AccreditationTab({ course, onCourseChange, canManage, isAdministrator, 
     catch (error) { setAccreditationMessage(error instanceof Error ? error.message : "Accreditation could not be updated."); } finally { setPending(false); }
   };
   const confirmRecord = async (record: AccreditationRecord) => { if (!record.updatedAt) return; setPending(true); const note = window.prompt("Optional note describing the LMS update:", "") ?? ""; try { const response = await fetch(`/api/accreditations/${record.id}/confirm`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ expectedUpdatedAt: record.updatedAt, note }) }); const result = await response.json() as { message?: string }; if (!response.ok) throw new Error(result.message); const now = new Date().toISOString(); onCourseChange((value) => ({ ...value, accreditations: value.accreditations.map((item) => item.id === record.id ? { ...item, alignmentStatus: "Manually confirmed", confirmationTime: now, confirmationNote: note, updatedAt: now } : item) })); setAccreditationMessage(result.message ?? "Alignment confirmed."); } catch (error) { setAccreditationMessage(error instanceof Error ? error.message : "Alignment could not be confirmed."); } finally { setPending(false); } };
+  const deleteRecord = async (record: AccreditationRecord) => {
+    if (!record.updatedAt || !record.archivedAt || record.sourceDomain !== "coursetrack") return;
+    if (!window.confirm(`Permanently delete this archived ${record.organization} accreditation? This cannot be undone.`)) return;
+    setPending(true); setAccreditationMessage("");
+    try { const response = await fetch(`/api/accreditations/${record.id}/permanent`, { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ expectedUpdatedAt: record.updatedAt }) }); const result = await response.json() as { deleted?: boolean; message?: string }; if (!response.ok || !result.deleted) throw new Error(result.message || "The database did not confirm deletion."); onCourseChange((value) => ({ ...value, accreditations: value.accreditations.filter((item) => item.id !== record.id) })); setAccreditationMessage(result.message ?? "Archived accreditation permanently deleted."); }
+    catch (error) { setAccreditationMessage(error instanceof Error ? error.message : "Accreditation could not be deleted."); } finally { setPending(false); }
+  };
   return (
     <div className="detail-section-stack">
-      <section className="version-governance-banner"><Award size={22} /><div><strong>Accreditation is managed in CourseTrack</strong><span>Workbook-origin records retain immutable LMS evidence. Changes are tracked as record-level differences.</span></div></section>
-      <article className="panel"><div className="panel-heading"><div><h2>Accreditation management</h2><p>{activeRecords.length} active · {archivedRecords.length} archived</p></div><div className="button-row">{canManage && <button className="button button-primary" onClick={() => setEditingRecord("new")}>Add accreditation</button>}<button className="button button-secondary" onClick={() => setShowArchived((value) => !value)}>{showArchived ? "Show active" : "Archived history"}</button></div></div>
+      <article className="panel"><div className="panel-heading"><div><h2>Accreditation</h2><p>{groups.length} issuing body and jurisdiction groups · {activeRecords.length} active · {archivedRecords.length} archived</p></div>{canManage && <button className="button button-primary" onClick={() => setEditingRecord("new")}>Add accreditation</button>}</div>
       {accreditationMessage && <div className="inline-alert" role="status"><ShieldCheck size={16} /><span>{accreditationMessage}</span></div>}
       {editingRecord && <AccreditationRecordEditor record={editingRecord === "new" ? null : editingRecord} courseField={<input type="hidden" name="courseId" value={course.id} />} pending={pending} apiLocked={authorityMode === "api"} onSubmit={saveRecord} onCancel={() => setEditingRecord(null)} />}
-      <div className="table-scroll"><table className="data-table"><thead><tr><th>Issuing body</th><th>Jurisdiction</th><th>Accreditation / topic</th><th>Dates</th><th>Status / credits</th><th>Alignment</th><th>Actions</th></tr></thead><tbody>{(showArchived ? archivedRecords : activeRecords).map((record) => <tr key={record.id}><td data-label="Issuing body">{record.organization}</td><td data-label="Jurisdiction">{record.jurisdiction || "—"}</td><td data-label="Accreditation / topic">{record.approvalNumber ?? "—"}<small>Topic: {record.topicNumber ?? "—"}</small></td><td data-label="Dates">{record.effectiveDate ?? "—"} – {record.expirationDate ?? "—"}</td><td data-label="Status / credits">{record.status}<small>{record.creditHours} hours</small></td><td data-label="Alignment"><AlignmentStatusBadge status={record.alignmentStatus} tone={record.alignmentStatus === "Pending LMS update" ? "danger" : record.alignmentStatus === "Manually confirmed" || record.alignmentStatus === "In sync" ? "success" : "info"}>{record.alignmentStatus}</AlignmentStatusBadge></td><td data-label="Actions"><div className="table-actions">{canManage && !record.archivedAt && <button onClick={() => setEditingRecord(record)}>Edit</button>}{canManage && !record.archivedAt && <button disabled={pending || (authorityMode === "api" && record.sourceDomain === "lms")} onClick={() => void archiveOrRestore(record, false)}>Archive</button>}{canManage && authorityMode === "workbook" && record.alignmentStatus === "Pending LMS update" && !record.archivedAt && <button disabled={pending} onClick={() => void confirmRecord(record)}>Confirm LMS updated</button>}{isAdministrator && record.archivedAt && <button disabled={pending} onClick={() => void archiveOrRestore(record, true)}>Restore</button>}</div></td></tr>)}</tbody></table></div>
-      {(showArchived ? archivedRecords : activeRecords).length === 0 && <div className="empty-state compact-empty"><Award size={24} /><p>No {showArchived ? "archived" : "active"} accreditation records.</p></div>}
       </article>
-      {groups.map((group) => <AccreditationGroupCard group={group} key={group.key} />)}
+      {groups.map((group) => <AccreditationGroupCard group={group} key={group.key} canManage={canManage} pending={pending} authorityMode={authorityMode} userId={userId} onEdit={setEditingRecord} onArchiveOrRestore={archiveOrRestore} onConfirm={confirmRecord} onDelete={deleteRecord} />)}
+      {groups.length === 0 && <div className="empty-state compact-empty"><Award size={24} /><p>No accreditation records.</p></div>}
     </div>
   );
 }
 
-function AccreditationGroupCard({ group }: { group: AccreditationHistoryGroup }) {
-  const [expanded, setExpanded] = useState(false);
-  const historyId = `accreditation-history-${group.key.replace(/[^a-z0-9]/gi, "-")}`;
-  const older = group.history;
+function accreditationAlignmentLabel(record: AccreditationRecord, authorityMode: "workbook" | "api"): "Aligned" | "Update LMS" | "Update CourseTrack" {
+  if (record.alignmentStatus === "In sync" || record.alignmentStatus === "Manually confirmed") return "Aligned";
+  return authorityMode === "api" && record.sourceDomain === "lms" ? "Update CourseTrack" : "Update LMS";
+}
+
+function AccreditationGroupCard({ group, canManage, pending, authorityMode, userId, onEdit, onArchiveOrRestore, onConfirm, onDelete }: {
+  group: AccreditationHistoryGroup; canManage: boolean; pending: boolean; authorityMode: "workbook" | "api";
+  userId: string;
+  onEdit: (record: AccreditationRecord) => void; onArchiveOrRestore: (record: AccreditationRecord, restore: boolean) => Promise<void>;
+  onConfirm: (record: AccreditationRecord) => Promise<void>; onDelete: (record: AccreditationRecord) => Promise<void>;
+}) {
+  const records = [group.summary, ...group.history];
+  const summary = group.summary.record;
+  const pagination = useLocalTablePagination(records, `coursetrack:${userId}:table:accreditation-group:${group.key}`);
   return (
-    <article className="panel accreditation-card">
-      <div className="panel-heading">
-        <div>
-          <h2>{group.organization}</h2>
-          <p>{group.jurisdiction}</p>
-        </div>
-        <div className="accreditation-summary-badges">
-          <StatusBadge label={accreditationRiskLabels[group.riskState]} />
-          {group.summary.historyRole === "future" && <StatusBadge tone="info">Future</StatusBadge>}
-        </div>
+    <details className="panel accreditation-accordion">
+      <summary>
+        <div><h2>{group.organization}</h2><p>{group.jurisdiction} · {records.length} {records.length === 1 ? "record" : "records"}</p></div>
+        <div className="accreditation-summary-line"><strong>{summary.approvalNumber ?? "No accreditation number"}</strong><span>{summary.effectiveDate ?? "No start"} – {summary.expirationDate ?? "No expiration"}</span><StatusBadge>{summary.archivedAt ? "Archived" : summary.status}</StatusBadge><StatusBadge tone={accreditationAlignmentLabel(summary, authorityMode) === "Aligned" ? "success" : "warning"}>{accreditationAlignmentLabel(summary, authorityMode)}</StatusBadge></div>
+      </summary>
+      <div className="accreditation-accordion-body">
+        {pagination.pageItems.map((item) => {
+          const record = item.record;
+          const alignment = accreditationAlignmentLabel(record, authorityMode);
+          return <section className={`accreditation-history-entry ${record.archivedAt ? "is-archived" : ""}`} key={record.id}>
+            <div className="panel-heading"><div><strong>{record.approvalNumber ?? "No accreditation number"}</strong><p>Topic {record.topicNumber ?? "not used"} · {record.sourceDomain === "lms" ? "LMS" : "CourseTrack"}</p></div><div className="accreditation-summary-badges"><StatusBadge>{record.archivedAt ? "Archived" : accreditationDisplayLabel(record, item.historyRole === "current")}</StatusBadge><StatusBadge tone={alignment === "Aligned" ? "success" : "warning"}>{alignment}</StatusBadge></div></div>
+            <div className="accreditation-record-grid"><span><small>Start date</small>{record.effectiveDate ?? "Not set"}</span><span><small>Expiration</small>{record.expirationDate ?? "Not set"}</span><span><small>Status</small>{record.status}</span><span><small>Credits</small>{record.creditHours} hours</span></div>
+            {canManage && <div className="table-actions">
+              {!record.archivedAt && <button disabled={pending || (authorityMode === "api" && record.sourceDomain === "lms")} onClick={() => onEdit(record)}>Edit</button>}
+              {!record.archivedAt && <button disabled={pending || (authorityMode === "api" && record.sourceDomain === "lms")} onClick={() => void onArchiveOrRestore(record, false)}>Archive</button>}
+              {!record.archivedAt && authorityMode === "workbook" && alignment === "Update LMS" && <button disabled={pending} onClick={() => void onConfirm(record)}>Confirm LMS updated</button>}
+              {record.archivedAt && <button disabled={pending} onClick={() => void onArchiveOrRestore(record, true)}>Restore</button>}
+              {record.archivedAt && record.sourceDomain === "coursetrack" && <button className="danger-action" disabled={pending} onClick={() => void onDelete(record)}>Delete permanently</button>}
+            </div>}
+          </section>;
+        })}
+        <TablePagination page={pagination.page} pageSize={pagination.pageSize} total={records.length} onPageChange={pagination.setPage} onPageSizeChange={pagination.setPageSize} noun="entries" />
       </div>
-      <AccreditationRecordFields record={group.summary.record} />
-      {group.summary.historyRole === "future" && group.current && (
-        <div className="inline-alert alert-warning">
-          <AlertTriangle size={16} />
-          <span><strong>Not yet current</strong>The current risk remains {accreditationRiskLabels[group.current.riskState].toLowerCase()} until this record takes effect.</span>
-        </div>
-      )}
-      {older.length > 0 && (
-        <div className="accreditation-history">
-          <button
-            type="button"
-            className="history-toggle"
-            aria-expanded={expanded}
-            aria-controls={historyId}
-            onClick={() => setExpanded((value) => !value)}
-          >
-            {expanded ? "Hide" : "Show"} {older.length} older {older.length === 1 ? "record" : "records"}
-          </button>
-          <div id={historyId} hidden={!expanded}>
-            {older.map((item) => (
-              <div className="accreditation-history-entry" key={item.record.id}>
-                <div className="panel-heading">
-                  <p>{item.record.creditHours} credit hours</p>
-                  <StatusBadge label={item.historyRole === "duplicate" ? "Duplicate" : accreditationDisplayLabel(item.record, false)} />
-                </div>
-                <AccreditationRecordFields record={item.record} />
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </article>
+    </details>
   );
 }
 
@@ -1334,7 +1371,7 @@ function TopicsTab({
       <div className="taxonomy-block">
         <span>Primary topic</span>
         <strong>{course.primaryTopic}</strong>
-        <small>{course.primaryVertical} / {course.primaryTopic}</small>
+        <small>{course.verticals.join(", ") || "No vertical"} / {course.primaryTopic}</small>
       </div>
       <TaxonomyEditor
         courseId={course.id}
@@ -1767,3 +1804,6 @@ function ProvenanceField({
   );
 }
 // Course detail helpers remain colocated with the view that owns them.
+void DataComparisonTab;
+void AccreditationRecordFields;
+void LmsTab;

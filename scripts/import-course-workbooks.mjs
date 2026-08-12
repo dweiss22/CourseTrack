@@ -54,7 +54,6 @@ export function projectionFor(course, existing = null) {
   const projection = course.projection;
   const metadata = hasImportableMetadata(course) ? course.metadata : null;
   const verticals = metadata?.verticals ?? [];
-  const primaryVertical = verticals[0] ?? "Unclassified";
   const published = projection?.published ?? lms?.isPublished ?? null;
   const manualClassificationSource = existing?.field_provenance?.managementClassification ?? null;
   const management = determineManagementClassification({
@@ -70,8 +69,7 @@ export function projectionFor(course, existing = null) {
     shortTitle: null,
     description: projection?.description ?? lms?.courseDescription ?? null,
     learningAudience: null,
-    primaryVertical,
-    secondaryVerticals: verticals.filter((value) => value !== primaryVertical),
+    verticals,
     primaryTopic: lms?.publicTopics?.[0] ?? lms?.privateTopics?.[0] ?? null,
     managementClassification: management.classification,
     monitoringEnabled: true,
@@ -156,13 +154,14 @@ async function applyDataset(dataset, options = {}) {
 
   const verticalRows = await allRows(client, "verticals", "id,slug");
   const verticalBySlug = new Map(verticalRows.map((row) => [String(row.slug).toUpperCase(), row.id]));
-  const fallbackVerticalId = verticalBySlug.get("UNCLASSIFIED") ?? verticalBySlug.get("LEXIPOL") ?? verticalRows[0]?.id;
-  if (!fallbackVerticalId) throw new Error("No CourseTrack verticals are configured.");
+  if (verticalRows.length === 0) throw new Error("No CourseTrack verticals are configured.");
 
   const existingCourses = await allRows(client, "courses", "id,app_id,lms_course_id,course_code,title,short_title,description,learning_audience,primary_vertical_id,primary_topic,management_classification,monitoring_enabled,lifecycle_status,publication_status,delivery_format,duration_minutes,training_credits,is_published,authoring_tool,original_publish_date,last_major_revision_date,backend_link,frontend_link,content_update_type,content_updated_at,content_notes,internal_summary,has_manual_overrides,field_provenance,updated_at");
   const existingByLmsId = new Map(existingCourses.filter((row) => row.lms_course_id).map((row) => [String(row.lms_course_id), row]));
   const keepOverride = (existing, key, sourceValue, column) =>
     existing?.field_provenance?.[key] === "coursetrack" ? existing[column] : sourceValue;
+  const hasVerticalOverride = (existing) => ["verticals", "primaryVertical", "secondaryVerticals"]
+    .some((key) => existing?.field_provenance?.[key] === "coursetrack");
   const courseRows = [];
   for (const course of dataset.courses) {
     const existing = existingByLmsId.get(course.courseId);
@@ -183,7 +182,9 @@ async function applyDataset(dataset, options = {}) {
       short_title: keepOverride(existing, "shortTitle", value.shortTitle, "short_title"),
       description: keepOverride(existing, "description", value.description, "description"),
       learning_audience: keepOverride(existing, "learningAudience", value.learningAudience, "learning_audience"),
-      primary_vertical_id: keepOverride(existing, "primaryVertical", verticalBySlug.get(value.primaryVertical.toUpperCase()) ?? fallbackVerticalId, "primary_vertical_id"),
+      primary_vertical_id: hasVerticalOverride(existing)
+        ? existing.primary_vertical_id
+        : (value.verticals[0] ? verticalBySlug.get(value.verticals[0].toUpperCase()) ?? null : null),
       primary_topic: keepOverride(existing, "primaryTopic", value.primaryTopic, "primary_topic"),
       lifecycle_status: keepOverride(existing, "lifecycleStatus", value.lifecycleStatus, "lifecycle_status"),
       publication_status: keepOverride(existing, "publicationStatus", value.publicationStatus, "publication_status"),
@@ -232,24 +233,24 @@ async function applyDataset(dataset, options = {}) {
 
   const importedCourseIds = dataset.courses
     .map((course) => persistedByLmsId.get(course.courseId))
-    .filter((course) => course && course.field_provenance?.secondaryVerticals !== "coursetrack")
+    .filter((course) => course && !hasVerticalOverride(course))
     .map((course) => course.id);
   await batches(importedCourseIds, 500, async (courseIds) => {
-    const { error } = await client.from("course_verticals").delete().in("course_id", courseIds).eq("relationship_type", "secondary");
-    if (error) throw new Error(`Could not replace imported secondary verticals: ${error.message}`);
+    const { error } = await client.from("course_verticals").delete().in("course_id", courseIds);
+    if (error) throw new Error(`Could not replace imported vertical memberships: ${error.message}`);
   });
-  const secondaryVerticalRows = dataset.courses.flatMap((course) => {
+  const verticalMembershipRows = dataset.courses.flatMap((course) => {
     const persisted = persistedByLmsId.get(course.courseId);
-    if (!persisted || persisted.field_provenance?.secondaryVerticals === "coursetrack") return [];
+    if (!persisted || hasVerticalOverride(persisted)) return [];
     const projection = projectionFor(course);
-    return projection.secondaryVerticals.flatMap((vertical) => {
+    return projection.verticals.flatMap((vertical) => {
       const verticalId = verticalBySlug.get(vertical.toUpperCase());
-      return verticalId ? [{ course_id: persisted.id, vertical_id: verticalId, relationship_type: "secondary" }] : [];
+      return verticalId ? [{ course_id: persisted.id, vertical_id: verticalId, relationship_type: "applicable" }] : [];
     });
   });
-  await batches(secondaryVerticalRows, 250, async (rows) => {
+  await batches(verticalMembershipRows, 250, async (rows) => {
     const { error } = await client.from("course_verticals").upsert(rows, { onConflict: "course_id,vertical_id" });
-    if (error) throw new Error(`Could not import secondary verticals: ${error.message}`);
+    if (error) throw new Error(`Could not import vertical memberships: ${error.message}`);
   });
 
   const retrievalRunId = `workbook-${dataset.importedAt.replace(/\D/g, "").slice(0, 14)}`;
@@ -487,7 +488,7 @@ async function applyDataset(dataset, options = {}) {
   ) {
     throw new Error(`Post-import acceptance failed: ${JSON.stringify({ ...acceptance, accreditationSources: acceptance.accreditationSources.length })}`);
   }
-  return { insertedCourseProjections: courseRows.length, secondaryVerticals: secondaryVerticalRows.length, snapshots: snapshots.length, metadataRecords: metadataRows.length, comparisons: comparisonRows.length, accreditationsBackfilled: accreditationBackfills.length, accreditationsAdded: accreditationRows.length };
+  return { insertedCourseProjections: courseRows.length, verticalMemberships: verticalMembershipRows.length, snapshots: snapshots.length, metadataRecords: metadataRows.length, comparisons: comparisonRows.length, accreditationsBackfilled: accreditationBackfills.length, accreditationsAdded: accreditationRows.length };
 }
 
 export async function runCourseWorkbookImport(options = {}) {

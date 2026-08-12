@@ -193,7 +193,7 @@ async function fetchGraph(client: SupabaseClient, courseAppId?: string): Promise
   const courseAppIdByDbId = new Map(courseRows.map((row) => [row.id as string, row.app_id as string]));
   const profileById = new Map(profileRows.map((row) => [row.id as string, row]));
 
-  const secondaryVerticalsByCourse = groupBy(courseVerticalRows, "course_id");
+  const verticalsByCourse = groupBy(courseVerticalRows, "course_id");
   const versionsByCourse = groupBy(versionRows, "course_id");
   const wrikeRefsByVersion = groupBy(wrikeRefRows, "course_version_id");
   const accreditationsByCourse = groupBy(accreditationRows, "course_id");
@@ -220,7 +220,7 @@ async function fetchGraph(client: SupabaseClient, courseAppId?: string): Promise
     retrievalRunIdByDbId,
     courseTitleByDbId,
     courseAppIdByDbId,
-    secondaryVerticalsByCourse,
+    verticalsByCourse,
     versionsByCourse,
     wrikeRefsByVersion,
     accreditationsByCourse,
@@ -255,7 +255,7 @@ interface GraphMaps {
   retrievalRunIdByDbId: Map<string, string>;
   courseTitleByDbId: Map<string, string>;
   courseAppIdByDbId: Map<string, string>;
-  secondaryVerticalsByCourse: Map<string, Row[]>;
+  verticalsByCourse: Map<string, Row[]>;
   versionsByCourse: Map<string, Row[]>;
   wrikeRefsByVersion: Map<string, Row[]>;
   accreditationsByCourse: Map<string, Row[]>;
@@ -312,11 +312,11 @@ function buildTaskCallout(row: Row, profileById: Map<string, Row>): CourseFlag {
 function buildCourseFromRows(row: Row, maps: GraphMaps): Course {
   const courseDbId = row.id as string;
   const appId = row.app_id as string;
-  const primaryVertical = SLUG_TO_VERTICAL[maps.verticalById.get(row.primary_vertical_id as string) ?? ""];
-
-  const secondaryVerticals = (maps.secondaryVerticalsByCourse.get(courseDbId) ?? [])
+  const courseVerticals = (maps.verticalsByCourse.get(courseDbId) ?? [])
     .map((entry) => SLUG_TO_VERTICAL[maps.verticalById.get(entry.vertical_id as string) ?? ""])
-    .filter((vertical): vertical is Vertical => Boolean(vertical));
+    .filter((vertical): vertical is Vertical => Boolean(vertical))
+    .filter((vertical, index, all) => all.indexOf(vertical) === index)
+    .sort((left, right) => verticals.indexOf(left) - verticals.indexOf(right));
 
   const versions: CourseVersion[] = (maps.versionsByCourse.get(courseDbId) ?? [])
     .map((version) => buildVersion(version, maps.wrikeRefsByVersion))
@@ -492,8 +492,7 @@ function buildCourseFromRows(row: Row, maps: GraphMaps): Course {
   );
 
   const verticalAssignments = buildVerticalAssignments({
-    primaryVertical,
-    secondaryVerticals,
+    verticals: courseVerticals,
     metadataVerticals: contentMetadata?.verticals ?? [],
     mappedVerticals: lmsSnapshot?.normalized.mappedVerticals ?? [],
   });
@@ -570,13 +569,12 @@ function buildCourseFromRows(row: Row, maps: GraphMaps): Course {
     lmsCourseId: (row.lms_course_id as string) ?? null,
     managementClassification: row.management_classification as Course["managementClassification"],
     monitoringEnabled: Boolean(row.monitoring_enabled),
-    reconciliationStatus: row.reconciliation_status as Course["reconciliationStatus"],
+    lmsLinkStatus: lmsSnapshot ? "linked" : "not_linked",
     title: row.title as string,
     shortTitle: row.short_title as string,
     description: row.description as string,
     learningAudience: row.learning_audience as string,
-    primaryVertical,
-    secondaryVerticals,
+    verticals: courseVerticals,
     primaryTopic: row.primary_topic as string,
     tags: tagAssignments.map((assignment) => assignment.tag),
     lifecycleStatus: row.lifecycle_status as Course["lifecycleStatus"],
@@ -693,28 +691,24 @@ function buildVersion(row: Row, wrikeRefsByVersion: Map<string, Row[]>): CourseV
 }
 
 function buildVerticalAssignments(input: {
-  primaryVertical: Vertical;
-  secondaryVerticals: Vertical[];
+  verticals: Vertical[];
   metadataVerticals: Vertical[];
   mappedVerticals: Vertical[];
 }): VerticalAssignment[] {
-  const assignedVerticals = [input.primaryVertical, ...input.secondaryVerticals];
   const assignments: VerticalAssignment[] = [
-    ...assignedVerticals.map((vertical, index) => ({
+    ...input.verticals.map((vertical) => ({
       vertical,
       source: input.metadataVerticals.includes(vertical)
         ? ("Content Metadata" as const)
         : ("CourseTrack" as const),
       kind: "membership" as const,
       sourceValue: vertical,
-      isPrimary: index === 0,
     })),
     ...input.mappedVerticals.map((vertical) => ({
       vertical,
       source: "LMS Site availability" as const,
       kind: "availability" as const,
       sourceValue: vertical,
-      isPrimary: false,
     })),
   ];
   return assignments.filter(
@@ -738,9 +732,9 @@ export interface PortfolioSummary {
   courseCode: string;
   lmsCourseId: string | null;
   description: string;
-  primaryVertical: Vertical;
+  verticals: Vertical[];
   managementClassification: Course["managementClassification"];
-  reconciliationStatus: Course["reconciliationStatus"];
+  lmsLinkStatus: Course["lmsLinkStatus"];
   retrievalStatus: Course["retrievalStatus"];
   lastRetrievedAt: string | null;
   healthStatus: Course["healthStatus"];
@@ -771,7 +765,7 @@ export interface PortfolioSummary {
 export interface DashboardQueueCourse {
   id: string;
   title: string;
-  primaryVertical: Vertical;
+  verticals: Vertical[];
   owner: string | null;
   nextReviewDate: string | null;
   healthStatus: Course["healthStatus"];
@@ -783,15 +777,17 @@ export interface DashboardSnapshot {
   metrics: {
     totalLmsRetrieved: number;
     lexipolManaged: number;
-    unclassified: number;
+    unmanaged: number;
+    verticalUnclassified: number;
     missingContentMetadata: number;
-    missingFromLms: number;
+    notLmsLinked: number;
     unresolvedConflicts: number;
     mappingRequired: number;
     staleLms: number;
     importValidationErrors: number;
   };
   coursesInView: number;
+  verticalMemberships: number;
   verticalData: { name: Vertical; courses: number }[];
   healthData: { name: Course["healthStatus"]; value: number }[];
   reviewQueue: DashboardQueueCourse[];
@@ -800,10 +796,7 @@ export interface DashboardSnapshot {
 }
 
 export async function fetchDashboardSnapshot(client: SupabaseClient, input: { vertical?: string } = {}): Promise<DashboardSnapshot> {
-  const { data, error } = await client.rpc("get_dashboard_snapshot", {
-    p_vertical: input.vertical ?? "",
-    p_include_excluded: false,
-  });
+  const { data, error } = await client.rpc("get_dashboard_snapshot_v2");
   if (error?.code === "PGRST202") return fetchLegacyDashboardSnapshot(client, input);
   if (error) throw new Error(`Could not read the dashboard snapshot: ${error.message}`);
   return data as DashboardSnapshot;
@@ -833,13 +826,12 @@ async function fetchLegacyDashboardSnapshot(client: SupabaseClient, input: { ver
     return {
       id: row.app_id as string,
       title: row.title as string,
-      primaryVertical: SLUG_TO_VERTICAL[verticalById.get(row.primary_vertical_id as string) ?? ""] ?? "Unclassified",
+      verticals: [SLUG_TO_VERTICAL[verticalById.get(row.primary_vertical_id as string) ?? ""]].filter((value): value is Vertical => Boolean(value)),
       managementClassification: row.management_classification as Course["managementClassification"],
       healthStatus: row.health_status as Course["healthStatus"],
       nextReviewDate: (row.next_review_date as string) ?? null,
       owner: (row.owner_name as string) ?? null,
       metadataCompletenessScore: Number(row.metadata_completeness_score ?? 0),
-      reconciliationStatus: row.reconciliation_status as Course["reconciliationStatus"],
       retrievalStatus: row.retrieval_status as Course["retrievalStatus"],
       validationCount: Array.isArray(row.import_validation_errors) ? row.import_validation_errors.length : 0,
       hasLms: lmsCourseIds.has(databaseId),
@@ -849,9 +841,9 @@ async function fetchLegacyDashboardSnapshot(client: SupabaseClient, input: { ver
     };
   });
   const portfolio = courses;
-  const filtered = !input.vertical || input.vertical === "All verticals" ? portfolio : portfolio.filter((course) => course.primaryVertical === input.vertical);
+  const filtered = !input.vertical || input.vertical === "All verticals" ? portfolio : portfolio.filter((course) => course.verticals.includes(input.vertical as Vertical));
   const queueCourse = (course: (typeof courses)[number]): DashboardQueueCourse => ({
-    id: course.id, title: course.title, primaryVertical: course.primaryVertical, owner: course.owner,
+    id: course.id, title: course.title, verticals: course.verticals, owner: course.owner,
     nextReviewDate: course.nextReviewDate, healthStatus: course.healthStatus, flagCount: course.flagCount,
     metadataCompletenessScore: course.metadataCompletenessScore,
   });
@@ -860,16 +852,18 @@ async function fetchLegacyDashboardSnapshot(client: SupabaseClient, input: { ver
     metrics: {
       totalLmsRetrieved: courses.filter((course) => course.hasLms).length,
       lexipolManaged: portfolio.filter((course) => course.managementClassification === "Lexipol managed").length,
-      unclassified: portfolio.filter((course) => course.managementClassification === "Unclassified").length,
+      unmanaged: portfolio.filter((course) => course.managementClassification === "Unclassified").length,
+      verticalUnclassified: portfolio.filter((course) => course.managementClassification === "Lexipol managed" && course.verticals.length === 0).length,
       missingContentMetadata: portfolio.filter((course) => course.hasLms && !course.hasMetadata).length,
-      missingFromLms: portfolio.filter((course) => !course.hasLms && course.hasMetadata).length,
+      notLmsLinked: portfolio.filter((course) => !course.hasLms).length,
       unresolvedConflicts: portfolio.filter((course) => course.conflictCount > 0).length,
-      mappingRequired: portfolio.filter((course) => course.reconciliationStatus === "Mapping required").length,
+      mappingRequired: 0,
       staleLms: portfolio.filter((course) => ["Stale Data", "Retrieval Failed"].includes(course.retrievalStatus)).length,
       importValidationErrors: portfolio.reduce((total, course) => total + course.validationCount, 0),
     },
     coursesInView: filtered.length,
-    verticalData: verticals.map((name) => ({ name, courses: portfolio.filter((course) => course.primaryVertical === name).length })),
+    verticalMemberships: portfolio.filter((course) => course.managementClassification === "Lexipol managed").reduce((count, course) => count + course.verticals.length, 0),
+    verticalData: verticals.map((name) => ({ name, courses: portfolio.filter((course) => course.managementClassification === "Lexipol managed" && course.verticals.includes(name)).length })),
     healthData: (["Healthy", "Monitor", "Needs Review", "At Risk", "Critical"] as Course["healthStatus"][]).map((name) => ({ name, value: filtered.filter((course) => course.healthStatus === name).length })),
     reviewQueue: filtered.filter((course) => course.nextReviewDate).sort((left, right) => (left.nextReviewDate ?? "").localeCompare(right.nextReviewDate ?? "") || left.id.localeCompare(right.id)).slice(0, 5).map(queueCourse),
     riskQueue: filtered.filter((course) => ["Critical", "At Risk"].includes(course.healthStatus)).sort((left, right) => (left.healthStatus === right.healthStatus ? right.flagCount - left.flagCount : left.healthStatus === "Critical" ? -1 : 1) || left.id.localeCompare(right.id)).slice(0, 5).map(queueCourse),
@@ -880,6 +874,7 @@ export async function fetchPortfolioSummaries(client: SupabaseClient): Promise<P
   const [
     verticalRows,
     courseRows,
+    courseVerticalRows,
     flagRows,
     snapshotRows,
     metadataRows,
@@ -893,6 +888,7 @@ export async function fetchPortfolioSummaries(client: SupabaseClient): Promise<P
       "courses",
       "id,app_id,title,short_title,course_code,lms_course_id,description,primary_vertical_id,management_classification,reconciliation_status,retrieval_status,last_retrieved_at,health_status,lifecycle_status,primary_topic,owner_name,duration_minutes,data_source,next_review_date,metadata_completeness_score,source_difference_count,import_validation_errors,backend_link,frontend_link",
     ),
+    fetchAllRows(client, "course_verticals", "course_id,vertical_id"),
     fetchAllRows(client, "course_flags", "course_id", (query) => query.is("archived_at", null)),
     fetchAllRows(client, "lms_snapshots", "course_id", (query) => query.eq("is_current", true)),
     fetchAllRows(client, "content_metadata_records", "course_id,normalized_payload", (query) => query.eq("is_current", true).eq("is_importable", true)),
@@ -907,6 +903,7 @@ export async function fetchPortfolioSummaries(client: SupabaseClient): Promise<P
   ]);
 
   const verticalById = new Map(verticalRows.map((row) => [row.id as string, row.slug as string]));
+  const verticalsByCourse = groupBy(courseVerticalRows, "course_id");
   const countByCourse = (rows: Row[]) => {
     const counts = new Map<string, number>();
     for (const row of rows) {
@@ -949,9 +946,13 @@ export async function fetchPortfolioSummaries(client: SupabaseClient): Promise<P
       courseCode: row.course_code as string,
       lmsCourseId: (row.lms_course_id as string) ?? null,
       description: row.description as string,
-      primaryVertical: SLUG_TO_VERTICAL[verticalById.get(row.primary_vertical_id as string) ?? ""],
+      verticals: (verticalsByCourse.get(courseDbId) ?? [])
+        .map((entry) => SLUG_TO_VERTICAL[verticalById.get(entry.vertical_id as string) ?? ""])
+        .filter((value): value is Vertical => Boolean(value))
+        .filter((value, index, all) => all.indexOf(value) === index)
+        .sort((left, right) => verticals.indexOf(left) - verticals.indexOf(right)),
       managementClassification: row.management_classification as Course["managementClassification"],
-      reconciliationStatus: row.reconciliation_status as Course["reconciliationStatus"],
+      lmsLinkStatus: snapshotCourseIds.has(courseDbId) ? "linked" : "not_linked",
       retrievalStatus: row.retrieval_status as Course["retrievalStatus"],
       lastRetrievedAt: (row.last_retrieved_at as string) ?? null,
       healthStatus: calculateCourseHealth({
@@ -1098,36 +1099,40 @@ export async function fetchVersionBoard(client: SupabaseClient): Promise<Version
 }
 
 export interface RevampBoardEntry {
-  course: CourseSummary & { primaryVertical: Vertical };
+  course: CourseSummary & { verticals: Vertical[] };
   proposal: RevampProposal;
 }
 
 export async function fetchRevampBoard(client: SupabaseClient): Promise<RevampBoardEntry[]> {
-  const [proposalRows, verticalRows] = await Promise.all([
+  const [proposalRows, verticalRows, membershipRows] = await Promise.all([
     fetchAllRows(
       client,
       "revamp_proposals",
-      "id,title,status,bucket_key,sort_order,priority,score,business_justification,target_publication_date,provenance,updated_at,archived_at,courses(app_id,title,course_code,primary_vertical_id)",
+      "id,title,status,bucket_key,sort_order,priority,score,business_justification,target_publication_date,provenance,updated_at,archived_at,courses(id,app_id,title,course_code)",
       undefined,
     ),
     fetchAllRows(client, "verticals", "id,slug"),
+    fetchAllRows(client, "course_verticals", "course_id,vertical_id"),
   ]);
   const verticalById = new Map(verticalRows.map((row) => [row.id as string, row.slug as string]));
+  const membershipsByCourse = groupBy(membershipRows, "course_id");
   return proposalRows
     .filter((row) => row.courses)
     .map((row) => {
       const course = row.courses as {
+        id: string;
         app_id: string;
         title: string;
         course_code: string;
-        primary_vertical_id: string;
       };
       return {
         course: {
           courseId: course.app_id,
           courseTitle: course.title,
           courseCode: course.course_code,
-          primaryVertical: SLUG_TO_VERTICAL[verticalById.get(course.primary_vertical_id) ?? ""],
+          verticals: (membershipsByCourse.get(course.id) ?? [])
+            .map((membership) => SLUG_TO_VERTICAL[verticalById.get(membership.vertical_id as string) ?? ""])
+            .filter((vertical): vertical is Vertical => Boolean(vertical)),
         },
         proposal: {
           id: row.id as string,

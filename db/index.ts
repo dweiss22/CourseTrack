@@ -85,6 +85,8 @@ import {
 export type { ApplicationUserSummary, SuperAdminTransferResult };
 export { getActiveAssignees } from "@/db/profile-repository";
 export { getIntegrationMappingSummary } from "@/db/integration-repository";
+export { COURSE_EXPORT_COLUMNS, getCourseExportBatch } from "@/db/course-export-repository";
+export { csvCell } from "@/lib/csv";
 import type { ApplicationRole } from "@/lib/auth";
 export {
   archiveWorkflowRecord,
@@ -93,6 +95,7 @@ export {
   assignCourseRelationship,
   createRevampTask,
   createCourseProjection,
+  deleteArchivedAccreditation,
   getFavorite,
   getFavoriteCourseIds,
   moveRevampTask,
@@ -107,7 +110,8 @@ export {
   setFavorite,
   updateRevampTask,
 } from "@/db/workflow-repository";
-import type { Course, CourseProjectionUpdate, ManagementClassificationFilter, RetrievalRun } from "@/types/course";
+import type { Course, CourseProjectionUpdate, ManagementClassificationFilter, RetrievalRun, Vertical } from "@/types/course";
+import type { EditableCourseField } from "@/lib/workflow-validation";
 
 type DatabaseStatus = {
   available: boolean;
@@ -170,7 +174,7 @@ export type CourseIndexEntry = {
   id: string;
   title: string;
   courseCode: string;
-  primaryVertical: string;
+  verticals: string[];
 };
 
 function databaseError(context: string, error: { message: string; code?: string }) {
@@ -227,6 +231,7 @@ export interface CourseLibraryPageQuery {
   lifecycle?: string;
   health?: string;
   classification?: ManagementClassificationFilter;
+  lmsLink?: "" | "linked" | "not_linked";
   workQueue?: string;
   sort?: string;
   descending?: boolean;
@@ -234,11 +239,11 @@ export interface CourseLibraryPageQuery {
 
 export async function getCourseLibraryPage(input: CourseLibraryPageQuery = {}): Promise<{ items: PortfolioSummary[]; total: number; page: number; pageSize: number }> {
   const page = Math.max(1, Math.trunc(input.page ?? 1));
-  const pageSize = Math.min(100, Math.max(10, Math.trunc(input.pageSize ?? 25)));
-  const { data, error } = await requireDatabaseClient().rpc("search_course_library", {
+  const pageSize = Math.min(200, Math.max(1, Math.trunc(input.pageSize ?? 25)));
+  const { data, error } = await requireDatabaseClient().rpc("search_course_library_v2", {
     p_search: input.search?.trim() ?? "", p_vertical: input.vertical ?? "", p_lifecycle: input.lifecycle ?? "",
-    p_health: input.health ?? "", p_classification: input.classification ?? "All courses",
-    p_work_queue: input.workQueue ?? "", p_sort: input.sort ?? "title", p_descending: input.descending ?? false,
+    p_health: input.health ?? "", p_classification: input.classification ?? "Lexipol Managed",
+    p_work_queue: input.workQueue ?? "", p_lms_link: input.lmsLink ?? "", p_sort: input.sort ?? "title", p_descending: input.descending ?? false,
     p_limit: pageSize, p_offset: (page - 1) * pageSize,
   });
   if (error) throw databaseError("Could not search the course library", error);
@@ -252,8 +257,8 @@ export async function getCourseLibraryPage(input: CourseLibraryPageQuery = {}): 
   const linksByAppId = new Map((linkRows.data ?? []).map((row) => [row.app_id as string, row]));
   const items: PortfolioSummary[] = rows.map((row) => ({
     id: row.id as string, title: row.title as string, shortTitle: (row.short_title as string) ?? "", courseCode: row.course_code as string,
-    lmsCourseId: (row.lms_course_id as string) ?? null, description: (row.description as string) ?? "", primaryVertical: row.primary_vertical as PortfolioSummary["primaryVertical"],
-    managementClassification: row.management_classification as PortfolioSummary["managementClassification"], reconciliationStatus: row.reconciliation_status as PortfolioSummary["reconciliationStatus"],
+    lmsCourseId: (row.lms_course_id as string) ?? null, description: (row.description as string) ?? "", verticals: (row.verticals as Vertical[]) ?? [],
+    managementClassification: row.management_classification as PortfolioSummary["managementClassification"], lmsLinkStatus: row.lms_link_status as PortfolioSummary["lmsLinkStatus"],
     retrievalStatus: row.retrieval_status as PortfolioSummary["retrievalStatus"], lastRetrievedAt: (row.last_retrieved_at as string) ?? null,
     healthStatus: row.health_status as PortfolioSummary["healthStatus"], lifecycleStatus: row.lifecycle_status as PortfolioSummary["lifecycleStatus"],
     primaryTopic: (row.primary_topic as string) ?? "", tags: (row.tags as string[]) ?? [], owner: (row.owner_name as string) ?? null,
@@ -272,6 +277,10 @@ export const getCourseRecord = cache(async (courseId: string): Promise<Course | 
   return course ?? undefined;
 });
 
+export async function getFreshCourseRecord(courseId: string): Promise<Course | undefined> {
+  return (await fetchCourseGraphByAppId(requireDatabaseClient(), courseId)) ?? undefined;
+}
+
 export async function getRecentRetrievalRuns(): Promise<RetrievalRun[]> {
   const client = requireDatabaseClient();
     const { data, error } = await client
@@ -280,7 +289,7 @@ export async function getRecentRetrievalRuns(): Promise<RetrievalRun[]> {
         "id,external_run_id,provider,started_at,completed_at,status,records_requested,records_received,records_failed,message",
       )
       .order("started_at", { ascending: false })
-      .limit(10);
+      .limit(200);
     if (error) {
       throw databaseError("Could not read Supabase retrieval history", error);
     }
@@ -342,34 +351,33 @@ export async function getImportPreviewSummary(): Promise<ImportPreviewSummary> {
 
 export async function getCourseIndex(): Promise<CourseIndexEntry[]> {
   const client = requireDatabaseClient();
-    const { data: verticalRows, error: verticalError } = await client.from("verticals").select("id,slug");
-    if (verticalError) {
-      throw databaseError("Could not read Supabase verticals", verticalError);
+  const { data: verticalRows, error: verticalError } = await client.from("verticals").select("id,slug").eq("active", true);
+  if (verticalError) throw databaseError("Could not read Supabase verticals", verticalError);
+  const verticalLabelById = new Map((verticalRows ?? []).map((row) => [row.id as string, (row.slug as string).toUpperCase()]));
+  const membershipsByCourse = new Map<string, string[]>();
+  for (let from = 0; ; from += 1000) {
+    const { data: membershipRows, error: membershipError } = await client
+      .from("course_verticals")
+      .select("course_id,vertical_id")
+      .range(from, from + 999);
+    if (membershipError) throw databaseError("Could not read course vertical memberships", membershipError);
+    for (const row of membershipRows ?? []) {
+      const label = verticalLabelById.get(row.vertical_id as string);
+      if (label) membershipsByCourse.set(row.course_id as string, [...(membershipsByCourse.get(row.course_id as string) ?? []), label]);
     }
-    const verticalLabelById = new Map(
-      (verticalRows ?? []).map((row) => [row.id as string, (row.slug as string).toUpperCase()]),
-    );
+    if (!membershipRows || membershipRows.length < 1000) break;
+  }
 
-    const entries: CourseIndexEntry[] = [];
-    const pageSize = 1000;
-    for (let from = 0; ; from += pageSize) {
-      const { data, error } = await client
-        .from("courses")
-        .select("app_id,title,course_code,primary_vertical_id")
-        .range(from, from + pageSize - 1);
-      if (error) {
-        throw databaseError("Could not read the Supabase course index", error);
-      }
-      for (const row of data ?? []) {
-        entries.push({
-          id: row.app_id as string,
-          title: row.title as string,
-          courseCode: row.course_code as string,
-          primaryVertical: verticalLabelById.get(row.primary_vertical_id as string) ?? "",
-        });
-      }
-      if (!data || data.length < pageSize) break;
+  const entries: CourseIndexEntry[] = [];
+  const pageSize = 1000;
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await client.from("courses").select("id,app_id,title,course_code").is("archived_at", null).range(from, from + pageSize - 1);
+    if (error) throw databaseError("Could not read the Supabase course index", error);
+    for (const row of data ?? []) {
+      entries.push({ id: row.app_id as string, title: row.title as string, courseCode: row.course_code as string, verticals: membershipsByCourse.get(row.id as string) ?? [] });
     }
+    if (!data || data.length < pageSize) break;
+  }
   return entries;
 }
 
@@ -380,13 +388,21 @@ export async function searchCourseIndex(search: string, limit = 12): Promise<Cou
   const safeQuery = query.replace(/[%,_().]/g, " ").replace(/\s+/g, " ").trim();
   if (safeQuery.length < 2) return [];
   const pattern = `%${safeQuery}%`;
-  const { data, error } = await client.from("courses").select("app_id,title,course_code,primary_vertical_id").is("archived_at", null).or(`title.ilike.${pattern},course_code.ilike.${pattern},lms_course_id.ilike.${pattern}`).order("title").limit(Math.min(25, Math.max(1, limit)));
+  const { data, error } = await client.from("courses").select("id,app_id,title,course_code").is("archived_at", null).or(`title.ilike.${pattern},course_code.ilike.${pattern},lms_course_id.ilike.${pattern}`).order("title").limit(Math.min(25, Math.max(1, limit)));
   if (error) throw databaseError("Could not search the course index", error);
-  const verticalIds = [...new Set((data ?? []).map((row) => row.primary_vertical_id as string))];
-  const { data: verticalRows, error: verticalError } = verticalIds.length ? await client.from("verticals").select("id,slug").in("id", verticalIds) : { data: [], error: null };
+  const courseIds = (data ?? []).map((row) => row.id as string);
+  const { data: membershipRows, error: membershipError } = courseIds.length ? await client.from("course_verticals").select("course_id,vertical_id").in("course_id", courseIds) : { data: [], error: null };
+  if (membershipError) throw databaseError("Could not resolve course-search memberships", membershipError);
+  const verticalIds = [...new Set((membershipRows ?? []).map((row) => row.vertical_id as string))];
+  const { data: verticalRows, error: verticalError } = verticalIds.length ? await client.from("verticals").select("id,slug").in("id", verticalIds).eq("active", true) : { data: [], error: null };
   if (verticalError) throw databaseError("Could not resolve course-search verticals", verticalError);
   const verticalById = new Map((verticalRows ?? []).map((row) => [row.id as string, row.slug as string]));
-  return (data ?? []).map((row) => ({ id: row.app_id as string, title: row.title as string, courseCode: row.course_code as string, primaryVertical: verticalById.get(row.primary_vertical_id as string) ?? "" }));
+  const membershipsByCourse = new Map<string, string[]>();
+  for (const row of membershipRows ?? []) {
+    const vertical = verticalById.get(row.vertical_id as string);
+    if (vertical) membershipsByCourse.set(row.course_id as string, [...(membershipsByCourse.get(row.course_id as string) ?? []), vertical]);
+  }
+  return (data ?? []).map((row) => ({ id: row.app_id as string, title: row.title as string, courseCode: row.course_code as string, verticals: membershipsByCourse.get(row.id as string) ?? [] }));
 }
 
 export async function getAccreditationBoard(): Promise<AccreditationBoardEntry[]> {
@@ -427,7 +443,7 @@ export async function updateCourseProjection(input: {
   const client = requireDatabaseClient();
 
   const { data, error } = await client.rpc(
-    "update_course_projection_v2",
+    "update_course_projection_v3",
     {
       p_app_id: input.courseId,
       p_actor_id: input.actorId,
@@ -447,6 +463,24 @@ export async function updateCourseProjection(input: {
     updatedAt: result?.updatedAt ?? input.payload.expectedUpdatedAt,
     sourceDifferenceCount: Number(result?.sourceDifferenceCount ?? 0),
   };
+}
+
+export async function updateCourseField(input: {
+  courseId: string;
+  actorId: string;
+  actorEmail: string;
+  field: EditableCourseField;
+  value: unknown;
+  expectedUpdatedAt: string;
+}): Promise<{ updatedAt: string; sourceDifferenceCount: number }> {
+  const { data, error } = await requireDatabaseClient().rpc("update_course_field_v1", {
+    p_app_id: input.courseId, p_field: input.field, p_value: input.value,
+    p_expected_updated_at: input.expectedUpdatedAt, p_actor_id: input.actorId, p_actor_email: input.actorEmail,
+  });
+  if (error) throw databaseError("Could not save the course field", error);
+  const result = data as { updatedAt?: string; sourceDifferenceCount?: number } | null;
+  if (!result?.updatedAt) throw new Error("Could not save the course field: no concurrency token was returned.");
+  return { updatedAt: result.updatedAt, sourceDifferenceCount: Number(result.sourceDifferenceCount ?? 0) };
 }
 
 export async function persistFieldResolution(input: {

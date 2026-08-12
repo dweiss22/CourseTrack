@@ -9,12 +9,15 @@ export const metadata: Metadata = { title: "Versions" };
 
 export const dynamic = "force-dynamic";
 
-export default async function VersionsPage({ searchParams }: { searchParams: Promise<{ page?: string }> }) {
+export default async function VersionsPage({ searchParams }: { searchParams: Promise<{ page?: string; pageSize?: string }> }) {
   const auth = await requirePageRole("super_admin", "admin", "content");
-  const page = Math.max(1, Number((await searchParams).page ?? 1) || 1);
+  const params = await searchParams;
+  const page = Math.max(1, Number(params.page ?? 1) || 1);
+  const requestedSize = Number(params.pageSize ?? 100);
+  const pageSize = [25, 50, 100, 200].includes(requestedSize) ? requestedSize : 100;
   const [result, preferences] = await withServerOperation(
     { route: "/versions", operation: "load versions workspace" },
-    () => Promise.all([getVersionBoardPage(page, 100), getVersionsTablePreferences(auth.userId)]),
+    () => Promise.all([getVersionBoardPage(page, pageSize), getVersionsTablePreferences(auth.userId)]),
   );
-  return <VersionsWorkspace entries={result.items} initialPreferences={preferences} canRestore={["super_admin", "admin"].includes(auth.role)} page={page} total={result.total} />;
+  return <VersionsWorkspace entries={result.items} initialPreferences={preferences} canRestore={["super_admin", "admin"].includes(auth.role)} page={page} pageSize={pageSize} total={result.total} userId={auth.userId} />;
 }
