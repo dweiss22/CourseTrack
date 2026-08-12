@@ -153,6 +153,100 @@ test("production baseline still requires migrations added after the covered vers
   assert.equal(current.current, true);
 });
 
+test("the build preflight tolerates a not-yet-applied migration, but only outside production", async () => {
+  // A git push starts the Vercel build immediately while the release workflow
+  // applies the migration seconds later. Without this the build fails on a
+  // discrepancy that resolves itself, and every migration needs a redeploy.
+  const checkedInRows = [
+    ...DEPLOYMENT_MIGRATION_CONTRACT.map((version) => ({ version, filename: `${version}_test.sql` })),
+    { version: "209912310001", filename: "209912310001_pending.sql" },
+  ];
+  const appliedStaging = [...DEPLOYMENT_MIGRATION_CONTRACT];
+
+  const tolerated = await runDeploymentReadiness({
+    environment: targetEnvironment("staging"),
+    checkedInRows,
+    allowPendingMigrations: true,
+    queryMigrations: async () => appliedStaging,
+  });
+  assert.deepEqual(tolerated.pendingMigrations, ["209912310001_pending.sql"]);
+  // Reported honestly rather than claimed current.
+  assert.equal(tolerated.schemaContractCurrent, false);
+
+  // Same input without the flag still fails: workflow verification runs after
+  // migrations are applied, so a pending migration there is a real failure.
+  await assert.rejects(
+    () => runDeploymentReadiness({
+      environment: targetEnvironment("staging"),
+      checkedInRows,
+      queryMigrations: async () => appliedStaging,
+    }),
+    /migration contract is not current/,
+  );
+
+  // Production never tolerates it, even when asked.
+  const postBaseline = DEPLOYMENT_MIGRATION_CONTRACT.filter(
+    (version) => version > PRODUCTION_MIGRATION_BASELINE.coversThrough,
+  );
+  await assert.rejects(
+    () => runDeploymentReadiness({
+      environment: targetEnvironment("production", PRODUCTION_REF),
+      checkedInRows,
+      allowPendingMigrations: true,
+      queryMigrations: async () => [...postBaseline, PRODUCTION_MIGRATION_BASELINE.version].sort(),
+    }),
+    /migration contract is not current/,
+  );
+});
+
+test("the build preflight still fails on discrepancies that do not resolve themselves", async () => {
+  const checkedInRows = DEPLOYMENT_MIGRATION_CONTRACT.map((version) => ({ version, filename: `${version}_test.sql` }));
+
+  // A database holding a migration the repository does not is never tolerated:
+  // unlike a pending migration, applying the repo's migrations cannot fix it.
+  await assert.rejects(
+    () => runDeploymentReadiness({
+      environment: targetEnvironment("staging"),
+      checkedInRows,
+      allowPendingMigrations: true,
+      queryMigrations: async () => [...DEPLOYMENT_MIGRATION_CONTRACT, "209912310002"],
+    }),
+    /migration contract is not current/,
+  );
+
+  // Nor is a duplicated or out-of-order applied history.
+  await assert.rejects(
+    () => runDeploymentReadiness({
+      environment: targetEnvironment("staging"),
+      checkedInRows,
+      allowPendingMigrations: true,
+      queryMigrations: async () => [...DEPLOYMENT_MIGRATION_CONTRACT].reverse(),
+    }),
+    /migration contract is not current/,
+  );
+});
+
+test("only the Vercel build preflight is allowed to tolerate pending migrations", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const root = new URL("../", import.meta.url);
+  const read = (path) => readFile(new URL(path, root), "utf8");
+  const packageJson = JSON.parse(await read("package.json"));
+
+  assert.equal(packageJson.scripts["build:vercel"], "npm run check:deployment:build && npm run build:code");
+  assert.match(packageJson.scripts["check:deployment:build"], /--allow-pending-migrations/);
+  // The strict entry point must never carry the flag.
+  assert.doesNotMatch(packageJson.scripts["check:deployment"], /--allow-pending-migrations/);
+
+  // Workflow verification steps run after migrations are applied and stay strict.
+  for (const file of [
+    ".github/workflows/staging-release.yml",
+    ".github/workflows/production-release.yml",
+    ".github/workflows/production-preparation.yml",
+  ]) {
+    assert.doesNotMatch(await read(file), /--allow-pending-migrations|check:deployment:build/, `${file} must verify strictly`);
+  }
+});
+
 test("readiness errors redact database connection failures", async () => {
   const checkedInRows = DEPLOYMENT_MIGRATION_CONTRACT.map((version) => ({ version, filename: `${version}_test.sql` }));
   await assert.rejects(
