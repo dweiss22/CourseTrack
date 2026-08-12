@@ -182,28 +182,43 @@ test("staging fast-forward holds write access to one job and can only fast-forwa
 
 test("production readiness waits for the staging release instead of racing it", async () => {
   const workflow = await readFile(".github/workflows/production-preparation.yml", "utf8");
-  const step = workflow.match(
-    /- name: Verify exact SHA has a successful staging release[\s\S]*?(?=\n      - name:)/,
-  )?.[0] ?? "";
-  assert.ok(step, "the staging-release gate should exist");
+  const staging = await readFile(".github/workflows/staging-release.yml", "utf8");
 
-  // This runs on pull_request_target, so it starts while staging-release for
-  // the same commit is usually still going. Checking once made every
-  // main-targeting pull request fail here on first attempt.
-  assert.match(step, /POLL_ATTEMPTS/);
-  assert.match(step, /for attempt in \$\(seq 1 "\$POLL_ATTEMPTS"\)/);
-  assert.match(step, /status=success/, "only a successful run satisfies the gate");
-  assert.match(step, /exit 1/, "exhausting the wait window must fail, not pass");
+  // The gate lives in its own job so its wait and the preparation work do not
+  // share one timeout. Running on pull_request_target, it starts while
+  // staging-release for the same commit is usually still going; checking once
+  // made every main-targeting pull request fail here on first attempt.
+  const gateJob = workflow.slice(
+    workflow.indexOf("  await-staging-release:"),
+    workflow.indexOf("  prepare:"),
+  );
+  assert.ok(gateJob, "the gate should be its own job");
+  assert.match(gateJob, /- name: Verify exact SHA has a successful staging release/);
+  assert.match(workflow, /needs: await-staging-release/, "preparation must depend on the gate");
 
-  // The wait must fit inside the job budget with room for the migration and
-  // verification steps that follow.
-  const attempts = Number(/POLL_ATTEMPTS: "(\d+)"/.exec(step)?.[1]);
-  const interval = Number(/POLL_INTERVAL_SECONDS: "(\d+)"/.exec(step)?.[1]);
-  const jobTimeout = Number(/^\s{4}timeout-minutes:\s*(\d+)$/m.exec(workflow)?.[1]);
-  assert.ok(attempts > 0 && interval > 0 && jobTimeout > 0, "poll and timeout values should parse");
+  assert.match(gateJob, /for attempt in \$\(seq 1 "\$POLL_ATTEMPTS"\)/);
+  assert.match(gateJob, /status=success/, "only a successful run satisfies the gate");
+  assert.match(gateJob, /exit 1/, "exhausting the wait window must fail, not pass");
+
+  const attempts = Number(/POLL_ATTEMPTS: "(\d+)"/.exec(gateJob)?.[1]);
+  const interval = Number(/POLL_INTERVAL_SECONDS: "(\d+)"/.exec(gateJob)?.[1]);
+  const gateTimeout = Number(/timeout-minutes:\s*(\d+)/.exec(gateJob)?.[1]);
+  const stagingTimeout = Number(/timeout-minutes:\s*(\d+)/.exec(staging)?.[1]);
   assert.ok(
-    (attempts * interval) / 60 < jobTimeout,
-    `poll window ${(attempts * interval) / 60}m must stay under the ${jobTimeout}m job timeout`,
+    [attempts, interval, gateTimeout, stagingTimeout].every((value) => value > 0),
+    "poll and timeout values should parse",
+  );
+
+  const pollMinutes = (attempts * interval) / 60;
+  // The wait has to be able to outlast a slow but ultimately successful
+  // staging release, or the gate fails on a supported release scenario.
+  assert.ok(
+    pollMinutes > stagingTimeout,
+    `poll window ${pollMinutes}m must exceed the ${stagingTimeout}m staging-release budget`,
+  );
+  assert.ok(
+    pollMinutes < gateTimeout,
+    `poll window ${pollMinutes}m must stay under its own ${gateTimeout}m job timeout`,
   );
 });
 

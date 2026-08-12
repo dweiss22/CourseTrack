@@ -20,8 +20,46 @@ permissions:
   contents: read
 
 jobs:
+  # Isolated from `prepare` so each timeout covers only its own work. This runs
+  # on pull_request_target and therefore starts while staging-release for the
+  # same commit is usually still going; staging-release is allowed 35 minutes,
+  # so the wait has to be able to outlast it. Sharing one budget would mean a
+  # slow-but-successful staging release either exhausted the wait or left too
+  # little time to apply and verify Production migrations.
+  await-staging-release:
+    name: Await staging release for the exact SHA
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      RELEASE_SHA: ${{ inputs.staging_sha || github.event.pull_request.head.sha }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      # A completed non-success run deliberately does not end the wait: a
+      # push-triggered run can fail while a later dispatch of the same commit
+      # succeeds, and this gate requires that a success exists, not that no
+      # failure does. Only exhausting the window fails the step.
+      - name: Verify exact SHA has a successful staging release
+        shell: bash
+        env:
+          POLL_ATTEMPTS: "120"
+          POLL_INTERVAL_SECONDS: "20"
+        run: |
+          for attempt in $(seq 1 "$POLL_ATTEMPTS"); do
+            count="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/staging-release.yml/runs?head_sha=${RELEASE_SHA}&status=success" --jq '.total_count')"
+            if test "$count" -ge 1; then
+              echo "Staging release succeeded for ${RELEASE_SHA}."
+              exit 0
+            fi
+            in_progress="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/staging-release.yml/runs?head_sha=${RELEASE_SHA}" --jq '[.workflow_runs[] | select(.status != "completed")] | length')"
+            echo "Attempt ${attempt}/${POLL_ATTEMPTS}: no successful staging release yet (${in_progress} still running)."
+            sleep "$POLL_INTERVAL_SECONDS"
+          done
+          echo "No successful staging release for ${RELEASE_SHA} within the wait window." >&2
+          exit 1
+
   prepare:
     name: Production release readiness
+    needs: await-staging-release
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: Production
@@ -57,34 +95,6 @@ jobs:
           cache: npm
       - name: Install protected production dependencies
         run: npm ci --ignore-scripts
-      # Waits rather than failing immediately. This runs on pull_request_target,
-      # so it starts as soon as the pull request opens or updates -- typically
-      # while staging-release for the same commit is still running. Checking
-      # once made every main-targeting pull request fail here on first attempt
-      # and require a manual re-dispatch, which also left a permanently red
-      # check on the pull request even after the re-run succeeded.
-      #
-      # A completed non-success run does not end the wait: a push-triggered run
-      # can fail and a later dispatch of the same commit succeed, and it is the
-      # existence of a success that this gate requires. Only the timeout ends it.
-      - name: Verify exact SHA has a successful staging release
-        shell: bash
-        env:
-          POLL_ATTEMPTS: "60"
-          POLL_INTERVAL_SECONDS: "20"
-        run: |
-          for attempt in $(seq 1 "$POLL_ATTEMPTS"); do
-            count="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/staging-release.yml/runs?head_sha=${RELEASE_SHA}&status=success" --jq '.total_count')"
-            if test "$count" -ge 1; then
-              echo "Staging release succeeded for ${RELEASE_SHA}."
-              exit 0
-            fi
-            in_progress="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/staging-release.yml/runs?head_sha=${RELEASE_SHA}" --jq '[.workflow_runs[] | select(.status != "completed")] | length')"
-            echo "Attempt ${attempt}/${POLL_ATTEMPTS}: no successful staging release yet (${in_progress} still running)."
-            sleep "$POLL_INTERVAL_SECONDS"
-          done
-          echo "No successful staging release for ${RELEASE_SHA} within the wait window." >&2
-          exit 1
       - name: Revalidate candidate migration data
         run: node scripts/plan-migrations.mjs --target=production --base-dir=. --candidate-dir=_candidate
       - name: Verify recent Production backup
