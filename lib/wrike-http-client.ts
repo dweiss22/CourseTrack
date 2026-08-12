@@ -43,6 +43,12 @@ export interface WrikeRequestInput {
   fetchImpl?: typeof fetch;
   sleepImpl?: (ms: number) => Promise<void>;
   maxRetries?: number;
+  /**
+   * Optional per-attempt wall-clock budget. Omitted (the default) leaves the
+   * request untimed, matching the long-running sync path. Interactive callers
+   * should set it so a hung socket cannot stall a user-facing response.
+   */
+  timeoutMs?: number;
 }
 
 /**
@@ -72,6 +78,9 @@ export async function callWrikeApi<T>(input: WrikeRequestInput): Promise<T> {
           Accept: "application/json",
         },
         cache: "no-store",
+        // A fresh signal per attempt: an AbortSignal is single-use, so reusing
+        // one would abort every retry the instant the first budget elapsed.
+        signal: input.timeoutMs ? AbortSignal.timeout(input.timeoutMs) : undefined,
       });
     } catch (error) {
       lastError = new WrikeApiError(
