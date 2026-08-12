@@ -50,6 +50,41 @@ export const reportInputSchema = z.object({
   expectedUpdatedAt: z.string().datetime().optional(),
 }).strict();
 
+type PersistedReportDefinition = Pick<
+  ReportDefinition,
+  "dataset" | "columns" | "filters" | "sort" | "group"
+>;
+
+/**
+ * Keeps saved reports created before a report-field rename readable. Persisted
+ * definitions are migrated in memory and will be stored in the current shape
+ * the next time a user saves them.
+ */
+export function migrateLegacyReportDefinition(
+  definition: PersistedReportDefinition,
+): PersistedReportDefinition {
+  if (definition.dataset !== "courses") return definition;
+
+  const migrateField = (field: string) =>
+    field === "primaryVertical" ? "verticals" : field;
+
+  return {
+    ...definition,
+    columns: Array.from(new Set(definition.columns.map(migrateField))),
+    filters: definition.filters.map((filter) => ({
+      ...filter,
+      field: migrateField(filter.field),
+    })),
+    sort: definition.sort.map((sort) => ({
+      ...sort,
+      field: migrateField(sort.field),
+    })),
+    group: definition.group
+      ? { ...definition.group, field: migrateField(definition.group.field) }
+      : null,
+  };
+}
+
 export function validateReportDefinition(input: z.infer<typeof reportInputSchema>) {
   const registry = REPORT_DATASETS[input.dataset];
   const allowed = new Set(registry.map((column) => column.key));

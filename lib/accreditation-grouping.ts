@@ -117,7 +117,7 @@ export function assessAccreditationHistory(
     const sorted = [...unsorted].sort(compareAccreditationNewestFirst);
     const seenDuplicates = new Set<string>();
     const duplicateIds = new Set<string>();
-    for (const record of sorted) {
+    for (const record of sorted.filter((item) => !item.archivedAt)) {
       const fingerprint = duplicateKey(record);
       if (seenDuplicates.has(fingerprint)) duplicateIds.add(record.id);
       else seenDuplicates.add(fingerprint);
@@ -139,7 +139,7 @@ export function assessAccreditationHistory(
       return { record, historyRole, riskState, isAtRisk: isAccreditationRiskState(riskState) };
     });
     const current = assessed.find((item) => item.historyRole === "current") ?? null;
-    const summary = assessed[0];
+    const summary = assessed.find((item) => !item.record.archivedAt) ?? assessed[0];
     if (!summary) continue;
     const riskState = current?.riskState ?? "future";
     result.push({
@@ -149,7 +149,7 @@ export function assessAccreditationHistory(
       jurisdiction: summary.record.jurisdiction || "Not provided",
       summary,
       current,
-      history: assessed.slice(1),
+      history: assessed.filter((item) => item.record.id !== summary.record.id),
       expired: assessed
         .filter((item) => item.riskState === "expired" && item.historyRole !== "current")
         .map((item) => item.record),
