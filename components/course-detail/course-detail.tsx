@@ -611,6 +611,7 @@ function OverviewTab({ course, onCourseChange, canEdit }: { course: Course; onCo
     setEditingField(definition.field); setDraft(draftValue(courseFieldValue(course, definition.field), definition.kind)); setError("");
   };
   const save = async (definition: InlineCourseField) => {
+    if (pending) return;
     if (!course.updatedAt) { setError("Refresh the page before editing this course."); return; }
     setPending(true); setError("");
     try {
@@ -643,10 +644,10 @@ function OverviewTab({ course, onCourseChange, canEdit }: { course: Course; onCo
             return <div className={`inline-field-cell ${mismatch ? "has-mismatch" : ""}`} key={definition.field}>
               <div className="inline-field-heading"><span>{definition.label}</span>{mismatch && <ComparisonState comparison={comparison} />}</div>
               {isEditing ? <div className="inline-field-editor">
-                {definition.kind === "verticals" ? <select multiple value={draft ? draft.split("|") : []} onChange={(event) => setDraft(Array.from(event.currentTarget.selectedOptions, (option) => option.value).join("|"))}>{verticals.map((vertical) => <option key={vertical}>{vertical}</option>)}</select>
-                  : definition.kind === "boolean" ? <select value={draft} onChange={(event) => setDraft(event.target.value)}><option value="unknown">Not supplied</option><option value="true">Yes</option><option value="false">No</option></select>
-                    : definition.multiline ? <textarea autoFocus value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setEditingField(null); if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); void save(definition); } }} />
-                      : <input autoFocus type={definition.kind === "number" || definition.kind === "credits" ? "number" : definition.kind === "date" ? "date" : "text"} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setEditingField(null); if (event.key === "Enter") { event.preventDefault(); void save(definition); } }} />}
+                {definition.kind === "verticals" ? <select aria-label={`Edit ${definition.label}`} autoFocus multiple value={draft ? draft.split("|") : []} onChange={(event) => setDraft(Array.from(event.currentTarget.selectedOptions, (option) => option.value).join("|"))} onKeyDown={(event) => { if (event.key === "Escape") setEditingField(null); }}>{verticals.map((vertical) => <option key={vertical}>{vertical}</option>)}</select>
+                  : definition.kind === "boolean" ? <select aria-label={`Edit ${definition.label}`} autoFocus value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setEditingField(null); }}><option value="unknown">Not supplied</option><option value="true">Yes</option><option value="false">No</option></select>
+                    : definition.multiline ? <textarea aria-label={`Edit ${definition.label}`} autoFocus value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setEditingField(null); if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); void save(definition); } }} />
+                      : <input aria-label={`Edit ${definition.label}`} autoFocus type={definition.kind === "number" || definition.kind === "credits" ? "number" : definition.kind === "date" ? "date" : "text"} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setEditingField(null); if (event.key === "Enter") { event.preventDefault(); void save(definition); } }} />}
                 <div className="inline-field-actions"><button disabled={pending} onClick={() => void save(definition)}><Save size={13} /> Save</button><button disabled={pending} onClick={() => setEditingField(null)}>Cancel</button></div>
                 {error && <small className="taxonomy-editor-error" role="alert">{error}</small>}
               </div> : <>
@@ -1248,7 +1249,7 @@ function AccreditationTab({ course, onCourseChange, canManage, authorityMode, us
   const [accreditationMessage, setAccreditationMessage] = useState("");
   const activeRecords = course.accreditations.filter((record) => !record.archivedAt);
   const archivedRecords = course.accreditations.filter((record) => record.archivedAt);
-  const groups = groupAccreditationRecords(course.accreditations);
+  const groups = groupAccreditationRecords(course.accreditations, { courseKey: course.id });
   const saveRecord = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); const form = new FormData(event.currentTarget); const current = editingRecord === "new" ? null : editingRecord;
     const value = (name: string, fallback: string | null = null) => form.get(name) === null ? fallback : String(form.get(name));
@@ -1276,7 +1277,7 @@ function AccreditationTab({ course, onCourseChange, canManage, authorityMode, us
       {accreditationMessage && <div className="inline-alert" role="status"><ShieldCheck size={16} /><span>{accreditationMessage}</span></div>}
       {editingRecord && <AccreditationRecordEditor record={editingRecord === "new" ? null : editingRecord} courseField={<input type="hidden" name="courseId" value={course.id} />} pending={pending} apiLocked={authorityMode === "api"} onSubmit={saveRecord} onCancel={() => setEditingRecord(null)} />}
       </article>
-      {groups.map((group) => <AccreditationGroupCard group={group} key={group.key} canManage={canManage} pending={pending} authorityMode={authorityMode} userId={userId} onEdit={setEditingRecord} onArchiveOrRestore={archiveOrRestore} onConfirm={confirmRecord} onDelete={deleteRecord} />)}
+      {groups.map((group) => <AccreditationGroupCard group={group} key={group.key} courseId={course.id} canManage={canManage} pending={pending} authorityMode={authorityMode} userId={userId} onEdit={setEditingRecord} onArchiveOrRestore={archiveOrRestore} onConfirm={confirmRecord} onDelete={deleteRecord} />)}
       {groups.length === 0 && <div className="empty-state compact-empty"><Award size={24} /><p>No accreditation records.</p></div>}
     </div>
   );
@@ -1287,17 +1288,28 @@ function accreditationAlignmentLabel(record: AccreditationRecord, authorityMode:
   return authorityMode === "api" && record.sourceDomain === "lms" ? "Update CourseTrack" : "Update LMS";
 }
 
-function AccreditationGroupCard({ group, canManage, pending, authorityMode, userId, onEdit, onArchiveOrRestore, onConfirm, onDelete }: {
+function AccreditationGroupCard({ group, courseId, canManage, pending, authorityMode, userId, onEdit, onArchiveOrRestore, onConfirm, onDelete }: {
   group: AccreditationHistoryGroup; canManage: boolean; pending: boolean; authorityMode: "workbook" | "api";
-  userId: string;
+  userId: string; courseId: string;
   onEdit: (record: AccreditationRecord) => void; onArchiveOrRestore: (record: AccreditationRecord, restore: boolean) => Promise<void>;
   onConfirm: (record: AccreditationRecord) => Promise<void>; onDelete: (record: AccreditationRecord) => Promise<void>;
 }) {
   const records = [group.summary, ...group.history];
   const summary = group.summary.record;
-  const pagination = useLocalTablePagination(records, `coursetrack:${userId}:table:accreditation-group:${group.key}`);
+  const storageKey = `coursetrack:${userId}:table:course:${courseId}:accreditation:${group.key}`;
+  const pagination = useLocalTablePagination(records, storageKey);
+  const [open, setOpen] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try { return sessionStorage.getItem(`${storageKey}:expanded`) === "true"; }
+    catch { return false; }
+  });
   return (
-    <details className="panel accreditation-accordion">
+    <details className="panel accreditation-accordion" open={open} onToggle={(event) => {
+      const next = event.currentTarget.open;
+      setOpen(next);
+      try { sessionStorage.setItem(`${storageKey}:expanded`, String(next)); }
+      catch { /* Session storage can be unavailable in restricted browser contexts. */ }
+    }}>
       <summary>
         <div><h2>{group.organization}</h2><p>{group.jurisdiction} · {records.length} {records.length === 1 ? "record" : "records"}</p></div>
         <div className="accreditation-summary-line"><strong>{summary.approvalNumber ?? "No accreditation number"}</strong><span>{summary.effectiveDate ?? "No start"} – {summary.expirationDate ?? "No expiration"}</span><StatusBadge>{summary.archivedAt ? "Archived" : summary.status}</StatusBadge><StatusBadge tone={accreditationAlignmentLabel(summary, authorityMode) === "Aligned" ? "success" : "warning"}>{accreditationAlignmentLabel(summary, authorityMode)}</StatusBadge></div>

@@ -49,7 +49,8 @@ export function WrikeTaskLinkControl({ version, canManage, onReferencesChange }:
       const width = Math.min(520, window.innerWidth - margin * 2);
       const below = window.innerHeight - rect.bottom - margin;
       const above = rect.top - margin;
-      const maxHeight = Math.max(260, Math.min(560, Math.max(below, above)));
+      const viewportHeight = Math.max(160, window.innerHeight - margin * 2);
+      const maxHeight = Math.min(560, viewportHeight, Math.max(below, above));
       const top = below >= 340 || below >= above ? Math.min(rect.bottom + 8, window.innerHeight - margin - maxHeight) : Math.max(margin, rect.top - maxHeight - 8);
       setPosition({ left: Math.max(margin, Math.min(rect.left, window.innerWidth - width - margin)), top, width, maxHeight });
     };

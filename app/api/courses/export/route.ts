@@ -12,11 +12,13 @@ export async function GET(request: Request) {
   if (!managementClassificationFilters.includes(classification as ManagementClassificationFilter)) return new Response("Invalid management classification.", { status: 400 });
   const lmsLink = params.get("lmsLink") ?? "";
   if (!["", "linked", "not_linked"].includes(lmsLink)) return new Response("Invalid LMS link status.", { status: 400 });
+  const sort = params.get("sort") ?? "title";
+  if (!["title", "healthStatus"].includes(sort)) return new Response("Invalid Course Library sort.", { status: 400 });
   const query = {
     search: params.get("search") ?? "", vertical: params.get("vertical") ?? "", lifecycle: params.get("lifecycle") ?? "",
     health: params.get("health") ?? "", classification: classification as ManagementClassificationFilter,
     workQueue: params.get("workQueue") ?? "", lmsLink: lmsLink as "" | "linked" | "not_linked",
-    sort: params.get("sort") ?? "title", descending: params.get("descending") === "true",
+    sort, descending: params.get("descending") === "true",
   };
   try {
     const stream = createCourseExportCsvStream(query, { columns: COURSE_EXPORT_COLUMNS, csvCell, getPage: getCourseLibraryPage, getBatch: getCourseExportBatch, pageSize: 200 });

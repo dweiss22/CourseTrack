@@ -155,9 +155,13 @@ const courseFieldValidators: Record<EditableCourseField, z.ZodType> = {
 
 export const courseFieldMutationSchema = z.object({
   field: z.enum(editableCourseFields), value: z.unknown(), expectedUpdatedAt: z.string().datetime(),
-}).strict().superRefine((input, context) => {
+}).strict().transform((input, context) => {
   const parsed = courseFieldValidators[input.field].safeParse(input.value);
-  if (!parsed.success) for (const issue of parsed.error.issues) context.addIssue({ ...issue, path: ["value", ...issue.path] });
+  if (!parsed.success) {
+    for (const issue of parsed.error.issues) context.addIssue({ ...issue, path: ["value", ...issue.path] });
+    return z.NEVER;
+  }
+  return { ...input, value: parsed.data };
 });
 
 export const relationshipSchema = z.object({

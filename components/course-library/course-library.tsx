@@ -72,6 +72,9 @@ export type CourseLibraryRecord = Pick<
 
 const PAGE_SIZES = [25, 50, 100, 200] as const;
 type LmsLinkFilter = "All LMS links" | "linked" | "not_linked";
+const LIFECYCLE_FILTERS = ["All statuses", "Published", "Under Maintenance", "Internal Review", "In Development", "Scheduled for Revamp", "Retired", "Archived"] as const;
+const HEALTH_FILTERS = ["All health levels", "Healthy", "Monitor", "Needs Review", "At Risk", "Critical"] as const;
+const COURSE_LIBRARY_SORT_IDS = ["title", "healthStatus"] as const;
 
 const columnHelper = createColumnHelper<CourseLibraryRecord>();
 
@@ -94,10 +97,12 @@ const columns = [
   }),
   columnHelper.accessor("verticals", {
     header: "Verticals",
+    enableSorting: false,
     cell: (info) => <span className="vertical-label">{info.getValue().join(", ") || "No vertical"}</span>,
   }),
   columnHelper.accessor("managementClassification", {
     header: "Management",
+    enableSorting: false,
     cell: (info) => (
       <StatusBadge
         tone={info.getValue() === "Lexipol managed" ? "success" : "warning"}
@@ -108,10 +113,12 @@ const columns = [
   }),
   columnHelper.accessor("lmsLinkStatus", {
     header: "LMS link",
+    enableSorting: false,
     cell: (info) => <StatusBadge tone={info.getValue() === "linked" ? "success" : "neutral"}>{info.getValue() === "linked" ? "LMS linked" : "Not LMS linked"}</StatusBadge>,
   }),
   columnHelper.accessor("retrievalStatus", {
     header: "Source / freshness",
+    enableSorting: false,
     cell: ({ row }) => (
       <div className="source-status-cell">
         <StatusBadge>{row.original.retrievalStatus}</StatusBadge>
@@ -121,6 +128,7 @@ const columns = [
   }),
   columnHelper.accessor("conflictCount", {
     header: "Conflicts",
+    enableSorting: false,
     cell: (info) => (
       <span className={info.getValue() > 0 ? "conflict-count" : "text-muted"}>
         {info.getValue()}
@@ -129,6 +137,7 @@ const columns = [
   }),
   columnHelper.accessor("topicAssignments", {
     header: "Topics",
+    enableSorting: false,
     cell: (info) => (
       <span className="topic-summary">
         {info.getValue().slice(0, 2).map((assignment) => assignment.topic).join(" · ") || "No topics"}
@@ -169,6 +178,8 @@ type WorkQueue =
   | "Field conflicts"
   | "Invalid import records"
   | "Stale LMS data";
+
+const WORK_QUEUES: readonly WorkQueue[] = ["All queues", "Missing Content Metadata", "Field conflicts", "Invalid import records", "Stale LMS data"];
 
 function formatHiddenColumn(course: CourseLibraryRecord, column: CourseLibraryOptionalColumn): string {
   if (column === "managementClassification") {
@@ -234,18 +245,22 @@ export function CourseLibrary({ courses: initialCourses, initialTotal, initialFa
     const restoredSize = Number(read("pageSize"));
     const restoredPage = Number(read("page"));
     const restoredClassification = read("classification");
+    const restoredVertical = String(read("vertical") ?? "All verticals");
+    const restoredLifecycle = String(read("lifecycle") ?? "All statuses");
+    const restoredHealth = String(read("health") ?? "All health levels");
+    const restoredWorkQueue = String(read("workQueue") ?? "All queues");
     setSearch(typeof read("q") === "string" ? String(read("q")) : "");
-    setVertical(typeof read("vertical") === "string" ? String(read("vertical")) : "All verticals");
-    setLifecycle(typeof read("lifecycle") === "string" ? String(read("lifecycle")) : "All statuses");
-    setHealth(typeof read("health") === "string" ? String(read("health")) : "All health levels");
+    setVertical(["All verticals", "No vertical", ...verticals].includes(restoredVertical) ? restoredVertical : "All verticals");
+    setLifecycle(LIFECYCLE_FILTERS.includes(restoredLifecycle as (typeof LIFECYCLE_FILTERS)[number]) ? restoredLifecycle : "All statuses");
+    setHealth(HEALTH_FILTERS.includes(restoredHealth as (typeof HEALTH_FILTERS)[number]) ? restoredHealth : "All health levels");
     setClassification(managementClassificationFilters.includes(restoredClassification as ManagementClassificationFilter) ? restoredClassification as ManagementClassificationFilter : "Lexipol Managed");
-    setWorkQueue(typeof read("workQueue") === "string" ? read("workQueue") as WorkQueue : "All queues");
+    setWorkQueue(WORK_QUEUES.includes(restoredWorkQueue as WorkQueue) ? restoredWorkQueue as WorkQueue : "All queues");
     setLmsLink(["All LMS links", "linked", "not_linked"].includes(String(read("lmsLink"))) ? read("lmsLink") as LmsLinkFilter : "All LMS links");
     setPageSize(PAGE_SIZES.includes(restoredSize as (typeof PAGE_SIZES)[number]) ? restoredSize : 25);
     setPageIndex(Number.isFinite(restoredPage) && restoredPage > 0 ? Math.trunc(restoredPage) - 1 : 0);
     setView(read("view") === "cards" ? "cards" : "table");
     const sort = read("sort");
-    if (typeof sort === "string" && sort) setSorting([{ id: sort, desc: String(read("desc")) === "true" }]);
+    if (COURSE_LIBRARY_SORT_IDS.includes(sort as (typeof COURSE_LIBRARY_SORT_IDS)[number])) setSorting([{ id: String(sort), desc: String(read("desc")) === "true" }]);
     setStateRestored(true);
   }, [storageKey]);
 
@@ -487,15 +502,7 @@ export function CourseLibrary({ courses: initialCourses, initialTotal, initialFa
             aria-label="Filter by lifecycle status"
           >
             <option>All statuses</option>
-            {[
-              "Published",
-              "Under Maintenance",
-              "Internal Review",
-              "In Development",
-              "Scheduled for Revamp",
-              "Retired",
-              "Archived",
-            ].map((item) => (
+            {LIFECYCLE_FILTERS.slice(1).map((item) => (
               <option key={item}>{item}</option>
             ))}
           </select>
@@ -508,7 +515,7 @@ export function CourseLibrary({ courses: initialCourses, initialTotal, initialFa
             aria-label="Filter by portfolio health"
           >
             <option>All health levels</option>
-            {["Healthy", "Monitor", "Needs Review", "At Risk", "Critical"].map(
+            {HEALTH_FILTERS.slice(1).map(
               (item) => (
                 <option key={item}>{item}</option>
               ),
@@ -612,10 +619,8 @@ export function CourseLibrary({ courses: initialCourses, initialTotal, initialFa
                     <th aria-label="Favorites" />
                     {headerGroup.headers.map((header) => (
                       <th key={header.id} data-column={header.column.id}>
-                        <button
-                          className={
-                            header.column.getCanSort() ? "sortable-header" : ""
-                          }
+                        {header.column.getCanSort() ? <button
+                          className="sortable-header"
                           onClick={header.column.getToggleSortingHandler()}
                         >
                           {flexRender(
@@ -627,7 +632,7 @@ export function CourseLibrary({ courses: initialCourses, initialTotal, initialFa
                             : header.column.getIsSorted() === "desc"
                               ? " ↓"
                               : ""}
-                        </button>
+                        </button> : <span>{flexRender(header.column.columnDef.header, header.getContext())}</span>}
                       </th>
                     ))}
                     <th className="mobile-row-details" aria-label="Hidden course details" />

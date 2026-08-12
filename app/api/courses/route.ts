@@ -13,13 +13,17 @@ export async function GET(request: Request) {
   if (!managementClassificationFilters.includes(requestedClassification as ManagementClassificationFilter)) {
     return validationError("Management classification must be All courses, Lexipol Managed, or Unmanaged.");
   }
+  const lmsLink = params.get("lmsLink") ?? "";
+  if (!["", "linked", "not_linked"].includes(lmsLink)) return validationError("LMS link status must be linked or not linked.");
+  const sort = params.get("sort") ?? "title";
+  if (!["title", "healthStatus"].includes(sort)) return validationError("Course Library sort is not supported.");
   try {
     return NextResponse.json(await getCourseLibraryPage({
       page: Number(params.get("page") ?? 1), pageSize: Number(params.get("pageSize") ?? 25),
       search: params.get("search") ?? "", vertical: params.get("vertical") ?? "", lifecycle: params.get("lifecycle") ?? "",
       health: params.get("health") ?? "", classification: requestedClassification as ManagementClassificationFilter, workQueue: params.get("workQueue") ?? "",
-      lmsLink: (params.get("lmsLink") ?? "") as "" | "linked" | "not_linked",
-      sort: params.get("sort") ?? "title", descending: params.get("descending") === "true",
+      lmsLink: lmsLink as "" | "linked" | "not_linked",
+      sort, descending: params.get("descending") === "true",
     }));
   } catch (error) { return apiError(error); }
 }

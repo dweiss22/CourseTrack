@@ -102,6 +102,19 @@ describe("Course Library columns and management filters", () => {
     expect(screen.getByRole("textbox", { name: "Search course library" })).toHaveValue("leadership");
   });
 
+  it("rejects invalid restored filters and only exposes supported server-side sorts", async () => {
+    sessionStorage.setItem("coursetrack:current-user:table:course-library", JSON.stringify({
+      vertical: "Invented vertical", lifecycle: "Invented status", health: "Perfect", workQueue: "Unknown queue", sort: "managementClassification",
+    }));
+    render(<CourseLibrary courses={[included]} initialTotal={1} initialFavoriteIds={[]} initialPreferences={DEFAULT_COURSE_LIBRARY_PREFERENCES} canEdit={false} />);
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Filter by vertical" })).toHaveValue("All verticals"));
+    expect(screen.getByRole("combobox", { name: "Filter by lifecycle status" })).toHaveValue("All statuses");
+    expect(screen.getByRole("combobox", { name: "Filter by portfolio health" })).toHaveValue("All health levels");
+    expect(screen.getByRole("button", { name: "Missing Content Metadata" })).not.toHaveClass("active");
+    expect(screen.getByRole("button", { name: "Course" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Management" })).not.toBeInTheDocument();
+  });
+
   it("persists toggles, supports density presets, and returns focus on Escape and outside click", async () => {
     const user = userEvent.setup();
     render(<CourseLibrary courses={[included]} initialFavoriteIds={[]} initialPreferences={DEFAULT_COURSE_LIBRARY_PREFERENCES} canEdit={false} />);

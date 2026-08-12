@@ -80,6 +80,19 @@ describe("Course Detail inline workflow", () => {
     expect(screen.getByDisplayValue("Keep this draft")).toBeInTheDocument();
   });
 
+  it("focuses select editors and lets Escape cancel without saving", async () => {
+    const fetchMock = vi.fn(); vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup(); renderDetail();
+    const edit = screen.getByRole("button", { name: "Edit Monitoring enabled" });
+    await user.click(edit);
+    const editor = screen.getByRole("combobox", { name: "Edit Monitoring enabled" });
+    expect(editor).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("combobox", { name: "Edit Monitoring enabled" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit Monitoring enabled" })).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("groups active and archived accreditation and only offers permanent deletion for the archived CourseTrack entry", async () => {
     const user = userEvent.setup(); renderDetail();
     await user.click(screen.getByRole("tab", { name: "Accreditation" }));

@@ -45,10 +45,11 @@ test("LMS linking is binary and derives only from a current snapshot", async () 
 });
 
 test("course mutation and accreditation deletion enforce field, permission, source, archive, concurrency, and audit contracts", async () => {
-  const [migration, route, deleteRoute] = await Promise.all([
+  const [migration, route, deleteRoute, validation] = await Promise.all([
     read("supabase/migrations/202608120003_course_membership_lms_link.sql"),
     read("app/api/courses/[id]/route.ts"),
     read("app/api/accreditations/[id]/permanent/route.ts"),
+    read("lib/workflow-validation.ts"),
   ]);
   assert.match(migration, /p_field not in \(/);
   assert.match(migration, /for update/);
@@ -61,6 +62,8 @@ test("course mutation and accreditation deletion enforce field, permission, sour
   assert.match(migration, /previous\.source_domain <> 'coursetrack'/);
   assert.match(migration, /'accreditation\.deleted'/);
   assert.match(deleteRoute, /expectedUpdatedAt/);
+  assert.match(validation, /courseFieldMutationSchema[\s\S]*\.transform\(/);
+  assert.match(validation, /return \{ \.\.\.input, value: parsed\.data \}/);
 });
 
 test("course export streams every filtered 200-row page and includes normalized child data without raw payloads", async () => {
@@ -71,7 +74,7 @@ test("course export streams every filtered 200-row page and includes normalized 
   assert.match(route, /createCourseExportCsvStream/);
   assert.match(route, /pageSize: 200/);
   assert.match(route, /search: params\.get\("search"\)/);
-  assert.match(route, /sort: params\.get\("sort"\)/);
+  assert.match(route, /const sort = params\.get\("sort"\)/);
   assert.match(repository, /EXPORT_PAGE_SIZE = 1000/);
   assert.match(repository, /course_verticals/);
   assert.match(repository, /version_wrike_task_references/);
@@ -83,6 +86,7 @@ test("course export streams every filtered 200-row page and includes normalized 
   assert.match(repository, /"LMS link status"/);
   assert.match(repository, /"Version Wrike links"/);
   assert.equal(csvCell("=HYPERLINK(\"bad\")"), "\"'=HYPERLINK(\"\"bad\"\")\"");
+  assert.equal(csvCell("\n=HYPERLINK(\"bad\")"), "\"'\n=HYPERLINK(\"\"bad\"\")\"");
   assert.equal(csvCell("normal, value"), "\"normal, value\"");
 });
 
@@ -108,10 +112,11 @@ test("course export includes all records beyond the first 200-row page in stable
 });
 
 test("pagination and dashboard contracts distinguish unique courses from membership totals", async () => {
-  const [migration, pagination, dashboard] = await Promise.all([
+  const [migration, pagination, dashboard, globals] = await Promise.all([
     read("supabase/migrations/202608120003_course_membership_lms_link.sql"),
     read("components/table-pagination.tsx"),
     read("components/dashboard/dashboard.tsx"),
+    read("app/globals.css"),
   ]);
   assert.match(migration, /least\(greatest\(p_limit, 1\), 200\)/);
   assert.match(pagination, /\[25, 50, 100, 200\]/);
@@ -122,4 +127,5 @@ test("pagination and dashboard contracts distinguish unique courses from members
   assert.match(dashboard, /Memberships/);
   assert.match(dashboard, /Unclassified/);
   assert.match(dashboard, /Unmanaged/);
+  assert.match(globals, /\.wrike-link-popout\s*\{[\s\S]*?position:\s*fixed/);
 });

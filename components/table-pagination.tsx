@@ -15,7 +15,15 @@ export function useLocalTablePagination<T>(items: T[], storageKey: string) {
   const [pageSize, setPageSizeState] = useState<number>(() => { const value = restored().pageSize; return TABLE_PAGE_SIZES.includes(value as (typeof TABLE_PAGE_SIZES)[number]) ? value! : 25; });
   const pageCount = Math.max(1, Math.ceil(items.length / pageSize));
   const clampedPage = Math.min(page, pageCount);
-  useEffect(() => { sessionStorage.setItem(storageKey, JSON.stringify({ page: clampedPage, pageSize })); }, [clampedPage, pageSize, storageKey]);
+  useEffect(() => {
+    if (page === clampedPage) return;
+    const timer = window.setTimeout(() => setPageState(clampedPage), 0);
+    return () => window.clearTimeout(timer);
+  }, [clampedPage, page]);
+  useEffect(() => {
+    try { sessionStorage.setItem(storageKey, JSON.stringify({ page: clampedPage, pageSize })); }
+    catch { /* Session storage can be unavailable in restricted browser contexts. */ }
+  }, [clampedPage, pageSize, storageKey]);
   const pageItems = useMemo(() => items.slice((clampedPage - 1) * pageSize, clampedPage * pageSize), [clampedPage, items, pageSize]);
   const setPage = (value: number) => setPageState(Math.max(1, Math.min(value, pageCount)));
   const setPageSize = (value: number) => { setPageSizeState(value); setPageState(1); };

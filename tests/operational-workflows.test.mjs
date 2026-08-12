@@ -138,7 +138,7 @@ test("responsive version and course-header accessibility contracts are present",
   ]);
   assert.match(component, /aria-expanded=.*version-details/);
   assert.match(component, /version-card-list/);
-  assert.match(detail, /<details className="panel accreditation-accordion">/);
+  assert.match(detail, /<details className="panel accreditation-accordion"[^>]*>/);
   assert.match(detail, /<summary>/);
   assert.match(detail, /data-tooltip/);
   assert.match(detail, /aria-label=.*LMS refresh unavailable/);
