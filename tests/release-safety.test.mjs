@@ -157,6 +157,29 @@ test("production promotion stays in the configured Vercel team scope", async () 
   );
 });
 
+test("staging fast-forward holds write access to one job and can only fast-forward", async () => {
+  const workflow = await readFile(".github/workflows/production-release.yml", "utf8");
+
+  // Write access is granted to the sync-staging job alone. The release job
+  // that builds and promotes production must not inherit it.
+  const syncJob = workflow.slice(workflow.indexOf("  sync-staging:"));
+  const releaseJob = workflow.slice(workflow.indexOf("  release:"), workflow.indexOf("  sync-staging:"));
+  assert.match(syncJob, /permissions:\s*\n\s*contents: write/);
+  assert.doesNotMatch(releaseJob, /contents: write/);
+
+  // Safety does not rest on the token: the ref is moved only when staging is
+  // still exactly where the release started, and only as a fast-forward.
+  assert.match(syncJob, /test "\$current" = "\$OLD_STAGING_SHA"/);
+  assert.match(syncJob, /-F force=false/);
+  assert.doesNotMatch(syncJob, /force=true|--method DELETE/);
+
+  // The abandoned App wiring is gone rather than left half-configured, which
+  // is what made every production release report failure. Checked against
+  // directives only, so the comment explaining the swap does not trip it.
+  const directives = workflow.split(/\r?\n/).filter((line) => !/^\s*#/.test(line)).join("\n");
+  assert.doesNotMatch(directives, /create-github-app-token|COURSETRACK_PROMOTION_APP/);
+});
+
 test("production readiness executes only protected code against candidate migration data", async () => {
   const workflow = await readFile(".github/workflows/production-preparation.yml", "utf8");
   const step = workflow.match(
