@@ -34,24 +34,36 @@ const WORKFLOW_DIR = new URL(".github/workflows/", root);
  * `if:` is deeper and correctly ignored -- step-level conditions run after the
  * environment resolves and may safely read environment variables.
  */
-function jobLevelConditions(text) {
+/**
+ * Collects the full value of a job-level key, including block scalars (`>-`,
+ * `|`) and YAML object form, both of which continue on deeper-indented lines.
+ * Reading only the key's own line would miss `environment:` written as a
+ * mapping with a nested `name:`, which is exactly the form that can smuggle a
+ * variable reference past a naive check.
+ */
+function jobLevelValues(text, key) {
   const lines = text.split(/\r?\n/);
-  const conditions = [];
+  const values = [];
   for (let index = 0; index < lines.length; index += 1) {
-    const match = /^ {4}if:(.*)$/.exec(lines[index]);
+    const match = new RegExp(`^ {4}${key}:(.*)$`).exec(lines[index]);
     if (!match) continue;
-    let expression = match[1].trim();
-    // Folded/literal block scalars (`>-`, `|`) continue on deeper-indented lines.
-    if (/^[>|]/.test(expression)) {
-      expression = "";
+    let value = match[1].trim();
+    // An inline scalar is complete unless it opens a block; anything else
+    // (block scalar or mapping) continues below at deeper indentation.
+    if (value === "" || /^[>|]/.test(value)) {
+      if (/^[>|]/.test(value)) value = "";
       for (let next = index + 1; next < lines.length; next += 1) {
         if (!/^ {6,}\S/.test(lines[next])) break;
-        expression += ` ${lines[next].trim()}`;
+        value += ` ${lines[next].trim()}`;
       }
     }
-    conditions.push(expression.trim());
+    values.push(value.trim());
   }
-  return conditions;
+  return values;
+}
+
+function jobLevelConditions(text) {
+  return jobLevelValues(text, "if");
 }
 
 const workflowFiles = (await readdir(WORKFLOW_DIR)).filter((name) => /\.ya?ml$/.test(name));
@@ -81,19 +93,21 @@ test("every job gated on a variable uses a repository-scoped one", async () => {
 
 test("no job selects its environment from a variable", async () => {
   // `environment:` is resolved at the same point as the job-level `if`, so an
-  // environment-scoped variable there is unresolvable by definition.
+  // environment-scoped variable there is unresolvable by definition. Covers
+  // both `environment: name` and the object form with a nested `name:`.
+  let inspected = 0;
   for (const file of workflowFiles) {
     const text = await readFile(new URL(file, WORKFLOW_DIR), "utf8");
-    for (const line of text.split(/\r?\n/)) {
-      if (/^ {4}environment:/.test(line)) {
-        assert.doesNotMatch(
-          line,
-          /vars\./,
-          `${file}: a job's environment must be a literal name, not a variable reference`,
-        );
-      }
+    for (const value of jobLevelValues(text, "environment")) {
+      inspected += 1;
+      assert.doesNotMatch(
+        value,
+        /vars\./,
+        `${file}: a job's environment must be a literal name, not a variable reference`,
+      );
     }
   }
+  assert.ok(inspected > 0, "expected at least one job environment to inspect");
 });
 
 test("every variable-gated workflow records why its scope matters", async () => {
