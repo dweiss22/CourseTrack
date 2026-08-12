@@ -207,6 +207,42 @@ test("candidate enrichment cannot fail the search and keeps the Wrike call out o
   assert.doesNotMatch(searchRoute, /callWrikeApi|fetch\s*\(.*wrike/i);
 });
 
+test("a catalogue write failure never aborts the task sync or strands its run", async () => {
+  const repository = await source("db/wrike-repository.ts");
+  const syncStart = repository.indexOf("export async function runWrikeSync");
+  const syncBody = repository.slice(syncStart, repository.indexOf("\n/**", syncStart));
+
+  // runWrikeSync has no try/catch, so anything thrown after the run row is
+  // inserted leaves it "running" -- and searchWrikeTaskIndex refuses to return
+  // candidates while one exists. Decorative metadata must not reach that.
+  assert.doesNotMatch(syncBody, /wrike_custom_field_index[\s\S]{0,400}?throw repositoryError/);
+  assert.match(syncBody, /customFieldSyncError = sanitizeErrorMessage/);
+  assert.match(syncBody, /folderName: "Custom field catalogue"/, "the failure stays visible on the run");
+
+  // Contacts and folders keep their fatal writes; only the catalogue is soft.
+  assert.match(syncBody, /if \(contactError\) throw repositoryError/);
+  assert.match(syncBody, /if \(folderIndexError\) throw repositoryError/);
+});
+
+test("only one sync can start, enforced in the database rather than by a racy read", async () => {
+  const migration = await source("supabase/migrations/202608120002_wrike_sync_run_exclusion.sql");
+  const repository = await source("db/wrike-repository.ts");
+
+  // A select-then-insert is time-of-check-to-time-of-use: two callers can both
+  // observe no running row and both insert. The index is the real guarantee.
+  assert.match(migration, /create unique index if not exists wrike_sync_runs_single_active_idx/);
+  assert.match(migration, /where status = 'running'/);
+  // Creating the index would fail if several runs were already marked running.
+  assert.match(migration, /row_number\(\) over/);
+  assert.doesNotMatch(migration, /drop table|drop index|delete\s+from/i);
+
+  assert.match(repository, /function isUniqueViolation/);
+  assert.match(repository, /error\?\.code === "23505"/);
+  const syncStart = repository.indexOf("export async function runWrikeSync");
+  const syncBody = repository.slice(syncStart, repository.indexOf("\n/**", syncStart));
+  assert.match(syncBody, /isUniqueViolation\(insertError\)[\s\S]{0,120}?already running/);
+});
+
 test("the internal custom-fields endpoint is authenticated, read-only, and returns no credentials", async () => {
   const route = await source("app/api/wrike/custom-fields/route.ts");
   assert.match(route, /requireApiRole\("super_admin", "admin", "content"\)/, "same permissions as Wrike task search");
@@ -270,25 +306,58 @@ test("custom-field resolution prefers the local index and only falls back to a l
   assert.match(repository, /readWrikeCustomFieldIndex[\s\S]*from\("wrike_custom_field_index"\)/);
 });
 
-test("the new migration is appended to the manifest with a matching checksum", async () => {
-  const manifest = JSON.parse(await source("supabase/migrations/manifest.json"));
-  const entry = manifest.migrations.at(-1);
-  assert.equal(entry.version, "202608120001");
-  assert.equal(entry.file, "202608120001_wrike_custom_field_index.sql");
+test("the reporting endpoint surfaces provider failures instead of reporting an empty catalogue", async () => {
+  const repository = await source("db/wrike-repository.ts");
+  const facade = await source("db/index.ts");
 
-  const bytes = await readFile(new URL(`supabase/migrations/${entry.file}`, root));
-  const text = bytes.toString("utf8").replace(/\r\n/g, "\n");
-  const digests = new Set([
-    createHash("sha256").update(bytes).digest("hex"),
-    createHash("sha256").update(Buffer.from(text, "utf8")).digest("hex"),
-    createHash("sha256").update(Buffer.from(text.replace(/\n/g, "\r\n"), "utf8")).digest("hex"),
-  ]);
-  assert.ok(digests.has(entry.sha256), "the manifest checksum must match the migration file");
+  // getCachedCustomFieldDefinitions deliberately never rejects, so a Wrike
+  // outage would otherwise be indistinguishable from an account that simply
+  // has no custom fields -- and the endpoint exists to discover field ids.
+  const fetchStart = repository.indexOf("async function fetchWrikeCustomFieldDefinitions");
+  const fetchBody = repository.slice(fetchStart, repository.indexOf("\n/**", fetchStart));
+  assert.match(fetchBody, /options\.strict/);
+  assert.match(fetchBody, /if \(options\.strict\) return load\(\)/, "strict callers bypass the swallowing cache");
+  assert.match(fetchBody, /getCachedCustomFieldDefinitions\(/, "the tolerant path is still the default");
+
+  // The diagnostic facade is strict; candidate enrichment stays tolerant.
+  assert.match(facade, /listWrikeCustomFieldDefinitions\(requireDatabaseClient\(\), \{ strict: true \}\)/);
+  const enrichStart = repository.indexOf("async function enrichWrikeCandidatesWithCustomFields");
+  const enrichBody = repository.slice(enrichStart, repository.indexOf("\nexport async function searchWrikeTaskIndex", enrichStart));
+  assert.doesNotMatch(enrichBody, /strict/, "search enrichment must never fail on a Wrike outage");
+});
+
+test("the new migrations are in the manifest and the deployment contract with matching checksums", async () => {
+  const manifest = JSON.parse(await source("supabase/migrations/manifest.json"));
+  const contract = await source("lib/deployment-migration-contract.mjs");
+
+  // Looked up by version rather than position, so adding a later migration
+  // does not break this.
+  for (const [version, file] of [
+    ["202608120001", "202608120001_wrike_custom_field_index.sql"],
+    ["202608120002", "202608120002_wrike_sync_run_exclusion.sql"],
+  ]) {
+    const entry = manifest.migrations.find((item) => item.version === version);
+    assert.ok(entry, `${version} should be in the manifest`);
+    assert.equal(entry.file, file);
+
+    const bytes = await readFile(new URL(`supabase/migrations/${file}`, root));
+    const text = bytes.toString("utf8").replace(/\r\n/g, "\n");
+    const digests = new Set([
+      createHash("sha256").update(bytes).digest("hex"),
+      createHash("sha256").update(Buffer.from(text, "utf8")).digest("hex"),
+      createHash("sha256").update(Buffer.from(text.replace(/\n/g, "\r\n"), "utf8")).digest("hex"),
+    ]);
+    assert.ok(digests.has(entry.sha256), `${version} manifest checksum must match the migration file`);
+
+    // The committed contract is what the deployed health route checks against.
+    assert.match(contract, new RegExp(`"${version}"`), `${version} should be in DEPLOYMENT_MIGRATION_CONTRACT`);
+  }
 
   // Append-only: reviewed history and the production baseline are untouched.
   assert.equal(manifest.productionBaseline.coversThrough, "202608040007");
   const versions = manifest.migrations.map((item) => item.version);
   assert.deepEqual(versions, [...versions].sort(), "manifest versions must be strictly increasing");
+  assert.equal(new Set(versions).size, versions.length, "manifest versions must be unique");
 });
 
 test("the optional Reporting Year field id is documented", async () => {

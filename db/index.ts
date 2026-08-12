@@ -656,8 +656,13 @@ export async function searchWrikeTasks(filters: WrikeTaskSearchFilters) {
   return searchWrikeTaskIndex(requireDatabaseClient(), filters);
 }
 
+/**
+ * Strict by design: this backs the diagnostic endpoint used to discover field
+ * ids, so a Wrike outage must surface as an error rather than an empty
+ * catalogue. Candidate enrichment uses the failure-tolerant path instead.
+ */
 export async function getWrikeCustomFieldDefinitions() {
-  return listWrikeCustomFieldDefinitions(requireDatabaseClient());
+  return listWrikeCustomFieldDefinitions(requireDatabaseClient(), { strict: true });
 }
 
 export async function searchWrikeTasksForCourseVersion(

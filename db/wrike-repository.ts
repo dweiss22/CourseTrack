@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { decryptSecret, encryptSecret } from "@/lib/wrike-crypto";
 import { assertValidWrikeApiHost, getTokenEncryptionKey, isValidWrikeHost } from "@/lib/wrike-env";
-import { callWrikeApi, fetchAllWrikePages } from "@/lib/wrike-http-client";
+import { callWrikeApi, fetchAllWrikePages, sanitizeErrorMessage } from "@/lib/wrike-http-client";
 import { syncApprovedWrikeFolders, type RawWrikeTask } from "@/lib/wrike-sync";
 import { WRIKE_TASK_OPTIONAL_FIELDS } from "@/lib/integration-mappings";
 import { isApprovedWrikeFolderId } from "@/lib/wrike-source-folders";
@@ -20,6 +20,11 @@ type Row = Record<string, unknown>;
 
 function repositoryError(context: string, error: { message: string }): Error {
   return new Error(`${context}: ${error.message}`);
+}
+
+/** PostgreSQL unique_violation, surfaced by PostgREST as `code`. */
+function isUniqueViolation(error: { code?: string } | null): boolean {
+  return error?.code === "23505";
 }
 
 function mappedWrikePublishedDate(customFields: unknown): string | null {
@@ -184,7 +189,10 @@ export interface WrikeSyncRunSummary {
   tasksSeen: number;
   tasksUpserted: number;
   tasksMarkedInactive: number;
-  errors: Array<{ folderId: string; folderName: string; error: string | null }>;
+  // folderId/folderName are null for run-scoped failures that belong to no
+  // single folder -- a reclaimed abandoned run, or a custom-field catalogue
+  // write that failed without stopping the task sync.
+  errors: Array<{ folderId: string | null; folderName: string | null; error: string | null }>;
 }
 
 function toSyncRunSummary(row: Row): WrikeSyncRunSummary {
@@ -220,6 +228,12 @@ export async function runWrikeSync(client: SupabaseClient, triggeredBy: string, 
   // admin can always click "Run sync now". Two concurrent runs would race on
   // the same task rows, and the loser's stale view could wrongly mark live
   // tasks inactive -- so only one run at a time.
+  //
+  // Exclusion is enforced by the partial unique index added in
+  // 202608120002, NOT by this read. Reading first only lets us reclaim
+  // abandoned runs and report the common case with a clear message; the read
+  // and the insert below cannot be atomic together, so the insert's unique
+  // violation is the actual guarantee.
   const { data: activeRuns, error: activeError } = await client
     .from("wrike_sync_runs")
     .select("id,started_at")
@@ -249,7 +263,12 @@ export async function runWrikeSync(client: SupabaseClient, triggeredBy: string, 
     .insert({ status: "running", triggered_by: triggeredBy })
     .select("id,started_at")
     .single();
-  if (insertError) throw repositoryError("Could not start a Wrike sync run", insertError);
+  if (insertError) {
+    // 23505 is the partial unique index refusing a second in-flight run --
+    // the atomic form of the check above, reported the same way.
+    if (isUniqueViolation(insertError)) throw new Error("A Wrike synchronization is already running.");
+    throw repositoryError("Could not start a Wrike sync run", insertError);
+  }
   const runId = runRow.id as string;
 
   const { data: folderRows, error: folderError } = await client
@@ -317,6 +336,9 @@ export async function runWrikeSync(client: SupabaseClient, triggeredBy: string, 
     })), { onConflict: "folder_id" });
     if (folderIndexError) throw repositoryError("Could not synchronize Wrike folders", folderIndexError);
   }
+  // Recorded on the run rather than thrown, so the failure stays visible in the
+  // admin panel without aborting the task sync.
+  let customFieldSyncError: string | null = null;
   if (customFieldDefinitions.length > 0) {
     const { error: customFieldError } = await client.from("wrike_custom_field_index").upsert(customFieldDefinitions.map((definition) => ({
       field_id: definition.id,
@@ -325,7 +347,16 @@ export async function runWrikeSync(client: SupabaseClient, triggeredBy: string, 
       raw_payload: definition,
       last_synced_at: new Date().toISOString(),
     })), { onConflict: "field_id" });
-    if (customFieldError) throw repositoryError("Could not synchronize Wrike custom fields", customFieldError);
+    // Deliberately not fatal, unlike the contact and folder writes above.
+    // Field titles only decorate search results, and this runs before any
+    // folder task is fetched -- throwing here would abandon the entire task
+    // sync over optional metadata, and (since runWrikeSync has no try/catch)
+    // strand its run row as "running" until the abandonment reclaim. The
+    // previous catalogue stays in place and the staleness fallback in
+    // listWrikeCustomFieldDefinitions covers a persistent failure.
+    if (customFieldError) {
+      customFieldSyncError = sanitizeErrorMessage(customFieldError.message);
+    }
   }
 
   const result = await syncApprovedWrikeFolders(folders, async (folderId) =>
@@ -425,9 +456,14 @@ export async function runWrikeSync(client: SupabaseClient, triggeredBy: string, 
     : foldersSucceeded > 0
       ? "partial"
       : "failed";
-  const errors = result.folderResults
+  const errors: WrikeSyncRunSummary["errors"] = result.folderResults
     .filter((f) => !f.ok)
     .map((f) => ({ folderId: f.folderId, folderName: f.folderName, error: f.error }));
+  // A catalogue write failure does not change `status`: the task sync itself
+  // succeeded, and only the decorative field titles are stale.
+  if (customFieldSyncError) {
+    errors.push({ folderId: null, folderName: "Custom field catalogue", error: customFieldSyncError });
+  }
   const completedAt = new Date().toISOString();
 
   const { error: completeError } = await client
@@ -634,12 +670,14 @@ async function readWrikeCustomFieldIndex(
  */
 async function fetchWrikeCustomFieldDefinitions(
   client: SupabaseClient,
+  options: { strict?: boolean } = {},
 ): Promise<WrikeCustomFieldDefinition[]> {
   const connection = await getDecryptedConnection(client);
-  if (!connection) return [];
-  return getCachedCustomFieldDefinitions(
-    `${connection.apiHost}|${connection.accountId ?? ""}`,
-    async () => {
+  if (!connection) {
+    if (options.strict) throw new Error("Wrike is not connected.");
+    return [];
+  }
+  const load = async () => {
       // No searchParams: the catalogue is a few dozen records and is cached, so
       // filtering saves nothing while every extra parameter is another way for
       // Wrike to reject the request and blank out all field titles at once.
@@ -654,8 +692,15 @@ async function fetchWrikeCustomFieldDefinitions(
         timeoutMs: 4_000,
       });
       return normalizeWrikeCustomFieldDefinitions(payload);
-    },
-  );
+  };
+
+  // The cache never rejects -- a provider failure becomes an empty list so a
+  // task search is never blocked by Wrike. That is wrong for a caller whose
+  // whole purpose is to report the catalogue: an outage would be
+  // indistinguishable from an account with no custom fields. Strict callers
+  // therefore bypass the swallow and let the failure propagate.
+  if (options.strict) return load();
+  return getCachedCustomFieldDefinitions(`${connection.apiHost}|${connection.accountId ?? ""}`, load);
 }
 
 /**
@@ -673,12 +718,21 @@ async function fetchWrikeCustomFieldDefinitions(
  */
 export async function listWrikeCustomFieldDefinitions(
   client: SupabaseClient,
+  options: { strict?: boolean } = {},
 ): Promise<WrikeCustomFieldDefinition[]> {
   const indexed = await readWrikeCustomFieldIndex(client);
   const isFresh =
     indexed.lastSyncedAt !== null &&
     Date.now() - Date.parse(indexed.lastSyncedAt) < CUSTOM_FIELD_INDEX_STALE_AFTER_MS;
   if (indexed.definitions.length > 0 && isFresh) return indexed.definitions;
+
+  // Strict callers must be able to tell "Wrike is unreachable" from "this
+  // account has no custom fields", so a provider failure is reported rather
+  // than degraded into an empty list.
+  if (options.strict) {
+    const live = await fetchWrikeCustomFieldDefinitions(client, { strict: true });
+    return live.length > 0 ? live : indexed.definitions;
+  }
 
   const live = await fetchWrikeCustomFieldDefinitions(client);
   return live.length > 0 ? live : indexed.definitions;
