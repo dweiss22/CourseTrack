@@ -11,6 +11,16 @@ concurrency:
 
 jobs:
   refresh:
+    # STAGING_REFRESH_ENABLED must be a REPOSITORY variable, not an environment
+    # one. A job-level `if` is evaluated before the job is assigned its
+    # environment, so environment-scoped variables read as an empty string here
+    # and the job silently skips -- and a skipped job reports the workflow run
+    # as successful, so it fails invisibly. This bug was live in this file: the
+    # variable was set on the `staging` environment on 2026-08-06, and the
+    # scheduled run on 2026-08-09 was skipped, so the weekly snapshot never ran.
+    # Note the contrast with STAGING_TESTER_EMAILS below, which stays
+    # environment-scoped because it is only read at step level, after the
+    # environment has been resolved.
     if: github.event_name == 'workflow_dispatch' || vars.STAGING_REFRESH_ENABLED == 'true'
     name: Sanitized production snapshot
     runs-on: ubuntu-latest
