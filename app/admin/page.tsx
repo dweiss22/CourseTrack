@@ -8,7 +8,7 @@ export const metadata: Metadata = { title: "Administration" };
 export const dynamic = "force-dynamic";
 
 export default async function AdministrationPage() {
-  await requireAdmin();
+  const context = await requireAdmin();
   const [retrievalRuns, mappingSummary, wrikeConnection, wrikeSync] = await Promise.all([
     getRecentRetrievalRuns(),
     getIntegrationMappingSummary(),
@@ -21,6 +21,7 @@ export default async function AdministrationPage() {
       mappingSummary={mappingSummary}
       wrikeConnection={wrikeConnection}
       wrikeSync={wrikeSync}
+      userId={context.userId}
     />
   );
 }

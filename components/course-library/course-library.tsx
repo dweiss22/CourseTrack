@@ -31,7 +31,6 @@ import {
   type CourseLibraryOptionalColumn,
   type CourseLibraryPreferences,
 } from "@/types/preferences";
-import { provenanceLabels } from "@/types/course";
 import {
   getVerticalLabel,
   managementClassificationFilters,
@@ -49,9 +48,9 @@ export type CourseLibraryRecord = Pick<
   | "courseCode"
   | "lmsCourseId"
   | "description"
-  | "primaryVertical"
+  | "verticals"
   | "managementClassification"
-  | "reconciliationStatus"
+  | "lmsLinkStatus"
   | "retrievalStatus"
   | "lastRetrievedAt"
   | "conflictCount"
@@ -70,6 +69,12 @@ export type CourseLibraryRecord = Pick<
   hasContentMetadata: boolean;
   importValidationErrorCount: number;
 };
+
+const PAGE_SIZES = [25, 50, 100, 200] as const;
+type LmsLinkFilter = "All LMS links" | "linked" | "not_linked";
+const LIFECYCLE_FILTERS = ["All statuses", "Published", "Under Maintenance", "Internal Review", "In Development", "Scheduled for Revamp", "Retired", "Archived"] as const;
+const HEALTH_FILTERS = ["All health levels", "Healthy", "Monitor", "Needs Review", "At Risk", "Critical"] as const;
+const COURSE_LIBRARY_SORT_IDS = ["title", "healthStatus"] as const;
 
 const columnHelper = createColumnHelper<CourseLibraryRecord>();
 
@@ -90,12 +95,14 @@ const columns = [
       </div>
     ),
   }),
-  columnHelper.accessor("primaryVertical", {
-    header: "Primary vertical",
-    cell: (info) => <span className="vertical-label">{info.getValue()}</span>,
+  columnHelper.accessor("verticals", {
+    header: "Verticals",
+    enableSorting: false,
+    cell: (info) => <span className="vertical-label">{info.getValue().join(", ") || "No vertical"}</span>,
   }),
   columnHelper.accessor("managementClassification", {
     header: "Management",
+    enableSorting: false,
     cell: (info) => (
       <StatusBadge
         tone={info.getValue() === "Lexipol managed" ? "success" : "warning"}
@@ -104,12 +111,14 @@ const columns = [
       </StatusBadge>
     ),
   }),
-  columnHelper.accessor("reconciliationStatus", {
-    header: "Reconciliation",
-    cell: (info) => <StatusBadge>{info.getValue()}</StatusBadge>,
+  columnHelper.accessor("lmsLinkStatus", {
+    header: "LMS link",
+    enableSorting: false,
+    cell: (info) => <StatusBadge tone={info.getValue() === "linked" ? "success" : "neutral"}>{info.getValue() === "linked" ? "LMS linked" : "Not LMS linked"}</StatusBadge>,
   }),
   columnHelper.accessor("retrievalStatus", {
     header: "Source / freshness",
+    enableSorting: false,
     cell: ({ row }) => (
       <div className="source-status-cell">
         <StatusBadge>{row.original.retrievalStatus}</StatusBadge>
@@ -119,6 +128,7 @@ const columns = [
   }),
   columnHelper.accessor("conflictCount", {
     header: "Conflicts",
+    enableSorting: false,
     cell: (info) => (
       <span className={info.getValue() > 0 ? "conflict-count" : "text-muted"}>
         {info.getValue()}
@@ -127,6 +137,7 @@ const columns = [
   }),
   columnHelper.accessor("topicAssignments", {
     header: "Topics",
+    enableSorting: false,
     cell: (info) => (
       <span className="topic-summary">
         {info.getValue().slice(0, 2).map((assignment) => assignment.topic).join(" · ") || "No topics"}
@@ -145,9 +156,9 @@ const columns = [
 ];
 
 const optionalColumnLabels: Record<CourseLibraryOptionalColumn, string> = {
-  primaryVertical: "Primary vertical",
+  verticals: "Verticals",
   managementClassification: "Management",
-  reconciliationStatus: "Reconciliation",
+  lmsLinkStatus: "LMS link",
   retrievalStatus: "Source / freshness",
   conflictCount: "Conflicts",
   topicAssignments: "Topics",
@@ -156,7 +167,7 @@ const optionalColumnLabels: Record<CourseLibraryOptionalColumn, string> = {
 };
 
 const essentialCourseLibraryColumns: CourseLibraryOptionalColumn[] = [
-  "primaryVertical",
+  "verticals",
   "managementClassification",
   "healthStatus",
 ];
@@ -164,19 +175,11 @@ const essentialCourseLibraryColumns: CourseLibraryOptionalColumn[] = [
 type WorkQueue =
   | "All queues"
   | "Missing Content Metadata"
-  | "Missing from LMS"
   | "Field conflicts"
-  | "Mapping required"
   | "Invalid import records"
   | "Stale LMS data";
 
-function csvSafe(value: unknown): string {
-  const stringValue = String(value ?? "");
-  const protectedValue = /^[=+\-@]/.test(stringValue)
-    ? `'${stringValue}`
-    : stringValue;
-  return `"${protectedValue.replaceAll('"', '""')}"`;
-}
+const WORK_QUEUES: readonly WorkQueue[] = ["All queues", "Missing Content Metadata", "Field conflicts", "Invalid import records", "Stale LMS data"];
 
 function formatHiddenColumn(course: CourseLibraryRecord, column: CourseLibraryOptionalColumn): string {
   if (column === "managementClassification") {
@@ -188,24 +191,28 @@ function formatHiddenColumn(course: CourseLibraryRecord, column: CourseLibraryOp
   if (column === "topicAssignments") {
     return course.topicAssignments.map((assignment) => assignment.topic).join(", ") || "No topics";
   }
+  if (column === "verticals") return course.verticals.join(", ") || "No vertical";
+  if (column === "lmsLinkStatus") return course.lmsLinkStatus === "linked" ? "LMS linked" : "Not LMS linked";
   if (column === "lmsActions") {
     return `${course.backendLink ? "Backend link available" : "No backend link"}; ${course.frontendLink ? "Course link available" : "No course link"}`;
   }
   return String(course[column] ?? "Not available");
 }
 
-export function CourseLibrary({ courses: initialCourses, initialTotal, initialFavoriteIds, initialPreferences, canEdit }: { courses: CourseLibraryRecord[]; initialTotal?: number; initialFavoriteIds: string[]; initialPreferences: CourseLibraryPreferences; canEdit: boolean }) {
+export function CourseLibrary({ courses: initialCourses, initialTotal, initialFavoriteIds, initialPreferences, canEdit, userId = "current-user" }: { courses: CourseLibraryRecord[]; initialTotal?: number; initialFavoriteIds: string[]; initialPreferences: CourseLibraryPreferences; canEdit: boolean; userId?: string }) {
   const router = useRouter();
   const [courses, setCourses] = useState(initialCourses);
   const [total, setTotal] = useState(initialTotal ?? initialCourses.length);
   const [pageIndex, setPageIndex] = useState(0);
+  const [pageSize, setPageSize] = useState<number>(25);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [vertical, setVertical] = useState("All verticals");
   const [lifecycle, setLifecycle] = useState("All statuses");
   const [health, setHealth] = useState("All health levels");
-  const [classification, setClassification] = useState<ManagementClassificationFilter>("All courses");
+  const [classification, setClassification] = useState<ManagementClassificationFilter>("Lexipol Managed");
   const [workQueue, setWorkQueue] = useState<WorkQueue>("All queues");
+  const [lmsLink, setLmsLink] = useState<LmsLinkFilter>("All LMS links");
   const [view, setView] = useState<"table" | "cards">("table");
   const [sorting, setSorting] = useState<SortingState>([]);
   const [favorites, setFavorites] = useState<string[]>(initialFavoriteIds);
@@ -220,13 +227,52 @@ export function CourseLibrary({ courses: initialCourses, initialTotal, initialFa
   const [preferenceSaving, setPreferenceSaving] = useState(false);
   const columnButtonRef = useRef<HTMLButtonElement>(null);
   const columnMenuRef = useRef<HTMLDivElement>(null);
-  const initialQueryRef = useRef(true);
+  const [stateRestored, setStateRestored] = useState(false);
+  const storageKey = `coursetrack:${userId}:table:course-library`;
   const verticalOptions = [...verticals];
 
   const createCourse = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); const form = new FormData(event.currentTarget); setCreatePending(true); setCreateError("");
-    try { const response = await fetch("/api/courses", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ courseCode: String(form.get("courseCode")), title: String(form.get("title")), shortTitle: String(form.get("shortTitle")) || null, description: String(form.get("description")), primaryVertical: String(form.get("primaryVertical")), lifecycleStatus: String(form.get("lifecycleStatus")), publicationStatus: String(form.get("publicationStatus")) }) }); const result = (await response.json()) as { course?: { id: string }; message?: string }; if (!response.ok) throw new Error(result.message); setCreating(false); router.refresh(); } catch (error) { setCreateError(error instanceof Error ? error.message : "Course could not be created."); } finally { setCreatePending(false); }
+    try { const response = await fetch("/api/courses", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ courseCode: String(form.get("courseCode")), title: String(form.get("title")), shortTitle: String(form.get("shortTitle")) || null, description: String(form.get("description")), verticals: form.getAll("verticals").map(String), lifecycleStatus: String(form.get("lifecycleStatus")), publicationStatus: String(form.get("publicationStatus")) }) }); const result = (await response.json()) as { course?: { id: string }; message?: string }; if (!response.ok) throw new Error(result.message); setCreating(false); router.refresh(); } catch (error) { setCreateError(error instanceof Error ? error.message : "Course could not be created."); } finally { setCreatePending(false); }
   };
+
+  useEffect(() => {
+    const url = new URLSearchParams(window.location.search);
+    let saved: Record<string, unknown> = {};
+    try { saved = JSON.parse(sessionStorage.getItem(storageKey) ?? "{}") as Record<string, unknown>; } catch { saved = {}; }
+    const fromUrl = [...url.keys()].some((key) => ["q", "vertical", "lifecycle", "health", "classification", "workQueue", "lmsLink", "page", "pageSize", "view", "sort", "desc"].includes(key));
+    const read = (key: string) => fromUrl ? url.get(key) : saved[key];
+    const restoredSize = Number(read("pageSize"));
+    const restoredPage = Number(read("page"));
+    const restoredClassification = read("classification");
+    const restoredVertical = String(read("vertical") ?? "All verticals");
+    const restoredLifecycle = String(read("lifecycle") ?? "All statuses");
+    const restoredHealth = String(read("health") ?? "All health levels");
+    const restoredWorkQueue = String(read("workQueue") ?? "All queues");
+    setSearch(typeof read("q") === "string" ? String(read("q")) : "");
+    setVertical(["All verticals", "No vertical", ...verticals].includes(restoredVertical) ? restoredVertical : "All verticals");
+    setLifecycle(LIFECYCLE_FILTERS.includes(restoredLifecycle as (typeof LIFECYCLE_FILTERS)[number]) ? restoredLifecycle : "All statuses");
+    setHealth(HEALTH_FILTERS.includes(restoredHealth as (typeof HEALTH_FILTERS)[number]) ? restoredHealth : "All health levels");
+    setClassification(managementClassificationFilters.includes(restoredClassification as ManagementClassificationFilter) ? restoredClassification as ManagementClassificationFilter : "Lexipol Managed");
+    setWorkQueue(WORK_QUEUES.includes(restoredWorkQueue as WorkQueue) ? restoredWorkQueue as WorkQueue : "All queues");
+    setLmsLink(["All LMS links", "linked", "not_linked"].includes(String(read("lmsLink"))) ? read("lmsLink") as LmsLinkFilter : "All LMS links");
+    setPageSize(PAGE_SIZES.includes(restoredSize as (typeof PAGE_SIZES)[number]) ? restoredSize : 25);
+    setPageIndex(Number.isFinite(restoredPage) && restoredPage > 0 ? Math.trunc(restoredPage) - 1 : 0);
+    setView(read("view") === "cards" ? "cards" : "table");
+    const sort = read("sort");
+    if (COURSE_LIBRARY_SORT_IDS.includes(sort as (typeof COURSE_LIBRARY_SORT_IDS)[number])) setSorting([{ id: String(sort), desc: String(read("desc")) === "true" }]);
+    setStateRestored(true);
+  }, [storageKey]);
+
+  useEffect(() => {
+    if (!stateRestored) return;
+    const currentSort = sorting[0];
+    const state = { q: search, vertical, lifecycle, health, classification, workQueue, lmsLink, page: pageIndex + 1, pageSize, view, sort: currentSort?.id ?? "", desc: currentSort?.desc ?? false };
+    sessionStorage.setItem(storageKey, JSON.stringify(state));
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(state)) if (value !== "" && value !== false) params.set(key, String(value));
+    window.history.replaceState(null, "", `${window.location.pathname}?${params}`);
+  }, [classification, health, lifecycle, lmsLink, pageIndex, pageSize, search, sorting, stateRestored, storageKey, vertical, view, workQueue]);
 
   useEffect(() => {
     if (!columnMenuOpen) return;
@@ -282,24 +328,27 @@ export function CourseLibrary({ courses: initialCourses, initialTotal, initialFa
   };
 
   useEffect(() => {
-    if (initialQueryRef.current) { initialQueryRef.current = false; return; }
+    if (!stateRestored) return;
     const controller = new AbortController();
     const timer = window.setTimeout(async () => {
       setLoading(true);
-      const params = new URLSearchParams({ page: String(pageIndex + 1), pageSize: "25", search, vertical, lifecycle, health, classification, workQueue });
+      const params = new URLSearchParams({ page: String(pageIndex + 1), pageSize: String(pageSize), search, vertical, lifecycle, health, classification, workQueue, lmsLink: lmsLink === "All LMS links" ? "" : lmsLink });
       const currentSort = sorting[0];
       if (currentSort) { params.set("sort", currentSort.id); params.set("descending", String(currentSort.desc)); }
       try {
         const response = await fetch(`/api/courses?${params}`, { signal: controller.signal });
         const result = await response.json() as { items?: CourseLibraryRecord[]; total?: number; message?: string };
         if (!response.ok || !result.items) throw new Error(result.message || "Courses could not be loaded.");
-        setCourses(result.items); setTotal(result.total ?? result.items.length);
+        const nextTotal = result.total ?? result.items.length;
+        const lastPage = Math.max(0, Math.ceil(nextTotal / pageSize) - 1);
+        if (pageIndex > lastPage) { setPageIndex(lastPage); return; }
+        setCourses(result.items); setTotal(nextTotal);
       } catch (error) {
         if ((error as { name?: string }).name !== "AbortError") setFavoriteError(error instanceof Error ? error.message : "Courses could not be loaded.");
       } finally { if (!controller.signal.aborted) setLoading(false); }
     }, search ? 250 : 0);
     return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [classification, health, lifecycle, pageIndex, search, sorting, vertical, workQueue]);
+  }, [classification, health, lifecycle, lmsLink, pageIndex, pageSize, search, sorting, stateRestored, vertical, workQueue]);
 
   // TanStack Table intentionally exposes stateful functions that React Compiler
   // does not memoize; the table owns the relevant memoization boundaries.
@@ -311,11 +360,11 @@ export function CourseLibrary({ courses: initialCourses, initialTotal, initialFa
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     manualPagination: true,
-    pageCount: Math.max(1, Math.ceil(total / 25)),
+    pageCount: Math.max(1, Math.ceil(total / pageSize)),
     state: {
       sorting,
       columnVisibility: Object.fromEntries(courseLibraryOptionalColumns.map((id) => [id, visibleColumns.includes(id)])),
-      pagination: { pageIndex, pageSize: 25 },
+      pagination: { pageIndex, pageSize },
     },
   });
 
@@ -324,8 +373,9 @@ export function CourseLibrary({ courses: initialCourses, initialTotal, initialFa
     vertical !== "All verticals" ? vertical : "",
     lifecycle !== "All statuses" ? lifecycle : "",
     health !== "All health levels" ? health : "",
-    classification !== "All courses" ? classification : "",
+    classification !== "Lexipol Managed" ? classification : "",
     workQueue !== "All queues" ? workQueue : "",
+    lmsLink !== "All LMS links" ? lmsLink : "",
   ].filter(Boolean).length;
 
   const clearFilters = () => {
@@ -333,8 +383,9 @@ export function CourseLibrary({ courses: initialCourses, initialTotal, initialFa
     setVertical("All verticals");
     setLifecycle("All statuses");
     setHealth("All health levels");
-    setClassification("All courses");
+    setClassification("Lexipol Managed");
     setWorkQueue("All queues");
+    setLmsLink("All LMS links");
     setPageIndex(0);
   };
 
@@ -344,43 +395,10 @@ export function CourseLibrary({ courses: initialCourses, initialTotal, initialFa
   };
 
   const exportResults = () => {
-    const headers = [
-      "Course ID",
-      "Course Code",
-      "Title",
-      "Primary Vertical",
-      "Management Classification",
-      "Reconciliation Status",
-      "Source Freshness",
-      "Conflict Count",
-      "Topics",
-      "Health",
-      "Data Source",
-    ];
-    const rows = courses.map((course) => [
-      course.id,
-      course.courseCode,
-      course.title,
-      course.primaryVertical,
-      managementLabel(course.managementClassification),
-      course.reconciliationStatus,
-      course.retrievalStatus,
-      course.conflictCount,
-      course.topicAssignments.map((assignment) => assignment.topic).join("; "),
-      course.healthStatus,
-      provenanceLabels[course.dataSource],
-    ]);
-    const csv = [headers, ...rows]
-      .map((row) => row.map(csvSafe).join(","))
-      .join("\r\n");
-    const url = URL.createObjectURL(
-      new Blob([csv], { type: "text/csv;charset=utf-8" }),
-    );
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "coursetrack-course-library.csv";
-    link.click();
-    URL.revokeObjectURL(url);
+    const params = new URLSearchParams({ search, vertical, lifecycle, health, classification, workQueue, lmsLink: lmsLink === "All LMS links" ? "" : lmsLink });
+    const currentSort = sorting[0];
+    if (currentSort) { params.set("sort", currentSort.id); params.set("descending", String(currentSort.desc)); }
+    window.location.assign(`/api/courses/export?${params}`);
   };
 
   const toggleFavorite = async (courseId: string) => {
@@ -421,20 +439,9 @@ export function CourseLibrary({ courses: initialCourses, initialTotal, initialFa
         </div>
       </section>
 
-      {creating && <form className="panel workflow-form" onSubmit={createCourse}><div className="panel-heading"><div><h2>Create CourseTrack course</h2><p>This creates an application-owned projection with no LMS identity.</p></div><button type="button" className="icon-action" aria-label="Cancel course creation" onClick={() => setCreating(false)}><X size={18} /></button></div><div className="form-grid"><label>Course code<input name="courseCode" required minLength={2} /></label><label>Title<input name="title" required minLength={3} /></label><label>Short title<input name="shortTitle" /></label><label>Primary vertical<select name="primaryVertical" required>{verticalOptions.map((value) => <option key={value}>{value}</option>)}</select></label><label>Lifecycle<select name="lifecycleStatus" defaultValue="In Development">{["Published", "Under Maintenance", "Internal Review", "In Development", "Scheduled for Revamp", "Retired", "Archived"].map((value) => <option key={value}>{value}</option>)}</select></label><label>Publication status<input name="publicationStatus" defaultValue="Draft" required /></label><label className="form-span">Description<textarea name="description" maxLength={5000} /></label></div>{createError && <p className="taxonomy-editor-error" role="alert">{createError}</p>}<div className="button-row"><button type="button" className="button button-secondary" onClick={() => setCreating(false)}>Cancel</button><button className="button button-primary" disabled={createPending}>{createPending ? "Creating…" : "Create course"}</button></div></form>}
+      {creating && <form className="panel workflow-form" onSubmit={createCourse}><div className="panel-heading"><div><h2>Create CourseTrack course</h2><p>This creates an application-owned course with no LMS link.</p></div><button type="button" className="icon-action" aria-label="Cancel course creation" onClick={() => setCreating(false)}><X size={18} /></button></div><div className="form-grid"><label>Course code<input name="courseCode" required minLength={2} /></label><label>Title<input name="title" required minLength={3} /></label><label>Short title<input name="shortTitle" /></label><label>Verticals<select name="verticals" multiple size={4}>{verticalOptions.map((value) => <option key={value}>{value}</option>)}</select><small>Select any that apply; leave empty for no vertical.</small></label><label>Lifecycle<select name="lifecycleStatus" defaultValue="In Development">{["Published", "Under Maintenance", "Internal Review", "In Development", "Scheduled for Revamp", "Retired", "Archived"].map((value) => <option key={value}>{value}</option>)}</select></label><label>Publication status<input name="publicationStatus" defaultValue="Draft" required /></label><label className="form-span">Description<textarea name="description" maxLength={5000} /></label></div>{createError && <p className="taxonomy-editor-error" role="alert">{createError}</p>}<div className="button-row"><button type="button" className="button button-secondary" onClick={() => setCreating(false)}>Cancel</button><button className="button button-primary" disabled={createPending}>{createPending ? "Creating…" : "Create course"}</button></div></form>}
 
       {favoriteError && <div className="inline-alert alert-danger" role="alert">{favoriteError}</div>}
-
-      <div className="source-banner">
-        <div className="source-banner-icon">S</div>
-        <div>
-          <strong>Immutable sources, editable projection</strong>
-          <span>
-            Uploaded workbook values are retained as source history. Authorized edits are stored separately in CourseTrack.
-          </span>
-        </div>
-        <StatusBadge tone="info">Uploaded</StatusBadge>
-      </div>
 
       <section className="library-toolbar">
         <div className="library-search">
@@ -474,11 +481,17 @@ export function CourseLibrary({ courses: initialCourses, initialTotal, initialFa
             aria-label="Filter by vertical"
           >
             <option>All verticals</option>
+            <option>No vertical</option>
             {verticals.map((item) => (
               <option key={item} value={item}>
                 {getVerticalLabel(item)}
               </option>
             ))}
+          </select>
+          <select value={lmsLink} onChange={(event) => { setLmsLink(event.target.value as LmsLinkFilter); setPageIndex(0); }} aria-label="Filter by LMS link status">
+            <option value="All LMS links">All LMS links</option>
+            <option value="linked">LMS linked</option>
+            <option value="not_linked">Not LMS linked</option>
           </select>
           <select
             value={lifecycle}
@@ -489,15 +502,7 @@ export function CourseLibrary({ courses: initialCourses, initialTotal, initialFa
             aria-label="Filter by lifecycle status"
           >
             <option>All statuses</option>
-            {[
-              "Published",
-              "Under Maintenance",
-              "Internal Review",
-              "In Development",
-              "Scheduled for Revamp",
-              "Retired",
-              "Archived",
-            ].map((item) => (
+            {LIFECYCLE_FILTERS.slice(1).map((item) => (
               <option key={item}>{item}</option>
             ))}
           </select>
@@ -510,7 +515,7 @@ export function CourseLibrary({ courses: initialCourses, initialTotal, initialFa
             aria-label="Filter by portfolio health"
           >
             <option>All health levels</option>
-            {["Healthy", "Monitor", "Needs Review", "At Risk", "Critical"].map(
+            {HEALTH_FILTERS.slice(1).map(
               (item) => (
                 <option key={item}>{item}</option>
               ),
@@ -542,9 +547,7 @@ export function CourseLibrary({ courses: initialCourses, initialTotal, initialFa
         <span>Source work queues</span>
         {[
           "Missing Content Metadata",
-          "Missing from LMS",
           "Field conflicts",
-          "Mapping required",
           "Invalid import records",
           "Stale LMS data",
         ].map((queue) => (
@@ -616,10 +619,8 @@ export function CourseLibrary({ courses: initialCourses, initialTotal, initialFa
                     <th aria-label="Favorites" />
                     {headerGroup.headers.map((header) => (
                       <th key={header.id} data-column={header.column.id}>
-                        <button
-                          className={
-                            header.column.getCanSort() ? "sortable-header" : ""
-                          }
+                        {header.column.getCanSort() ? <button
+                          className="sortable-header"
                           onClick={header.column.getToggleSortingHandler()}
                         >
                           {flexRender(
@@ -631,7 +632,7 @@ export function CourseLibrary({ courses: initialCourses, initialTotal, initialFa
                             : header.column.getIsSorted() === "desc"
                               ? " ↓"
                               : ""}
-                        </button>
+                        </button> : <span>{flexRender(header.column.columnDef.header, header.getContext())}</span>}
                       </th>
                     ))}
                     <th className="mobile-row-details" aria-label="Hidden course details" />
@@ -715,13 +716,13 @@ export function CourseLibrary({ courses: initialCourses, initialTotal, initialFa
                   <span>{course.retrievalStatus}</span>
                 </div>
                 <div className="course-card-badges">
-                  <StatusBadge>{course.reconciliationStatus}</StatusBadge>
+                  <StatusBadge tone={course.lmsLinkStatus === "linked" ? "success" : "neutral"}>{course.lmsLinkStatus === "linked" ? "LMS linked" : "Not LMS linked"}</StatusBadge>
                   <StatusBadge>{course.healthStatus}</StatusBadge>
                 </div>
                 <LmsLinkActions backendLink={course.backendLink} frontendLink={course.frontendLink} courseName={course.title} compact showUnavailable={false} />
                 <div className="course-card-footer">
                   <span>
-                    {getVerticalLabel(course.primaryVertical)} · {course.topicAssignments[0]?.topic ?? "No topic"}
+                    {course.verticals.map(getVerticalLabel).join(", ") || "No vertical"} · {course.topicAssignments[0]?.topic ?? "No topic"}
                   </span>
                   <span>
                     {course.conflictCount > 0
@@ -748,9 +749,10 @@ export function CourseLibrary({ courses: initialCourses, initialTotal, initialFa
         {courses.length > 0 && (
           <div className="pagination-row">
             <span>
-              Page {pageIndex + 1} of {Math.max(1, Math.ceil(total / 25))}
+              Page {pageIndex + 1} of {Math.max(1, Math.ceil(total / pageSize))}
             </span>
             <div>
+              <label className="page-size-control">Rows per page<select aria-label="Rows per page" value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPageIndex(0); }}>{PAGE_SIZES.map((size) => <option key={size} value={size}>{size}</option>)}</select></label>
               <button
                 onClick={() => setPageIndex((value) => Math.max(0, value - 1))}
                 disabled={pageIndex === 0 || loading}
@@ -760,7 +762,7 @@ export function CourseLibrary({ courses: initialCourses, initialTotal, initialFa
               </button>
               <button
                 onClick={() => setPageIndex((value) => value + 1)}
-                disabled={(pageIndex + 1) * 25 >= total || loading}
+                disabled={(pageIndex + 1) * pageSize >= total || loading}
                 aria-label="Next page"
               >
                 <ChevronRight size={17} />

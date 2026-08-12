@@ -8,14 +8,12 @@ import {
   CircleGauge,
   Database,
   Flag,
-  GitCompareArrows,
   ListChecks,
   MapPinned,
   RefreshCw,
   ShieldCheck,
 } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
   Bar,
   BarChart,
@@ -28,14 +26,10 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import {
-  getVerticalLabel,
-  type RetrievalRun,
-  type Vertical,
-  verticals,
-} from "@/types/course";
+import { type RetrievalRun } from "@/types/course";
 import type { DashboardSnapshot } from "@/db";
 import { StatusBadge } from "../status-badge";
+import { TablePagination, useLocalTablePagination } from "../table-pagination";
 
 const healthColors: Record<string, string> = {
   Healthy: "#84C341",
@@ -62,9 +56,9 @@ function buildMetricCards(metrics: DashboardSnapshot["metrics"]) {
       tone: "teal",
     },
     {
-      label: "Unclassified",
-      value: metrics.unclassified,
-      detail: "Awaiting portfolio decision",
+      label: "Unmanaged",
+      value: metrics.unmanaged,
+      detail: "Outside the managed portfolio",
       icon: AlertTriangle,
       tone: "amber",
     },
@@ -76,10 +70,10 @@ function buildMetricCards(metrics: DashboardSnapshot["metrics"]) {
       tone: "red",
     },
     {
-      label: "Missing from LMS",
-      value: metrics.missingFromLms,
-      detail: "Content Metadata-only records",
-      icon: GitCompareArrows,
+      label: "Not LMS linked",
+      value: metrics.notLmsLinked,
+      detail: "Valid courses without a current LMS snapshot",
+      icon: Database,
       tone: "slate",
     },
     {
@@ -117,21 +111,16 @@ export function Dashboard({
   snapshot,
   retrievalRuns,
   firstName,
-  selectedVertical,
+  userId,
 }: {
   snapshot: DashboardSnapshot;
   retrievalRuns: RetrievalRun[];
   firstName: string;
-  selectedVertical: Vertical | "All verticals";
+  userId: string;
 }) {
-  const router = useRouter();
   const today = new Date().toISOString().slice(0, 10);
   const metricCards = buildMetricCards(snapshot.metrics);
-  const updateFilters = (vertical: Vertical | "All verticals") => {
-    const params = new URLSearchParams();
-    if (vertical !== "All verticals") params.set("vertical", vertical);
-    router.replace(params.size ? `/?${params}` : "/");
-  };
+  const retrievalPagination = useLocalTablePagination(retrievalRuns, `coursetrack:${userId}:table:dashboard-retrievals`);
 
   return (
     <div className="page-stack">
@@ -145,19 +134,6 @@ export function Dashboard({
           </p>
         </div>
         <div className="heading-actions">
-          <select
-            className="select-control"
-            value={selectedVertical}
-            onChange={(event) => updateFilters(event.target.value as Vertical | "All verticals")}
-            aria-label="Filter dashboard by vertical"
-          >
-            <option>All verticals</option>
-            {verticals.map((vertical) => (
-              <option key={vertical} value={vertical}>
-                {getVerticalLabel(vertical)}
-              </option>
-            ))}
-          </select>
           <button
             className="button button-secondary"
             disabled
@@ -200,11 +176,13 @@ export function Dashboard({
           <div className="panel-heading">
             <div>
               <h2>Courses by vertical</h2>
-              <p>Current portfolio distribution</p>
+              <p>{snapshot.coursesInView} unique managed courses · {snapshot.verticalMemberships} memberships</p>
             </div>
-            <Link href="/courses">
-              View library <ArrowRight size={15} />
-            </Link>
+            <div className="heading-actions">
+              <Link href="/courses?classification=Unmanaged" className="status-badge status-warning">Unmanaged {snapshot.metrics.unmanaged}</Link>
+              <Link href="/courses?classification=Lexipol+Managed&vertical=No+vertical" className="status-badge status-neutral">Unclassified {snapshot.metrics.verticalUnclassified}</Link>
+              <Link href="/courses">View library <ArrowRight size={15} /></Link>
+            </div>
           </div>
           <div className="chart-frame chart-wide" aria-label="Bar chart of courses by vertical">
             <ResponsiveContainer width="100%" height="100%">
@@ -233,7 +211,7 @@ export function Dashboard({
               <h2>Portfolio health</h2>
               <p>{snapshot.coursesInView} courses in view</p>
             </div>
-            <CircleGauge size={20} className="panel-icon" />
+            <div className="heading-actions"><Link href="/courses?classification=Unmanaged" className="status-badge status-warning">Unmanaged {snapshot.metrics.unmanaged}</Link><CircleGauge size={20} className="panel-icon" /></div>
           </div>
           <div className="donut-layout">
             <div className="chart-frame chart-donut" aria-label="Donut chart of portfolio health">
@@ -279,7 +257,7 @@ export function Dashboard({
               <h2>Review queue</h2>
               <p>Nearest and overdue review dates</p>
             </div>
-            <CalendarClock size={20} className="panel-icon" />
+            <div className="heading-actions"><Link href="/courses?classification=Unmanaged" className="status-badge status-warning">Unmanaged {snapshot.metrics.unmanaged}</Link><CalendarClock size={20} className="panel-icon" /></div>
           </div>
           <div className="action-list">
             {snapshot.reviewQueue.map((course) => (
@@ -287,7 +265,7 @@ export function Dashboard({
                 <div>
                   <strong>{course.title}</strong>
                   <small>
-                    {course.primaryVertical} · {course.owner ?? "No owner"}
+                    {course.verticals.join(", ") || "No vertical"} · {course.owner ?? "No owner"}
                   </small>
                 </div>
                 <span>
@@ -309,7 +287,7 @@ export function Dashboard({
               <h2>Courses needing attention</h2>
               <p>Risk, flags, and missing metadata</p>
             </div>
-            <AlertTriangle size={20} className="panel-icon panel-icon-danger" />
+            <div className="heading-actions"><Link href="/courses?classification=Unmanaged" className="status-badge status-warning">Unmanaged {snapshot.metrics.unmanaged}</Link><AlertTriangle size={20} className="panel-icon panel-icon-danger" /></div>
           </div>
           <div className="action-list">
             {snapshot.riskQueue.map((course) => (
@@ -354,7 +332,7 @@ export function Dashboard({
             </thead>
             <tbody>
               {retrievalRuns.length === 0 && <tr><td colSpan={6}>No LMS retrievals have been recorded.</td></tr>}
-              {retrievalRuns.map((run) => (
+              {retrievalPagination.pageItems.map((run) => (
                 <tr key={run.id}>
                   <td className="mono-cell">{run.id}</td>
                   <td>{run.provider}</td>
@@ -369,6 +347,7 @@ export function Dashboard({
             </tbody>
           </table>
         </div>
+        <TablePagination page={retrievalPagination.page} pageSize={retrievalPagination.pageSize} total={retrievalRuns.length} onPageChange={retrievalPagination.setPage} onPageSizeChange={retrievalPagination.setPageSize} noun="runs" />
       </section>
     </div>
   );

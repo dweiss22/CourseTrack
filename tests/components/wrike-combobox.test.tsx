@@ -70,6 +70,19 @@ describe("Wrike Task Link combobox", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("renders through a body portal and restores trigger focus when Escape closes it", async () => {
+    const user = userEvent.setup(); vi.stubGlobal("fetch", vi.fn());
+    render(<div data-testid="host"><WrikeTaskLinkControl version={version} canManage onReferencesChange={vi.fn()} /></div>);
+    const trigger = screen.getByRole("button", { name: "Link Wrike task" });
+    await user.click(trigger);
+    const dialog = screen.getByRole("dialog", { name: "Link Wrike task" });
+    expect(dialog.parentElement).toBe(document.body);
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Link Wrike task" })).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
   it("labels the reporting year, falls back to a neutral value, and never renders raw custom-field ids", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(searchResponse([candidate, candidateWithoutYear, legacyCandidate])));
     const user = userEvent.setup();

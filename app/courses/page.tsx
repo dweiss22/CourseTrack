@@ -20,7 +20,7 @@ export default async function CourseLibraryPage() {
   const [page, favoriteCourseIds, preferences] = await withServerOperation(
     { route: "/courses", operation: "load course library" },
     () => Promise.all([
-      getCourseLibraryPage({ page: 1, pageSize: 25, classification: "All courses" }),
+      getCourseLibraryPage({ page: 1, pageSize: 25, classification: "Lexipol Managed" }),
       getFavoriteCourseIds(auth.userId),
       getCourseLibraryPreferences(auth.userId),
     ]),
@@ -32,9 +32,9 @@ export default async function CourseLibraryPage() {
     courseCode: course.courseCode,
     lmsCourseId: course.lmsCourseId,
     description: course.description,
-    primaryVertical: course.primaryVertical,
+    verticals: course.verticals,
     managementClassification: course.managementClassification,
-    reconciliationStatus: course.reconciliationStatus,
+    lmsLinkStatus: course.lmsLinkStatus,
     retrievalStatus: course.retrievalStatus,
     lastRetrievedAt: course.lastRetrievedAt,
     conflictCount: course.conflictCount,
@@ -52,5 +52,5 @@ export default async function CourseLibraryPage() {
     backendLink: course.backendLink,
     frontendLink: course.frontendLink,
   }));
-  return <CourseLibrary courses={records} initialTotal={page.total} initialFavoriteIds={favoriteCourseIds} initialPreferences={preferences} canEdit={["super_admin", "admin", "content"].includes(auth.role)} />;
+  return <CourseLibrary courses={records} initialTotal={page.total} initialFavoriteIds={favoriteCourseIds} initialPreferences={preferences} canEdit={["super_admin", "admin", "content"].includes(auth.role)} userId={auth.userId} />;
 }

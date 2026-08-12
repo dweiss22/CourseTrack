@@ -40,8 +40,7 @@ test("LMS and CourseTrack workbooks reproduce the accepted import baseline", wor
   );
   assert.ok(multiSiteLmsOnly, "the three-site LMS example exists in the source baseline");
   assert.equal(multiSiteLmsOnly.projection.managementClassification, "Unclassified");
-  assert.equal(multiSiteLmsOnly.projection.primaryVertical, "Unclassified");
-  assert.deepEqual(multiSiteLmsOnly.projection.secondaryVerticals, []);
+  assert.deepEqual(multiSiteLmsOnly.projection.verticals, [], "an unmanaged course has zero vertical memberships");
   assert.ok(multiSiteLmsOnly.course.lms.normalized.mappedVerticals.length >= 3, "site availability remains on the LMS snapshot");
   assert.equal(projectionFor(multiSiteLmsOnly.course, {
     management_classification: "Lexipol managed",
@@ -64,6 +63,9 @@ test("LMS and CourseTrack workbooks reproduce the accepted import baseline", wor
 test("apply importer performs field-level merges and uses immutable source fingerprints", async () => {
   const source = await import("node:fs/promises").then(({ readFile }) => readFile("scripts/import-course-workbooks.mjs", "utf8"));
   assert.match(source, /field_provenance/);
+  assert.match(source, /relationship_type: "applicable"/);
+  assert.match(source, /verticalMemberships/);
+  assert.doesNotMatch(source, /relationship_type: "secondary"/);
   assert.match(source, /keepOverride/);
   assert.doesNotMatch(source, /if \(existing\?\.has_manual_overrides\) continue/);
   assert.match(source, /onConflict: "lms_course_id"/);

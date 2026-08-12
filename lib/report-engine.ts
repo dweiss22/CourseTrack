@@ -3,7 +3,7 @@ import type { Course } from "@/types/course";
 import type { ReportColumn, ReportDefinition, ReportFilter, ReportResult, ReportTemplate } from "@/types/reports";
 
 export const REPORT_DATASETS = {
-  courses: columns(["courseCode", "Course code", "text"], ["title", "Course title", "text"], ["primaryVertical", "Primary vertical", "text"], ["managementClassification", "Management", "text"], ["publicationStatus", "Publication", "text"], ["healthStatus", "Health", "text"]),
+  courses: columns(["courseCode", "Course code", "text"], ["title", "Course title", "text"], ["verticals", "Verticals", "text"], ["managementClassification", "Management", "text"], ["publicationStatus", "Publication", "text"], ["healthStatus", "Health", "text"]),
   health: columns(["courseCode", "Course code", "text"], ["title", "Course title", "text"], ["healthStatus", "Health", "text"], ["healthScore", "Score", "number"], ["metadataCompletenessScore", "Metadata completeness", "number"], ["conflictCount", "Unresolved discrepancies", "number"], ["importValidationErrorCount", "Import validation errors", "number"]),
   accreditation: columns(["courseCode", "Course code", "text"], ["title", "Course title", "text"], ["organization", "Organization", "text"], ["jurisdiction", "Jurisdiction", "text"], ["status", "Status", "text"], ["expirationDate", "Expiration date", "date"], ["riskReasons", "Risk reasons", "text"]),
   reviews: columns(["courseCode", "Course code", "text"], ["title", "Course title", "text"], ["nextReviewDate", "Review date", "date"], ["reviewState", "Review state", "text"], ["owner", "Owner", "text"]),
@@ -18,7 +18,7 @@ function columns(...items: Array<[string, string, ReportColumn["dataType"]]>): R
 }
 
 export const REPORT_TEMPLATES: ReportTemplate[] = [
-  template("course-inventory", "Course inventory", "Complete course portfolio and publication context.", "courses", ["courseCode", "title", "primaryVertical", "managementClassification", "publicationStatus", "healthStatus"], [], [{ field: "title", direction: "asc" }]),
+  template("course-inventory", "Course inventory", "Complete course portfolio and publication context.", "courses", ["courseCode", "title", "verticals", "managementClassification", "publicationStatus", "healthStatus"], [], [{ field: "title", direction: "asc" }]),
   template("course-health", "Course health", "Canonical health score, factors, and status.", "health", ["courseCode", "title", "healthStatus", "healthScore", "metadataCompletenessScore", "conflictCount", "importValidationErrorCount"], [], [{ field: "healthScore", direction: "asc" }]),
   template("accreditation-risk-expiration", "Accreditation risk and expiration", "Accreditation status, risk, and expiration dates.", "accreditation", ["courseCode", "title", "organization", "jurisdiction", "status", "expirationDate", "riskReasons"], [], [{ field: "expirationDate", direction: "asc" }]),
   { ...template("courses-due-review", "Courses due for review", "Courses with review dates grouped by overdue, current, and future.", "reviews", ["courseCode", "title", "nextReviewDate", "reviewState", "owner"], [{ field: "nextReviewDate", operator: "not_empty" }], [{ field: "nextReviewDate", direction: "asc" }]), group: { field: "reviewState" } },
@@ -49,6 +49,41 @@ export const reportInputSchema = z.object({
   group: z.object({ field: z.string().min(1).max(80) }).strict().nullable(),
   expectedUpdatedAt: z.string().datetime().optional(),
 }).strict();
+
+type PersistedReportDefinition = Pick<
+  ReportDefinition,
+  "dataset" | "columns" | "filters" | "sort" | "group"
+>;
+
+/**
+ * Keeps saved reports created before a report-field rename readable. Persisted
+ * definitions are migrated in memory and will be stored in the current shape
+ * the next time a user saves them.
+ */
+export function migrateLegacyReportDefinition(
+  definition: PersistedReportDefinition,
+): PersistedReportDefinition {
+  if (definition.dataset !== "courses") return definition;
+
+  const migrateField = (field: string) =>
+    field === "primaryVertical" ? "verticals" : field;
+
+  return {
+    ...definition,
+    columns: Array.from(new Set(definition.columns.map(migrateField))),
+    filters: definition.filters.map((filter) => ({
+      ...filter,
+      field: migrateField(filter.field),
+    })),
+    sort: definition.sort.map((sort) => ({
+      ...sort,
+      field: migrateField(sort.field),
+    })),
+    group: definition.group
+      ? { ...definition.group, field: migrateField(definition.group.field) }
+      : null,
+  };
+}
 
 export function validateReportDefinition(input: z.infer<typeof reportInputSchema>) {
   const registry = REPORT_DATASETS[input.dataset];
@@ -99,7 +134,7 @@ function datasetRows(dataset: ReportDefinition["dataset"], courses: Course[]): A
   return courses.flatMap((course) => course.fieldComparisons.map((item) => ({ courseCode: course.courseCode, courseTitle: course.title, fieldLabel: item.fieldLabel, lmsValue: printable(item.lmsNormalizedValue), courseTrackValue: printable(item.selectedSource ? item.resolvedValue : item.contentMetadataNormalizedValue), comparisonStatus: item.selectedSource && item.comparisonStatus === "Conflict" ? "Resolved discrepancy" : item.comparisonStatus === "Conflict" ? "Discrepancy" : item.comparisonStatus, resolvedBy: item.resolvedBy })));
 }
 
-function pickCourse(course: Course) { return { courseCode: course.courseCode, title: course.title, primaryVertical: course.primaryVertical, managementClassification: course.managementClassification === "Lexipol managed" ? "Lexipol Managed" : course.managementClassification, publicationStatus: course.publicationStatus, healthStatus: course.healthStatus }; }
+function pickCourse(course: Course) { return { courseCode: course.courseCode, title: course.title, verticals: course.verticals.join(", "), managementClassification: course.managementClassification === "Lexipol managed" ? "Lexipol Managed" : "Unmanaged", publicationStatus: course.publicationStatus, healthStatus: course.healthStatus }; }
 function printable(value: unknown) { return value == null ? "" : typeof value === "object" ? JSON.stringify(value) : String(value); }
 function compare(left: unknown, right: unknown) { return String(left ?? "").localeCompare(String(right ?? ""), undefined, { numeric: true }); }
 function applies(value: unknown, filter: ReportFilter): boolean {

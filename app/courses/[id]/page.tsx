@@ -54,6 +54,7 @@ export default async function CourseDetailPage({
       isAdministrator={["super_admin", "admin"].includes(authContext.role)}
       lmsAuthorityMode={lmsAuthorityMode}
       assignees={assignees}
+      userId={authContext.userId}
     />
   );
 }

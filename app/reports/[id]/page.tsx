@@ -10,5 +10,5 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
   if (!report) notFound();
   if (report.archivedAt && report.ownerId !== actor.userId && !["admin", "super_admin"].includes(actor.role)) notFound();
   const canEdit = !report.immutable && (report.ownerId === actor.userId || ["admin", "super_admin"].includes(actor.role));
-  return <ReportViewer initialReport={report} canEdit={canEdit} isAdmin={["admin", "super_admin"].includes(actor.role)} />;
+  return <ReportViewer initialReport={report} canEdit={canEdit} isAdmin={["admin", "super_admin"].includes(actor.role)} userId={actor.userId} />;
 }

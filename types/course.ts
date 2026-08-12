@@ -7,7 +7,6 @@ export const verticals = [
   "LGU",
   "Lexipol",
   "Wellness",
-  "Unclassified",
 ] as const;
 
 export type Vertical = (typeof verticals)[number];
@@ -21,7 +20,6 @@ export const verticalNames: Record<Vertical, string> = {
   LGU: "Local Government University",
   Lexipol: "Internal employee LMS",
   Wellness: "Course content for the Wellness app",
-  Unclassified: "No uploaded metadata or CourseTrack vertical assignment",
 };
 
 export function getVerticalLabel(vertical: Vertical): string {
@@ -39,7 +37,7 @@ export type ManagementClassification =
 export const managementClassificationFilters = [
   "All courses",
   "Lexipol Managed",
-  "Unclassified",
+  "Unmanaged",
 ] as const;
 
 export type ManagementClassificationFilter =
@@ -56,6 +54,8 @@ export const reconciliationStatuses = [
 
 export type ReconciliationStatus =
   (typeof reconciliationStatuses)[number];
+
+export type LmsLinkStatus = "linked" | "not_linked";
 
 export type ComparisonStatus =
   | "Match"
@@ -232,7 +232,6 @@ export interface VerticalAssignment {
   source: "LMS Site availability" | "Content Metadata" | "CourseTrack";
   kind: "membership" | "availability";
   sourceValue: string;
-  isPrimary: boolean;
 }
 
 export interface CourseRelationship {
@@ -547,13 +546,12 @@ export interface Course {
   lmsCourseId: string | null;
   managementClassification: ManagementClassification;
   monitoringEnabled: boolean;
-  reconciliationStatus: ReconciliationStatus;
+  lmsLinkStatus: LmsLinkStatus;
   title: string;
   shortTitle: string;
   description: string;
   learningAudience: string;
-  primaryVertical: Vertical;
-  secondaryVerticals: Vertical[];
+  verticals: Vertical[];
   primaryTopic: string;
   tags: string[];
   lifecycleStatus: LifecycleStatus;
@@ -620,8 +618,7 @@ export interface CourseProjectionUpdate {
   shortTitle: string;
   description: string;
   learningAudience: string;
-  primaryVertical: Vertical;
-  secondaryVerticals: Vertical[];
+  verticals: Vertical[];
   primaryTopic: string;
   managementClassification: ManagementClassification;
   monitoringEnabled: boolean;

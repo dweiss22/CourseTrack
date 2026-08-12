@@ -20,6 +20,7 @@ import {
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { TablePagination, useLocalTablePagination } from "@/components/table-pagination";
 import type { AuthContext } from "@/lib/auth";
 import { APPLICATION_ROLES, type ApplicationRole } from "@/lib/roles";
 import { accreditationRiskLabels, assessAccreditationHistory } from "@/lib/accreditation-grouping";
@@ -123,7 +124,7 @@ const accreditationColumnLabels: Record<(typeof accreditationOptionalColumns)[nu
   effective: "Effective", expiration: "Expiration", source: "Source",
 };
 
-export function AccreditationWorkspace({ entries, initialPreferences, canRestore, page, total, authorityMode }: { entries: AccreditationBoardEntry[]; initialPreferences: AccreditationTablePreferences; canRestore: boolean; page: number; total: number; authorityMode: "workbook" | "api" }) {
+export function AccreditationWorkspace({ entries, initialPreferences, canRestore, page, pageSize, total, authorityMode, userId }: { entries: AccreditationBoardEntry[]; initialPreferences: AccreditationTablePreferences; canRestore: boolean; page: number; pageSize: number; total: number; authorityMode: "workbook" | "api"; userId: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [risk, setRisk] = useState(searchParams.get("risk") ?? "");
@@ -141,11 +142,18 @@ export function AccreditationWorkspace({ entries, initialPreferences, canRestore
   const archivedEntries = entries.filter((entry) => entry.record.archivedAt);
 
   useEffect(() => {
+    if (searchParams.has("pageSize")) return;
+    try { const saved = JSON.parse(sessionStorage.getItem(`coursetrack:${userId}:table:accreditation`) ?? "{}") as { page?: number; pageSize?: number }; if ([25,50,100,200].includes(saved.pageSize ?? 0)) router.replace(`/accreditation?page=${saved.page ?? 1}&pageSize=${saved.pageSize}`); } catch { /* Ignore invalid state. */ }
+  }, [router, searchParams, userId]);
+  useEffect(() => { sessionStorage.setItem(`coursetrack:${userId}:table:accreditation`, JSON.stringify({ page, pageSize })); }, [page, pageSize, userId]);
+
+  useEffect(() => {
     const params = new URLSearchParams();
     if (page > 1) params.set("page", String(page));
+    params.set("pageSize", String(pageSize));
     if (risk) params.set("risk", risk); if (organization) params.set("organization", organization); if (jurisdiction) params.set("jurisdiction", jurisdiction); if (query) params.set("course", query); if (sort !== "urgency") params.set("sort", sort);
     router.replace(params.size ? `/accreditation?${params}` : "/accreditation", { scroll: false });
-  }, [jurisdiction, organization, page, query, risk, router, sort]);
+  }, [jurisdiction, organization, page, pageSize, query, risk, router, sort]);
 
   const assessedCourses = useMemo(() => {
     const byCourse = new Map<string, AccreditationBoardEntry[]>();
@@ -202,7 +210,7 @@ export function AccreditationWorkspace({ entries, initialPreferences, canRestore
       {activeFilters.length > 0 && <div className="filter-chips" aria-label="Active filters">{activeFilters.map(([label, value]) => <span key={label}>{label}: {value}</span>)}<button onClick={clearFilters}>Clear all</button></div>}
       {visible.length === 0 ? <div className="empty-state"><Award size={24} /><h3>No matching courses</h3><p>Clear filters or add a record.</p></div> : <div className="table-scroll"><table className="data-table accreditation-table"><thead><tr><th>Course</th><th>Risk</th>{show("organization") && <th>Organization</th>}{show("jurisdiction") && <th>Jurisdiction</th>}{show("status") && <th>Status</th>}{show("historyRole") && <th>History Role</th>}{show("effective") && <th>Effective</th>}{show("expiration") && <th>Expiration</th>}{show("source") && <th>Source</th>}<th className="actions-column">Actions</th></tr></thead><tbody>{visible.flatMap((item) => { const open = expandedCourse === item.course.courseId; const current = item.currentRecords; const colSpan = 3 + visibleColumns.length; return [<tr key={item.course.courseId}><td><Link className="table-link" href={`/courses/${item.course.courseId}`}>{item.course.courseTitle}</Link></td><td><StatusBadge tone={item.isAtRisk ? "danger" : "success"}>{item.isAtRisk ? accreditationRiskLabels[item.riskState] : "Current"}</StatusBadge></td>{show("organization") && <td>{item.groups.map((group) => group.organization).join(", ")}</td>}{show("jurisdiction") && <td>{item.groups.map((group) => group.jurisdiction).join(", ")}</td>}{show("status") && <td>{current.map((record) => record.record.status).join(", ") || "Future only"}</td>}{show("historyRole") && <td>{item.groups.length} group{item.groups.length === 1 ? "" : "s"}</td>}{show("effective") && <td>{current.map((record) => record.record.effectiveDate ?? "Undated").join(", ") || "Not effective"}</td>}{show("expiration") && <td>{item.expiration ?? "Undated"}</td>}{show("source") && <td>{Array.from(new Set(item.entries.map((entry) => entry.record.source))).join(", ")}</td>}<td><button aria-expanded={open} onClick={() => setExpandedCourse(open ? null : item.course.courseId)}>{open ? "Hide" : "Review"}</button></td></tr>, <tr key={`${item.course.courseId}-details`} className={`accreditation-details-row ${open ? "is-open" : ""}`}><td colSpan={colSpan}>{open && <div className="accreditation-inline-history">{item.groups.map((group) => <section key={group.key}><h3>{group.organization} · {group.jurisdiction}</h3><table><thead><tr><th>Status</th><th>History role</th><th>Effective</th><th>Expiration</th><th>Source</th><th>Actions</th></tr></thead><tbody>{[group.summary, ...group.history].map((assessed) => { const entry = item.entries.find(({ record }) => record.id === assessed.record.id)!; const sourceLocked = authorityMode === "api" && assessed.record.sourceDomain === "lms"; return <tr key={assessed.record.id}><td>{assessed.record.status}</td><td>{assessed.historyRole}</td><td>{assessed.record.effectiveDate ?? "Undated"}</td><td>{assessed.record.expirationDate ?? "Undated"}</td><td>{assessed.record.source}</td><td><div className="table-actions"><button onClick={() => setEditing(entry)}>Edit status / credits{!sourceLocked ? " / fields" : ""}</button>{!sourceLocked && <button disabled={pending} onClick={() => archiveRecord(entry)}>Archive</button>}</div></td></tr>; })}</tbody></table></section>)}</div>}</td></tr>]; })}</tbody></table></div>}
     </section>
-    <div className="pagination-bar"><Link className={`button button-secondary ${page <= 1 ? "is-disabled" : ""}`} aria-disabled={page <= 1} href={page <= 1 ? "/accreditation" : `/accreditation?page=${page - 1}`}>Previous</Link><span>Page {page} of {Math.max(1, Math.ceil(total / 100))} · {total.toLocaleString()} records</span><Link className={`button button-secondary ${page * 100 >= total ? "is-disabled" : ""}`} aria-disabled={page * 100 >= total} href={page * 100 >= total ? `/accreditation?page=${page}` : `/accreditation?page=${page + 1}`}>Next</Link></div>
+    <div className="pagination-bar"><Link className={`button button-secondary ${page <= 1 ? "is-disabled" : ""}`} aria-disabled={page <= 1} href={page <= 1 ? `/accreditation?pageSize=${pageSize}` : `/accreditation?page=${page - 1}&pageSize=${pageSize}`}>Previous</Link><span>Page {page} of {Math.max(1, Math.ceil(total / pageSize))} · {total.toLocaleString()} records</span><label className="page-size-control">Rows per page<select aria-label="Rows per page" value={pageSize} onChange={(event) => router.push(`/accreditation?page=1&pageSize=${event.target.value}`)}>{[25,50,100,200].map((size) => <option key={size}>{size}</option>)}</select></label><Link className={`button button-secondary ${page * pageSize >= total ? "is-disabled" : ""}`} aria-disabled={page * pageSize >= total} href={page * pageSize >= total ? `/accreditation?page=${page}&pageSize=${pageSize}` : `/accreditation?page=${page + 1}&pageSize=${pageSize}`}>Next</Link></div>
   </WorkspaceFrame>;
 }
 
@@ -278,19 +286,7 @@ function VersionsWorkspaceLegacy({
       eyebrow="Lifecycle workspace"
       title="Versions"
       description="Create and maintain the authoritative course-version history inside CourseTrack."
-      action={<StatusBadge tone="success">CourseTrack controlled</StatusBadge>}
     >
-      <section className="version-governance-banner">
-        <ShieldCheck size={22} />
-        <div>
-          <strong>CourseTrack is the version system of record</strong>
-          <span>
-            LMS versioning is not exposed to this app, so CourseTrack never infers,
-            imports, or reconciles LMS version numbers. Wrike tasks provide work
-            context only and never control the version number.
-          </span>
-        </div>
-      </section>
       <MetricStrip
         metrics={[
           ["Version records", String(versions.length), "Historical records retained"],
@@ -434,8 +430,9 @@ void VersionsWorkspaceLegacy;
 
 const versionsColumnLabels: Record<(typeof versionsOptionalColumns)[number], string> = { status: "Status", published: "Published", type: "Type", authoring: "Authoring", standard: "Standard" };
 
-export function VersionsWorkspace({ entries, initialPreferences, canRestore, page, total }: { entries: VersionBoardEntry[]; initialPreferences: VersionsTablePreferences; canRestore: boolean; page: number; total: number }) {
+export function VersionsWorkspace({ entries, initialPreferences, canRestore, page, pageSize, total, userId }: { entries: VersionBoardEntry[]; initialPreferences: VersionsTablePreferences; canRestore: boolean; page: number; pageSize: number; total: number; userId: string }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [showArchived, setShowArchived] = useState(false);
   const versions = entries.filter((entry) => showArchived ? Boolean(entry.version.archivedAt) : !entry.version.archivedAt).sort((a, b) => b.version.publicationDate.localeCompare(a.version.publicationDate) || b.version.id.localeCompare(a.version.id));
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -443,6 +440,11 @@ export function VersionsWorkspace({ entries, initialPreferences, canRestore, pag
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState("");
   const [visibleColumns, setVisibleColumns] = useState(initialPreferences.visibleColumns);
+  useEffect(() => {
+    if (searchParams.has("pageSize")) return;
+    try { const saved = JSON.parse(sessionStorage.getItem(`coursetrack:${userId}:table:versions`) ?? "{}") as { page?: number; pageSize?: number }; if ([25,50,100,200].includes(saved.pageSize ?? 0)) router.replace(`/versions?page=${saved.page ?? 1}&pageSize=${saved.pageSize}`); } catch { /* Ignore invalid state. */ }
+  }, [router, searchParams, userId]);
+  useEffect(() => { sessionStorage.setItem(`coursetrack:${userId}:table:versions`, JSON.stringify({ page, pageSize })); }, [page, pageSize, userId]);
   const show = (column: (typeof versionsOptionalColumns)[number]) => visibleColumns.includes(column);
   const saveColumns = async (next: VersionsTablePreferences["visibleColumns"]) => {
     setVisibleColumns(next);
@@ -506,7 +508,6 @@ export function VersionsWorkspace({ entries, initialPreferences, canRestore, pag
   return (
     <WorkspaceFrame eyebrow="Lifecycle workspace" title="Versions" description="Create and maintain authoritative course-version history inside CourseTrack."
       action={<button className="button button-primary" onClick={() => setEditing("new")}>New version</button>}>
-      <section className="version-governance-banner"><ShieldCheck size={22} /><div><strong>One current version per course</strong><span>Changing the current version supersedes the previous current record. History is archived, never deleted.</span></div></section>
       <MetricStrip metrics={[["Version records", String(versions.length), "Active historical records"], ["Current versions", String(versions.filter(({ version }) => version.isCurrent).length), "One per course"], ["Drafts", String(versions.filter(({ version }) => version.versionStatus === "Draft").length), "Not published"], ["Published", String(versions.filter(({ version }) => version.versionStatus === "Published").length), "Published records"]]} />
       {message && <div className="inline-alert" role="status"><ShieldCheck size={17} /><span>{message}</span></div>}
       {editor}
@@ -520,7 +521,7 @@ export function VersionsWorkspace({ entries, initialPreferences, canRestore, pag
           <div className="version-card-list">{versions.map((entry) => <article className="version-card" key={entry.version.id}><div><Link href={`/courses/${entry.course.courseId}`}>{entry.course.courseTitle}</Link>{entry.version.archivedAt ? <StatusBadge>Archived</StatusBadge> : entry.version.isCurrent ? <StatusBadge tone="success">Current</StatusBadge> : <StatusBadge>{entry.version.versionStatus}</StatusBadge>}</div><strong>v{entry.version.versionNumber}</strong><span>{entry.version.publicationDate}</span><dl><div><dt>Type</dt><dd>{entry.version.versionType}</dd></div><div><dt>Authoring</dt><dd>{entry.version.authoringTool || "Not set"}</dd></div><div><dt>Standard</dt><dd>{entry.version.packageStandard || "Not set"}</dd></div><div><dt>Release notes</dt><dd>{entry.version.releaseNotes || "None"}</dd></div></dl><div className="table-actions">{!entry.version.archivedAt && <button onClick={() => setEditing(entry)}>Edit</button>}{!entry.version.archivedAt && <button disabled={pending || entry.version.isCurrent} onClick={() => archiveVersion(entry)}>Archive</button>}{entry.version.archivedAt && canRestore && <button disabled={pending} onClick={() => void restoreVersion(entry)}>Restore</button>}</div></article>)}</div>
         </>}
       </section>
-      <div className="pagination-bar"><Link className={`button button-secondary ${page <= 1 ? "is-disabled" : ""}`} aria-disabled={page <= 1} href={page <= 1 ? "/versions" : `/versions?page=${page - 1}`}>Previous</Link><span>Page {page} of {Math.max(1, Math.ceil(total / 100))} · {total.toLocaleString()} versions</span><Link className={`button button-secondary ${page * 100 >= total ? "is-disabled" : ""}`} aria-disabled={page * 100 >= total} href={page * 100 >= total ? `/versions?page=${page}` : `/versions?page=${page + 1}`}>Next</Link></div>
+      <div className="pagination-bar"><Link className={`button button-secondary ${page <= 1 ? "is-disabled" : ""}`} aria-disabled={page <= 1} href={page <= 1 ? `/versions?pageSize=${pageSize}` : `/versions?page=${page - 1}&pageSize=${pageSize}`}>Previous</Link><span>Page {page} of {Math.max(1, Math.ceil(total / pageSize))} · {total.toLocaleString()} versions</span><label className="page-size-control">Rows per page<select aria-label="Rows per page" value={pageSize} onChange={(event) => router.push(`/versions?page=1&pageSize=${event.target.value}`)}>{[25,50,100,200].map((size) => <option key={size}>{size}</option>)}</select></label><Link className={`button button-secondary ${page * pageSize >= total ? "is-disabled" : ""}`} aria-disabled={page * pageSize >= total} href={page * pageSize >= total ? `/versions?page=${page}&pageSize=${pageSize}` : `/versions?page=${page + 1}&pageSize=${pageSize}`}>Next</Link></div>
     </WorkspaceFrame>
   );
 }
@@ -556,7 +557,7 @@ function RevampWorkspaceLegacy({ entries }: { entries: RevampBoardEntry[] }) {
                   <Link href={`/courses/${course.courseId}`} className="kanban-card" key={proposal.id}>
                     <div><StatusBadge tone={proposal.priority === "High" ? "warning" : "neutral"}>{proposal.priority}</StatusBadge><span>Score {proposal.score}</span></div>
                     <strong>{proposal.title}</strong>
-                    <p>{course.primaryVertical}</p>
+                    <p>{course.verticals.join(", ") || "No vertical"}</p>
                     <small>Target {proposal.targetPublicationDate ?? "not scheduled"}</small>
                   </Link>
                 ))
@@ -787,14 +788,17 @@ export function AdminWorkspace({
   mappingSummary,
   wrikeConnection,
   wrikeSync,
+  userId,
 }: {
   retrievalRuns: RetrievalRun[];
   mappingSummary: IntegrationMappingSummary;
   wrikeConnection: WrikeConnectionSummary;
   wrikeSync: WrikeSyncStatus;
+  userId: string;
 }) {
   const [activeTab, setActiveTab] = useState("LMS provider");
   const tabs = ["LMS provider", "Wrike provider", "Integration Mapping", "Users & roles", "Retrieval history"];
+  const retrievalPagination = useLocalTablePagination(retrievalRuns, `coursetrack:${userId}:table:admin-retrievals`);
 
   return (
     <WorkspaceFrame
@@ -825,10 +829,10 @@ export function AdminWorkspace({
             </>
           )}
           {activeTab === "Wrike provider" && (
-            <WrikeConnectionPanel initialConnection={wrikeConnection} initialSync={wrikeSync} />
+            <WrikeConnectionPanel initialConnection={wrikeConnection} initialSync={wrikeSync} userId={userId} />
           )}
           {activeTab === "Integration Mapping" && (
-            <IntegrationMappingPanel summary={mappingSummary} onRetry={() => setActiveTab("Wrike provider")} />
+            <IntegrationMappingPanel summary={mappingSummary} onRetry={() => setActiveTab("Wrike provider")} userId={userId} />
           )}
           {activeTab === "Users & roles" && (
             <>
@@ -839,7 +843,8 @@ export function AdminWorkspace({
           {activeTab === "Retrieval history" && (
             <>
               <div className="panel-heading"><div><h2>Retrieval history</h2><p>Immutable record of read-only LMS retrieval attempts</p></div></div>
-              <div className="table-scroll"><table className="data-table"><thead><tr><th>Run</th><th>Status</th><th>Requested</th><th>Received</th><th>Failed</th><th>Message</th></tr></thead><tbody>{retrievalRuns.length === 0 && <tr><td colSpan={6}>No retrieval attempts have been recorded.</td></tr>}{retrievalRuns.map((run) => <tr key={run.id}><td className="mono-cell">{run.id}</td><td><StatusBadge>{run.status}</StatusBadge></td><td>{run.recordsRequested}</td><td>{run.recordsReceived}</td><td>{run.recordsFailed}</td><td>{run.message}</td></tr>)}</tbody></table></div>
+              <div className="table-scroll"><table className="data-table"><thead><tr><th>Run</th><th>Status</th><th>Requested</th><th>Received</th><th>Failed</th><th>Message</th></tr></thead><tbody>{retrievalRuns.length === 0 && <tr><td colSpan={6}>No retrieval attempts have been recorded.</td></tr>}{retrievalPagination.pageItems.map((run) => <tr key={run.id}><td className="mono-cell">{run.id}</td><td><StatusBadge>{run.status}</StatusBadge></td><td>{run.recordsRequested}</td><td>{run.recordsReceived}</td><td>{run.recordsFailed}</td><td>{run.message}</td></tr>)}</tbody></table></div>
+              <TablePagination page={retrievalPagination.page} pageSize={retrievalPagination.pageSize} total={retrievalRuns.length} onPageChange={retrievalPagination.setPage} onPageSizeChange={retrievalPagination.setPageSize} noun="runs" />
             </>
           )}
         </section>
@@ -848,14 +853,15 @@ export function AdminWorkspace({
   );
 }
 
-function MappingTable({ mappings }: { mappings: IntegrationMappingSummary["uploaded"]["mappings"] }) {
-  return <div className="table-scroll"><table className="data-table integration-mapping-table"><thead><tr><th>Source field</th><th>CourseTrack field</th><th>Requirement</th><th>Transformation</th><th>Access</th></tr></thead><tbody>{mappings.map((mapping) => <tr key={`${mapping.source}-${mapping.target}`}><td>{mapping.source}</td><td className="mono-cell">{mapping.target}</td><td>{mapping.required ? "Required" : "Optional"}</td><td>{mapping.transformation ?? "Direct"}</td><td>{mapping.readOnly ? "Read-only" : "Application-managed"}</td></tr>)}</tbody></table></div>;
+function MappingTable({ mappings, userId }: { mappings: IntegrationMappingSummary["uploaded"]["mappings"]; userId: string }) {
+  const pagination = useLocalTablePagination(mappings, `coursetrack:${userId}:table:mapping:${mappings[0]?.source ?? "empty"}`);
+  return <><div className="table-scroll"><table className="data-table integration-mapping-table"><thead><tr><th>Source field</th><th>CourseTrack field</th><th>Requirement</th><th>Transformation</th><th>Access</th></tr></thead><tbody>{pagination.pageItems.map((mapping) => <tr key={`${mapping.source}-${mapping.target}`}><td>{mapping.source}</td><td className="mono-cell">{mapping.target}</td><td>{mapping.required ? "Required" : "Optional"}</td><td>{mapping.transformation ?? "Direct"}</td><td>{mapping.readOnly ? "Read-only" : "Application-managed"}</td></tr>)}</tbody></table></div><TablePagination page={pagination.page} pageSize={pagination.pageSize} total={mappings.length} onPageChange={pagination.setPage} onPageSizeChange={pagination.setPageSize} /></>;
 }
 
-function IntegrationMappingPanel({ summary, onRetry }: { summary: IntegrationMappingSummary; onRetry: () => void }) {
+function IntegrationMappingPanel({ summary, onRetry, userId }: { summary: IntegrationMappingSummary; onRetry: () => void; userId: string }) {
   return <div className="integration-mapping-stack">
-    <section><div className="panel-heading"><div><h2>Uploaded data mapping</h2><p>Latest real import mapping and immutable source provenance</p></div><StatusBadge tone="info">{summary.uploaded.provenance}</StatusBadge></div><div className="configuration-grid"><ConfigRow label="Source workbook" value={summary.uploaded.sourceFilename ?? "No completed import"} /><ConfigRow label="Imported" value={summary.uploaded.importedAt ?? "Not available"} /><ConfigRow label="Status" value={summary.uploaded.status ?? "Not available"} /><ConfigRow label="Warnings / validation errors" value={`${summary.uploaded.warnings} / ${summary.uploaded.validationErrors}`} /></div><MappingTable mappings={summary.uploaded.mappings} /><div className="mapping-field-lists"><div><strong>Ignored fields</strong><p>{summary.uploaded.ignoredFields.join(", ") || "None"}</p></div><div><strong>Unmapped raw fields</strong><p>{summary.uploaded.unmappedRawFields.join(", ") || "None"}</p></div></div></section>
-    <section><div className="panel-heading"><div><h2>Wrike task mapping</h2><p>GET-only normalized task, contact, date, and folder/project index</p></div><StatusBadge tone="success">{summary.wrike.provenance}</StatusBadge></div><div className="configuration-grid"><ConfigRow label="Indexed active tasks" value={summary.wrike.taskCount.toLocaleString()} /><ConfigRow label="Indexed contacts" value={summary.wrike.contactCount.toLocaleString()} /><ConfigRow label="Indexed folders/projects" value={summary.wrike.folderCount.toLocaleString()} /><ConfigRow label="Last run" value={summary.wrike.lastRunAt ? `${summary.wrike.lastRunStatus} · ${summary.wrike.lastRunAt}` : "Never synchronized"} /></div><MappingTable mappings={summary.wrike.mappings} /><div className="mapping-field-lists"><div><strong>Approved folders</strong><p>{summary.wrike.approvedFolders.join(", ") || "None configured"}</p></div><div><strong>Ignored raw fields</strong><p>{summary.wrike.ignoredFields.join(", ")}</p></div></div>{summary.wrike.warnings.map((warning) => <div className="inline-alert alert-danger" key={warning}>{warning}</div>)}<button className="button button-secondary" onClick={onRetry}>{summary.wrike.currentRun ? "View current run" : "Review connection or retry sync"}</button></section>
+    <section><div className="panel-heading"><div><h2>Uploaded data mapping</h2><p>Latest real import mapping and immutable source provenance</p></div><StatusBadge tone="info">{summary.uploaded.provenance}</StatusBadge></div><div className="configuration-grid"><ConfigRow label="Source workbook" value={summary.uploaded.sourceFilename ?? "No completed import"} /><ConfigRow label="Imported" value={summary.uploaded.importedAt ?? "Not available"} /><ConfigRow label="Status" value={summary.uploaded.status ?? "Not available"} /><ConfigRow label="Warnings / validation errors" value={`${summary.uploaded.warnings} / ${summary.uploaded.validationErrors}`} /></div><MappingTable mappings={summary.uploaded.mappings} userId={userId} /><div className="mapping-field-lists"><div><strong>Ignored fields</strong><p>{summary.uploaded.ignoredFields.join(", ") || "None"}</p></div><div><strong>Unmapped raw fields</strong><p>{summary.uploaded.unmappedRawFields.join(", ") || "None"}</p></div></div></section>
+    <section><div className="panel-heading"><div><h2>Wrike task mapping</h2><p>GET-only normalized task, contact, date, and folder/project index</p></div><StatusBadge tone="success">{summary.wrike.provenance}</StatusBadge></div><div className="configuration-grid"><ConfigRow label="Indexed active tasks" value={summary.wrike.taskCount.toLocaleString()} /><ConfigRow label="Indexed contacts" value={summary.wrike.contactCount.toLocaleString()} /><ConfigRow label="Indexed folders/projects" value={summary.wrike.folderCount.toLocaleString()} /><ConfigRow label="Last run" value={summary.wrike.lastRunAt ? `${summary.wrike.lastRunStatus} · ${summary.wrike.lastRunAt}` : "Never synchronized"} /></div><MappingTable mappings={summary.wrike.mappings} userId={userId} /><div className="mapping-field-lists"><div><strong>Approved folders</strong><p>{summary.wrike.approvedFolders.join(", ") || "None configured"}</p></div><div><strong>Ignored raw fields</strong><p>{summary.wrike.ignoredFields.join(", ")}</p></div></div>{summary.wrike.warnings.map((warning) => <div className="inline-alert alert-danger" key={warning}>{warning}</div>)}<button className="button button-secondary" onClick={onRetry}>{summary.wrike.currentRun ? "View current run" : "Review connection or retry sync"}</button></section>
     <section><div className="panel-heading"><div><h2>Future LMS API mapping</h2><p>No provider mapping is shown until real documentation and endpoint contracts are configured.</p></div><StatusBadge tone="neutral">{summary.lms.status}</StatusBadge></div><div className="configuration-grid"><ConfigRow label="Connection" value={summary.lms.status} /><ConfigRow label="Last retrieval" value={summary.lms.lastRetrievedAt ?? "Never"} /><ConfigRow label="Provenance" value={summary.lms.provenance ?? "Not available until connected"} /><ConfigRow label="Mapped fields" value={String(summary.lms.mappings.length)} /></div>{summary.lms.warnings.map((warning) => <div className="readonly-callout" key={warning}><ShieldCheck size={18} /><span><strong>Configuration required</strong>{warning}</span></div>)}</section>
   </div>;
 }
@@ -863,12 +869,15 @@ function IntegrationMappingPanel({ summary, onRetry }: { summary: IntegrationMap
 function WrikeConnectionPanel({
   initialConnection,
   initialSync,
+  userId,
 }: {
   initialConnection: WrikeConnectionSummary;
   initialSync: WrikeSyncStatus;
+  userId: string;
 }) {
   const [connection, setConnection] = useState(initialConnection);
   const [sync, setSync] = useState(initialSync);
+  const folderPagination = useLocalTablePagination(sync.folders, `coursetrack:${userId}:table:wrike-folders`);
   const [token, setToken] = useState("");
   const [pending, setPending] = useState(false);
   const [feedback, setFeedback] = useState<{
@@ -1065,7 +1074,7 @@ function WrikeConnectionPanel({
             </tr>
           </thead>
           <tbody>
-            {sync.folders.map((folder) => (
+            {folderPagination.pageItems.map((folder) => (
               <tr key={folder.folderId}>
                 <td>{folder.name}</td>
                 <td>{folder.enabled ? "Yes" : "No"}</td>
@@ -1077,6 +1086,7 @@ function WrikeConnectionPanel({
           </tbody>
         </table>
       </div>
+      <TablePagination page={folderPagination.page} pageSize={folderPagination.pageSize} total={sync.folders.length} onPageChange={folderPagination.setPage} onPageSizeChange={folderPagination.setPageSize} noun="folders" />
     </div>
   );
 }
@@ -1489,6 +1499,7 @@ export function UserManagementWorkspace({
   const visibleUsers = users.filter(
     (user) => (!roleFilter || user.role === roleFilter) && (!statusFilter || user.accountStatus === statusFilter),
   );
+  const userPagination = useLocalTablePagination(visibleUsers, `coursetrack:${currentUserId}:table:users`);
 
   const handleAddUser = async (event: FormEvent) => {
     event.preventDefault();
@@ -1703,7 +1714,7 @@ export function UserManagementWorkspace({
               </tr>
             </thead>
             <tbody>
-              {visibleUsers.map((user) => {
+              {userPagination.pageItems.map((user) => {
                 const editable = canActOn(user);
                 const isProtectedSuperAdmin = user.role === "super_admin";
                 return (
@@ -1788,6 +1799,7 @@ export function UserManagementWorkspace({
             </tbody>
           </table>
         </div>
+        <TablePagination page={userPagination.page} pageSize={userPagination.pageSize} total={visibleUsers.length} onPageChange={userPagination.setPage} onPageSizeChange={userPagination.setPageSize} noun="users" />
       </section>
     </WorkspaceFrame>
   );

@@ -63,6 +63,19 @@ test("equivalent records retain the newest audit row as canonical", () => {
   assert.equal(group.history.find((item) => item.record.id === "older").historyRole, "duplicate");
 });
 
+test("an archived duplicate cannot displace an active record", () => {
+  const group = assess([
+    record("active", { updatedAt: "2026-04-01T00:00:00.000Z" }),
+    record("archived", {
+      updatedAt: "2026-05-01T00:00:00.000Z",
+      archivedAt: "2026-05-01T00:00:00.000Z",
+    }),
+  ]);
+  assert.equal(group.current.record.id, "active");
+  assert.equal(group.summary.record.id, "active");
+  assert.equal(group.history.find((item) => item.record.id === "archived").historyRole, "superseded");
+});
+
 test("organization and jurisdiction whitespace and case normalize into one group", () => {
   const groups = assessAccreditationHistory([
     record("one", { organization: " State   POST ", jurisdiction: " TEXAS " }),

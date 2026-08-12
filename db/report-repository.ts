@@ -1,6 +1,6 @@
 import { getSupabaseAdminClient } from "@/lib/supabase-server";
 import type { AuthContext } from "@/lib/auth";
-import { prebuiltDefinition, REPORT_TEMPLATES, validateReportDefinition } from "@/lib/report-engine";
+import { migrateLegacyReportDefinition, prebuiltDefinition, REPORT_TEMPLATES, validateReportDefinition } from "@/lib/report-engine";
 import type { ReportDefinition } from "@/types/reports";
 
 type Row = Record<string, unknown>;
@@ -13,7 +13,8 @@ function database() {
 
 function mapSaved(row: Row, ownerName: string | null): ReportDefinition {
   const definition = row.definition as Omit<ReportDefinition, "id" | "name" | "ownerId" | "ownerName" | "sourceTemplateId" | "immutable" | "createdAt" | "updatedAt" | "archivedAt">;
-  const validated = validateReportDefinition({ name: String(row.name), sourceTemplateId: row.source_template_key ? String(row.source_template_key) : null, dataset: definition.dataset, columns: definition.columns, filters: definition.filters, sort: definition.sort, group: definition.group });
+  const migrated = migrateLegacyReportDefinition(definition);
+  const validated = validateReportDefinition({ name: String(row.name), sourceTemplateId: row.source_template_key ? String(row.source_template_key) : null, dataset: migrated.dataset, columns: migrated.columns, filters: migrated.filters, sort: migrated.sort, group: migrated.group });
   return {
     id: String(row.id), name: String(row.name), ownerId: String(row.owner_id), ownerName,
     sourceTemplateId: row.source_template_key ? String(row.source_template_key) : null,
