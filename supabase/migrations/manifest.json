@@ -28,6 +28,7 @@
     { "version": "202608130001", "file": "202608130001_course_library_search_index_courses.sql", "sha256": "b463457cecee988cb364c4af60c460c26cbd2c28b3e68521035efd9af0fab1ae" },
     { "version": "202608130002", "file": "202608130002_course_library_search_index_tags.sql", "sha256": "6a65bba3ad7c48b955681f0bfd70c38e2e3671de1ba945f214e61826ba4e475e" },
     { "version": "202608130003", "file": "202608130003_course_library_search_index_topics.sql", "sha256": "b7fb3c20eb38c33ea3c9b6219f924070eb10c35cf4c1f5aa4e28c0486cf7dbe5" },
-    { "version": "202608130004", "file": "202608130004_course_library_search_perf.sql", "sha256": "c6238fcab5ab99f8c38a6624fee6e94b631cc32fb526faf5fc0400e2b60bdfa6" }
+    { "version": "202608130004", "file": "202608130004_course_library_search_perf.sql", "sha256": "c6238fcab5ab99f8c38a6624fee6e94b631cc32fb526faf5fc0400e2b60bdfa6" },
+    { "version": "202608130005", "file": "202608130005_course_library_search_paginate_before_aggregate.sql", "sha256": "0e4cd1151edec939b5111cbfea68255eb52b9ac335df48722193063b04955a16" }
   ]
 }
