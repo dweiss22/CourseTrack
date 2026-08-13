@@ -42,7 +42,7 @@ import type {
   AccreditationHistoryGroup,
   TaskCalloutActor,
 } from "@/types/course";
-import { managementClassifications, provenanceLabels, verticals } from "@/types/course";
+import { authoringTools, contentTypes, managementClassifications, provenanceLabels, updateTypes, verticals } from "@/types/course";
 import type { WrikeTaskCandidate } from "@/db";
 import { StatusBadge } from "../status-badge";
 import { HealthAboutDialog } from "../health-about-dialog";
@@ -357,17 +357,17 @@ export function CourseDetail({
               <div className="course-summary-health-detail">
                 <div>
                   <StatusBadge>{currentCourse.healthStatus}</StatusBadge>
-                  <strong>{currentCourse.metadataCompletenessScore}% complete</strong>
+                  <strong>{currentCourse.healthScore}/100</strong>
                 </div>
                 <div
                   className="progress-track"
                   role="progressbar"
-                  aria-label="Metadata completeness"
+                  aria-label="Course health score"
                   aria-valuemin={0}
                   aria-valuemax={100}
-                  aria-valuenow={currentCourse.metadataCompletenessScore}
+                  aria-valuenow={currentCourse.healthScore}
                 >
-                  <span style={{ width: `${currentCourse.metadataCompletenessScore}%` }} />
+                  <span className={`health-${currentCourse.healthStatus.toLowerCase().replaceAll(" ", "-")}`} style={{ width: `${currentCourse.healthScore}%` }} />
                 </div>
               </div>
             </div>
@@ -380,7 +380,17 @@ export function CourseDetail({
             <dl className="course-summary-facts">
               <div><dt>Owner</dt><dd>{currentCourse.owner ?? "Unassigned"}</dd></div>
               <div><dt>Designer</dt><dd>{currentCourse.instructionalDesigner ?? "Unassigned"}</dd></div>
-              <div><dt>Next review</dt><dd>{currentCourse.nextReviewDate ?? "Not scheduled"}</dd></div>
+              <div>
+                <dt>Next review</dt>
+                <dd>
+                  {currentCourse.nextReviewDate ? (
+                    <>
+                      {currentCourse.nextReviewDate}
+                      {currentCourse.nextReviewDate < new Date().toISOString().slice(0, 10) && <StatusBadge tone="danger">Overdue</StatusBadge>}
+                    </>
+                  ) : "Not scheduled"}
+                </dd>
+              </div>
             </dl>
           </article>
 
@@ -465,15 +475,15 @@ export function CourseDetail({
               <label className="form-field form-field-wide"><span>Learning audience</span><textarea value={form.learningAudience} onChange={(event) => updateForm("learningAudience", event.target.value)} maxLength={500} /></label>
             </fieldset>
             <fieldset><legend>Course metadata</legend>
-              <label className="form-field"><span>Content type</span><input value={form.contentType} onChange={(event) => updateForm("contentType", event.target.value)} /></label>
+              <label className="form-field"><span>Content type</span><select value={form.contentType} onChange={(event) => updateForm("contentType", event.target.value)}><option value="">Not supplied</option>{selectOptions(contentTypes, form.contentType)}</select></label>
               <label className="form-field"><span>Duration (minutes)</span><input type="number" min={0} value={form.durationMinutes ?? ""} onChange={(event) => updateForm("durationMinutes", event.target.value === "" ? null : Number(event.target.value))} /></label>
               <label className="form-field"><span>Training credit amount</span><input type="number" min={0} step="0.01" value={form.trainingCredits.amount ?? ""} onChange={(event) => updateForm("trainingCredits", { ...form.trainingCredits, amount: event.target.value === "" ? null : Number(event.target.value) })} /></label>
               <label className="form-field"><span>Training credit unit</span><input value={form.trainingCredits.unit ?? ""} onChange={(event) => updateForm("trainingCredits", { ...form.trainingCredits, unit: event.target.value || null })} placeholder="hours or minutes" /></label>
               <label className="form-field"><span>Publication status</span><select value={form.publicationStatus} onChange={(event) => updateForm("publicationStatus", event.target.value as ProjectionForm["publicationStatus"])}>{publicationStatuses.map((value) => <option key={value}>{value}</option>)}</select></label>
               <label className="form-field"><span>Published in LMS</span><select value={form.published === null ? "unknown" : form.published ? "yes" : "no"} onChange={(event) => updateForm("published", event.target.value === "unknown" ? null : event.target.value === "yes")}><option value="unknown">Not supplied</option><option value="yes">Published</option><option value="no">Not published</option></select></label>
               <label className="form-field"><span>Publication date</span><input type="date" value={form.publishedDate} onChange={(event) => updateForm("publishedDate", event.target.value)} /></label>
-              <label className="form-field"><span>Authoring tool</span><input value={form.authoringTool} onChange={(event) => updateForm("authoringTool", event.target.value)} /></label>
-              <label className="form-field"><span>Content update type</span><input value={form.updateType} onChange={(event) => updateForm("updateType", event.target.value)} /></label>
+              <label className="form-field"><span>Authoring tool</span><select value={form.authoringTool} onChange={(event) => updateForm("authoringTool", event.target.value)}><option value="">Not supplied</option>{selectOptions(authoringTools, form.authoringTool)}</select></label>
+              <label className="form-field"><span>Content update type</span><select value={form.updateType} onChange={(event) => updateForm("updateType", event.target.value)}><option value="">Not supplied</option>{selectOptions(updateTypes, form.updateType)}</select></label>
               <label className="form-field"><span>Content updated</span><input type="date" value={form.contentUpdatedAt} onChange={(event) => updateForm("contentUpdatedAt", event.target.value)} /></label>
               <label className="form-field"><span>Backend URL</span><input type="url" value={form.backendLink} onChange={(event) => updateForm("backendLink", event.target.value)} /></label>
               <label className="form-field"><span>Frontend URL</span><input type="url" value={form.frontendLink} onChange={(event) => updateForm("frontendLink", event.target.value)} /></label>
@@ -483,7 +493,7 @@ export function CourseDetail({
               <label className="form-field"><span>Verticals</span><select multiple value={form.verticals} onChange={(event) => updateForm("verticals", Array.from(event.currentTarget.selectedOptions, (option) => option.value) as ProjectionForm["verticals"])}>{verticals.map((value) => <option key={value}>{value}</option>)}</select></label>
               <label className="form-field"><span>Primary topic</span><input value={form.primaryTopic} onChange={(event) => updateForm("primaryTopic", event.target.value)} /></label>
               <label className="form-field"><span>Management classification</span><select value={form.managementClassification} disabled={Boolean(currentCourse.contentMetadata)} onChange={(event) => updateForm("managementClassification", event.target.value as ProjectionForm["managementClassification"])}>{managementClassifications.map((value) => <option key={value} value={value}>{managementLabel(value)}</option>)}</select>{currentCourse.contentMetadata && <small>Managed by the current uploaded master metadata record.</small>}</label>
-              <label className="form-field checkbox-field"><input type="checkbox" checked={form.monitoringEnabled} onChange={(event) => updateForm("monitoringEnabled", event.target.checked)} /><span>Monitoring enabled</span></label>
+              <label className="form-field checkbox-field toggle-switch"><input type="checkbox" checked={form.monitoringEnabled} onChange={(event) => updateForm("monitoringEnabled", event.target.checked)} /><span className="toggle-track" aria-hidden="true" /><span>Monitoring enabled</span></label>
               <label className="form-field"><span>Lifecycle</span><select value={form.lifecycleStatus} onChange={(event) => updateForm("lifecycleStatus", event.target.value as ProjectionForm["lifecycleStatus"])}>{editableLifecycleStatuses.map((value) => <option key={value}>{value}</option>)}</select></label>
               <label className="form-field"><span>Owner</span><input value={form.owner} onChange={(event) => updateForm("owner", event.target.value)} /></label>
               <label className="form-field"><span>Instructional designer</span><input value={form.instructionalDesigner} onChange={(event) => updateForm("instructionalDesigner", event.target.value)} /></label>
@@ -549,8 +559,14 @@ type InlineCourseField = {
   label: string;
   lmsKey?: string;
   multiline?: boolean;
-  kind?: "text" | "number" | "date" | "boolean" | "verticals" | "credits";
+  kind?: "text" | "number" | "date" | "boolean" | "verticals" | "credits" | "select";
+  options?: readonly string[];
 };
+
+function selectOptions(options: readonly string[], currentValue?: string) {
+  const all = currentValue && !options.includes(currentValue) ? [...options, currentValue] : options;
+  return all.map((value) => <option key={value} value={value}>{value}</option>);
+}
 
 const inlineCourseFields: InlineCourseField[] = [
   { field: "courseCode", label: "Course code" }, { field: "title", label: "Course name", lmsKey: "courseName" },
@@ -558,15 +574,15 @@ const inlineCourseFields: InlineCourseField[] = [
   { field: "learningAudience", label: "Learning audience", multiline: true }, { field: "verticals", label: "Verticals", kind: "verticals" },
   { field: "primaryTopic", label: "Topic" }, { field: "managementClassification", label: "Management" },
   { field: "monitoringEnabled", label: "Monitoring enabled", kind: "boolean" }, { field: "lifecycleStatus", label: "Lifecycle" },
-  { field: "publicationStatus", label: "Publication status" }, { field: "contentType", label: "Content type", lmsKey: "contentType" },
+  { field: "publicationStatus", label: "Publication status" }, { field: "contentType", label: "Content type", lmsKey: "contentType", kind: "select", options: contentTypes },
   { field: "durationMinutes", label: "Duration", lmsKey: "durationMinutes", kind: "number" },
   { field: "trainingCredits", label: "Training credits", lmsKey: "trainingCredits", kind: "credits" },
-  { field: "published", label: "Published", lmsKey: "published", kind: "boolean" }, { field: "authoringTool", label: "Authoring tool", lmsKey: "authoringTool" },
+  { field: "published", label: "Published", lmsKey: "published", kind: "boolean" }, { field: "authoringTool", label: "Authoring tool", lmsKey: "authoringTool", kind: "select", options: authoringTools },
   { field: "stateCode", label: "State code" }, { field: "owner", label: "Owner" },
   { field: "instructionalDesigner", label: "Instructional designer" }, { field: "publishedDate", label: "Published date", lmsKey: "publishedDate", kind: "date" },
   { field: "lastMajorRevisionDate", label: "Last major revision", kind: "date" }, { field: "nextReviewDate", label: "Next review", kind: "date" },
   { field: "backendLink", label: "Backend link", lmsKey: "backendLink" }, { field: "frontendLink", label: "Course link", lmsKey: "frontendLink" },
-  { field: "updateType", label: "Update type", lmsKey: "updateType" }, { field: "contentUpdatedAt", label: "Content updated", lmsKey: "contentUpdatedAt", kind: "date" },
+  { field: "updateType", label: "Update type", lmsKey: "updateType", kind: "select", options: updateTypes }, { field: "contentUpdatedAt", label: "Content updated", lmsKey: "contentUpdatedAt", kind: "date" },
   { field: "contentNotes", label: "Content notes", lmsKey: "notes", multiline: true }, { field: "internalSummary", label: "Internal summary", multiline: true },
 ];
 
@@ -641,10 +657,16 @@ function OverviewTab({ course, onCourseChange, canEdit }: { course: Course; onCo
             const mismatch = comparison && !["In sync", "Manually confirmed"].includes(comparison.alignmentStatus);
             const editable = canEdit && !(definition.field === "managementClassification" && Boolean(course.contentMetadata));
             const isEditing = editingField === definition.field;
+            const overdue = definition.field === "nextReviewDate" && typeof value === "string" && value.length > 0 && value < new Date().toISOString().slice(0, 10);
             return <div className={`inline-field-cell ${mismatch ? "has-mismatch" : ""}`} key={definition.field}>
-              <div className="inline-field-heading"><span>{definition.label}</span>{mismatch && <ComparisonState comparison={comparison} />}</div>
+              <div className="inline-field-heading">
+                <span>{definition.label}</span>
+                {mismatch && <ComparisonState comparison={comparison} />}
+                {!mismatch && overdue && <StatusBadge tone="danger">Overdue</StatusBadge>}
+              </div>
               {isEditing ? <div className="inline-field-editor">
                 {definition.kind === "verticals" ? <select aria-label={`Edit ${definition.label}`} autoFocus multiple value={draft ? draft.split("|") : []} onChange={(event) => setDraft(Array.from(event.currentTarget.selectedOptions, (option) => option.value).join("|"))} onKeyDown={(event) => { if (event.key === "Escape") setEditingField(null); }}>{verticals.map((vertical) => <option key={vertical}>{vertical}</option>)}</select>
+                  : definition.kind === "select" ? <select aria-label={`Edit ${definition.label}`} autoFocus value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setEditingField(null); }}><option value="">Not supplied</option>{selectOptions(definition.options ?? [], draft)}</select>
                   : definition.kind === "boolean" ? <select aria-label={`Edit ${definition.label}`} autoFocus value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setEditingField(null); }}><option value="unknown">Not supplied</option><option value="true">Yes</option><option value="false">No</option></select>
                     : definition.multiline ? <textarea aria-label={`Edit ${definition.label}`} autoFocus value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setEditingField(null); if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); void save(definition); } }} />
                       : <input aria-label={`Edit ${definition.label}`} autoFocus type={definition.kind === "number" || definition.kind === "credits" ? "number" : definition.kind === "date" ? "date" : "text"} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setEditingField(null); if (event.key === "Enter") { event.preventDefault(); void save(definition); } }} />}
@@ -664,6 +686,7 @@ function OverviewTab({ course, onCourseChange, canEdit }: { course: Course; onCo
 function formatSourceValue(value: unknown): string {
   if (value === null || value === undefined || value === "") return "Not supplied";
   if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (Array.isArray(value)) return value.length > 0 ? value.join(", ") : "Not supplied";
   if (typeof value === "object") {
     const credit = value as {
       rawDisplay?: string | null;

@@ -13,7 +13,7 @@ const resolutionSchema = z.object({
     "Clear resolution and review again",
   ]),
   reason: z.string().trim().max(500).nullable().optional(),
-  expectedUpdatedAt: z.string().datetime(),
+  expectedUpdatedAt: z.string().datetime({ offset: true }),
 }).strict();
 
 export async function POST(
