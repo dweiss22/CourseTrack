@@ -262,7 +262,7 @@ export async function getCourseLibraryPage(input: CourseLibraryPageQuery = {}): 
     retrievalStatus: row.retrieval_status as PortfolioSummary["retrievalStatus"], lastRetrievedAt: (row.last_retrieved_at as string) ?? null,
     healthStatus: row.health_status as PortfolioSummary["healthStatus"], lifecycleStatus: row.lifecycle_status as PortfolioSummary["lifecycleStatus"],
     primaryTopic: (row.primary_topic as string) ?? "", tags: (row.tags as string[]) ?? [], owner: (row.owner_name as string) ?? null,
-    durationMinutes: row.duration_minutes === null || row.duration_minutes === undefined ? null : Number(row.duration_minutes), dataSource: row.data_source as PortfolioSummary["dataSource"], nextReviewDate: (row.next_review_date as string) ?? null,
+    durationMinutes: row.duration_minutes === null || row.duration_minutes === undefined ? null : Number(row.duration_minutes), dataSource: row.data_source as PortfolioSummary["dataSource"], updateType: (row.update_type as string) ?? null, nextReviewDate: (row.next_review_date as string) ?? null,
     metadataCompletenessScore: Number(row.metadata_completeness_score ?? 0), conflictCount: Number(row.conflict_count ?? 0), sourceDifferenceCount: Number(row.source_difference_count ?? 0),
     flagCount: Number(row.flag_count ?? 0), hasLmsSnapshot: Boolean(row.has_lms_snapshot), hasContentMetadata: Boolean(row.has_content_metadata),
     importValidationErrorCount: Number(row.import_validation_error_count ?? 0), topicAssignments: ((row.topics as string[]) ?? []).map((topic) => ({ topic })),
