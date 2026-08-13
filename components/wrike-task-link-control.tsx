@@ -37,7 +37,7 @@ export function WrikeTaskLinkControl({ version, canManage, onReferencesChange }:
 
   const close = useCallback(() => {
     setEditing(false); setCandidates([]); setSelected(null);
-    requestAnimationFrame(() => triggerRef.current?.focus());
+    triggerRef.current?.focus();
   }, []);
 
   useEffect(() => {
