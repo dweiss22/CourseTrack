@@ -6123,6 +6123,18 @@ body {
   margin: 10px 0 0;
 }
 
+.course-summary-facts-2col {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.course-summary-facts .link-button {
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+}
+
 .course-summary-facts div {
   min-width: 0;
 }

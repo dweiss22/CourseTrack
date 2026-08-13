@@ -43,9 +43,10 @@ export function HealthAboutDialog({ compact = false }: { compact?: boolean }) {
         </ul>
         <details>
           <summary>Calculation details</summary>
-          <p><code>{`clamp(${HEALTH_SCORING.minimumScore}, ${HEALTH_SCORING.maximumScore}, metadata completeness − ${HEALTH_SCORING.unresolvedConflictPenalty} × unresolved discrepancies − ${HEALTH_SCORING.importValidationErrorPenalty} × import validation errors − ${HEALTH_SCORING.missingLmsSnapshotPenalty} when no current LMS snapshot exists)`}</code></p>
-          <p>Metadata completeness measures whether each of these fields is present:</p>
+          <p><code>{`clamp(${HEALTH_SCORING.minimumScore}, ${HEALTH_SCORING.maximumScore}, ${HEALTH_SCORING.maximumScore} − data completeness penalty − ${HEALTH_SCORING.unresolvedConflictPenalty} × unresolved discrepancies − next-review-overdue penalty)`}</code></p>
+          <p>The data completeness penalty is small: <code>{`round((100 − completeness %) × ${HEALTH_SCORING.dataCompletenessWeight})`}</code>, so missing every field costs about {Math.round(100 * HEALTH_SCORING.dataCompletenessWeight)} points. Completeness measures whether each of these fields is present:</p>
           <ul>{REQUIRED_HEALTH_METADATA_FIELDS.map((field) => <li key={field}>{field}</li>)}</ul>
+          <p>The next-review-overdue penalty is a curve, not a flat number: 0 points a year or more before the next review date, about {HEALTH_SCORING.reviewCycleDueDatePenalty} points right at the due date, then it accelerates the further past due the course goes — reaching a full 100-point penalty (health forced to 0) once a course is {Math.round(HEALTH_SCORING.reviewCycleOverdueCapDays / 365)} or more years overdue.</p>
         </details>
         <form method="dialog" className="dialog-actions"><button className="button button-primary">Close</button></form>
       </dialog>

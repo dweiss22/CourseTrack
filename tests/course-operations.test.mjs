@@ -40,9 +40,8 @@ test("health is canonical across repositories and reports", async () => {
   const [health, courseRepository, reportEngine] = await Promise.all([
     source("lib/health.ts"), source("db/course-repository.ts"), source("lib/report-engine.ts"),
   ]);
-  assert.match(health, /unresolvedConflictPenalty:\s*7/);
-  assert.match(health, /importValidationErrorPenalty:\s*15/);
-  assert.match(health, /missingLmsSnapshotPenalty:\s*10/);
+  assert.match(health, /unresolvedConflictPenalty:\s*10/);
+  assert.match(health, /reviewCycleOverdueCapDays/);
   assert.match(health, /HEALTH_SCORING\.minimumScore/);
   assert.match(courseRepository, /calculateCourseHealth/);
   assert.match(reportEngine, /course\.healthScore/);
