@@ -52,7 +52,9 @@ create or replace function public.search_course_library_v2(
                   when 'ems1' then 'EMS1' when 'd1a' then 'D1A' when 'lgu' then 'LGU'
                   when 'lexipol' then 'Lexipol' when 'wellness' then 'Wellness' end = p_vertical))
       and (coalesce(trim(p_search), '') = '' or (
-        concat_ws(' ', c.title, c.short_title, c.course_code, c.lms_course_id, c.description, c.primary_topic, c.owner_name)
+        (coalesce(c.title, '') || ' ' || coalesce(c.short_title, '') || ' ' || coalesce(c.course_code, '') || ' ' ||
+         coalesce(c.lms_course_id, '') || ' ' || coalesce(c.description, '') || ' ' || coalesce(c.primary_topic, '') || ' ' ||
+         coalesce(c.owner_name, ''))
           ilike '%' || trim(p_search) || '%'
         or exists (
               select 1 from public.course_tags ct join public.tags t on t.id = ct.tag_id
