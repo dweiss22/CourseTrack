@@ -14,15 +14,17 @@ export const HEALTH_SCORING = {
   unresolvedConflictPenalty: 7,
   importValidationErrorPenalty: 15,
   missingLmsSnapshotPenalty: 10,
+  overdueNextReviewPenalty: 10,
 } as const;
 
-export interface HealthFactor { key: "metadata" | "conflicts" | "validation" | "lms"; label: string; detail: string; }
+export interface HealthFactor { key: "metadata" | "conflicts" | "validation" | "lms" | "review"; label: string; detail: string; }
 
 export const HEALTH_FACTORS: readonly HealthFactor[] = [
   { key: "metadata", label: "Metadata completeness", detail: "Starts with the percentage present across the eight required uploaded metadata fields." },
   { key: "conflicts", label: "Unresolved discrepancies", detail: `Subtracts ${HEALTH_SCORING.unresolvedConflictPenalty} points for each unresolved LMS-to-CourseTrack discrepancy.` },
   { key: "validation", label: "Import validation errors", detail: `Subtracts ${HEALTH_SCORING.importValidationErrorPenalty} points for each validation error on the uploaded record.` },
   { key: "lms", label: "Current LMS snapshot", detail: `Subtracts ${HEALTH_SCORING.missingLmsSnapshotPenalty} points when no current read-only LMS snapshot exists.` },
+  { key: "review", label: "Next review overdue", detail: `Subtracts ${HEALTH_SCORING.overdueNextReviewPenalty} points when the next review date has passed.` },
 ] as const;
 
 export const REQUIRED_HEALTH_METADATA_FIELDS = [
@@ -52,6 +54,7 @@ export interface HealthAssessmentInput {
   unresolvedConflictCount: number;
   importValidationErrorCount: number;
   hasCurrentLmsSnapshot: boolean;
+  nextReviewOverdue: boolean;
 }
 
 export interface HealthAssessment {
@@ -61,6 +64,7 @@ export interface HealthAssessment {
     unresolvedConflicts: number;
     importValidationErrors: number;
     missingLmsSnapshot: number;
+    overdueNextReview: number;
   };
 }
 
@@ -101,12 +105,13 @@ export function calculateCourseHealth(input: HealthAssessmentInput): HealthAsses
     unresolvedConflicts: Math.max(0, input.unresolvedConflictCount) * HEALTH_SCORING.unresolvedConflictPenalty,
     importValidationErrors: Math.max(0, input.importValidationErrorCount) * HEALTH_SCORING.importValidationErrorPenalty,
     missingLmsSnapshot: input.hasCurrentLmsSnapshot ? 0 : HEALTH_SCORING.missingLmsSnapshotPenalty,
+    overdueNextReview: input.nextReviewOverdue ? HEALTH_SCORING.overdueNextReviewPenalty : 0,
   };
   const score = Math.max(
     HEALTH_SCORING.minimumScore,
     Math.min(
       HEALTH_SCORING.maximumScore,
-      metadata - deductions.unresolvedConflicts - deductions.importValidationErrors - deductions.missingLmsSnapshot,
+      metadata - deductions.unresolvedConflicts - deductions.importValidationErrors - deductions.missingLmsSnapshot - deductions.overdueNextReview,
     ),
   );
   return { score, status: healthStatusForScore(score), deductions };
