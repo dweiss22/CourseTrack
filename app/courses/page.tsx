@@ -45,6 +45,7 @@ export default async function CourseLibraryPage() {
     owner: course.owner,
     durationMinutes: course.durationMinutes,
     dataSource: course.dataSource,
+    updateType: course.updateType,
     topicAssignments: course.topicAssignments,
     hasLmsSnapshot: course.hasLmsSnapshot,
     hasContentMetadata: course.hasContentMetadata,

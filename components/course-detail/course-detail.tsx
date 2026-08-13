@@ -94,6 +94,39 @@ type ResolutionAction =
   | "Keep Content Team value"
   | "Clear resolution and review again";
 
+function daysBetweenIso(fromIso: string, toIso: string): number {
+  return Math.round((new Date(`${toIso}T00:00:00.000Z`).getTime() - new Date(`${fromIso}T00:00:00.000Z`).getTime()) / 86_400_000);
+}
+
+/** Approximate, human-readable span for a review countdown/overdue display (e.g. "4 months", "2 years"). */
+function formatApproxSpan(days: number): string {
+  const abs = Math.abs(days);
+  if (abs < 60) return `${abs} day${abs === 1 ? "" : "s"}`;
+  if (abs < 365) {
+    const months = Math.round(abs / 30);
+    return `${months} month${months === 1 ? "" : "s"}`;
+  }
+  const years = Math.round((abs / 365) * 10) / 10;
+  return `${years} year${years === 1 ? "" : "s"}`;
+}
+
+interface ReviewCycleStatus { label: string; tone: "neutral" | "warning" | "danger" | "success"; overdue: boolean }
+
+function reviewCycleStatus(nextReviewDate: string | null): ReviewCycleStatus {
+  if (!nextReviewDate) return { label: "Not scheduled", tone: "neutral", overdue: false };
+  const days = daysBetweenIso(new Date().toISOString().slice(0, 10), nextReviewDate);
+  if (days >= 0) {
+    if (days === 0) return { label: "Due today", tone: "warning", overdue: false };
+    return { label: `Next review in ${formatApproxSpan(days)}`, tone: days <= 60 ? "warning" : "success", overdue: false };
+  }
+  const overdueDays = -days;
+  return {
+    label: `${formatApproxSpan(overdueDays)} overdue`,
+    tone: overdueDays > 365 ? "danger" : overdueDays > 180 ? "warning" : "neutral",
+    overdue: true,
+  };
+}
+
 export function CourseDetail({
   course,
   topicSuggestions,
@@ -132,6 +165,13 @@ export function CourseDetail({
   const [retrievalState, setRetrievalState] = useState<
     "idle" | "running" | "success" | "error"
   >("idle");
+
+  const reviewCycle = reviewCycleStatus(currentCourse.nextReviewDate);
+  const accreditationRiskGroups = groupAccreditationRecords(currentCourse.accreditations).filter((group) => group.isAtRisk);
+  const accreditationFlag = accreditationRiskGroups.length === 0 ? null : {
+    label: accreditationRiskGroups.some((group) => group.riskState === "expired") ? "Accreditation expired" : "Accreditation expiring soon",
+    tone: (accreditationRiskGroups.some((group) => group.riskState === "expired") ? "danger" : "warning") as "danger" | "warning",
+  };
 
   const [form, setForm] = useState<ProjectionForm>(() => projectionForm(course));
   const beginEditing = () => { setForm(projectionForm(currentCourse)); setEditing(true); };
@@ -361,12 +401,12 @@ export function CourseDetail({
               <div className="course-summary-health-detail">
                 <div>
                   <StatusBadge>{currentCourse.healthStatus}</StatusBadge>
-                  <strong>{currentCourse.metadataCompletenessScore}% complete</strong>
+                  <strong>{currentCourse.metadataCompletenessScore}% CourseTrack data complete</strong>
                 </div>
                 <div
                   className="progress-track"
                   role="progressbar"
-                  aria-label="Metadata completeness"
+                  aria-label="CourseTrack data completeness"
                   aria-valuemin={0}
                   aria-valuemax={100}
                   aria-valuenow={currentCourse.metadataCompletenessScore}
@@ -379,12 +419,27 @@ export function CourseDetail({
 
           <article className="course-summary-card">
             <div className="course-summary-card-heading">
-              <span><UserRound size={14} aria-hidden="true" /> Ownership & review</span>
+              <span><UserRound size={14} aria-hidden="true" /> Review cycle</span>
             </div>
-            <dl className="course-summary-facts">
-              <div><dt>Owner</dt><dd>{currentCourse.owner ?? "Unassigned"}</dd></div>
-              <div><dt>Designer</dt><dd>{currentCourse.instructionalDesigner ?? "Unassigned"}</dd></div>
-              <div><dt>Next review</dt><dd>{currentCourse.nextReviewDate ?? "Not scheduled"}</dd></div>
+            <dl className="course-summary-facts course-summary-facts-2col">
+              <div>
+                <dt>Next review</dt>
+                <dd>
+                  <StatusBadge tone={reviewCycle.tone}>{reviewCycle.label}</StatusBadge>
+                </dd>
+              </div>
+              <div>
+                <dt>Accreditation</dt>
+                <dd>
+                  {accreditationFlag ? (
+                    <button type="button" className="link-button" onClick={() => setActiveTab("Accreditation")}>
+                      <StatusBadge tone={accreditationFlag.tone}>{accreditationFlag.label}</StatusBadge>
+                    </button>
+                  ) : (
+                    <StatusBadge tone="success">No accreditation risk</StatusBadge>
+                  )}
+                </dd>
+              </div>
             </dl>
           </article>
 
@@ -682,7 +737,7 @@ function OverviewTab({ course, onCourseChange, canEdit, onNavigateToTopics }: { 
   };
 
   const editableManagement = canEdit && !course.contentMetadata;
-  const isNextReviewOverdue = Boolean(course.nextReviewDate) && course.nextReviewDate! < new Date().toISOString().slice(0, 10);
+  const reviewCycle = reviewCycleStatus(course.nextReviewDate);
 
   return (
     <div className="detail-section-stack">
@@ -721,7 +776,7 @@ function OverviewTab({ course, onCourseChange, canEdit, onNavigateToTopics }: { 
           {publishingFields.map((definition) => {
             if (definition.field !== "nextReviewDate") return renderField(definition);
             const cell = renderField(definition);
-            return isNextReviewOverdue ? <div className="next-review-overdue" key="nextReviewDate-overdue">{cell}<StatusBadge tone="danger">Overdue</StatusBadge></div> : cell;
+            return reviewCycle.overdue ? <div className="next-review-overdue" key="nextReviewDate-overdue">{cell}<StatusBadge tone={reviewCycle.tone}>{reviewCycle.label}</StatusBadge></div> : cell;
           })}
         </div>
       </article>
