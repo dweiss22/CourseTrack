@@ -8,7 +8,7 @@ const linkSchema = z
   .object({
     permalink: z.string().trim().url().max(500).optional(),
     candidateTaskId: z.string().trim().min(1).max(80).optional(),
-    expectedUpdatedAt: z.string().datetime().optional(),
+    expectedUpdatedAt: z.string().datetime({ offset: true }).optional(),
   })
   .refine((value) => Boolean(value.permalink) !== Boolean(value.candidateTaskId), {
     message: "Provide either a permalink or a candidateTaskId, not both.",
@@ -16,7 +16,7 @@ const linkSchema = z
 
 const unlinkSchema = z.object({
   referenceId: z.string().trim().min(1),
-  expectedUpdatedAt: z.string().datetime(),
+  expectedUpdatedAt: z.string().datetime({ offset: true }),
 });
 
 export async function POST(

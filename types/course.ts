@@ -26,6 +26,23 @@ export function getVerticalLabel(vertical: Vertical): string {
   return `${vertical} - ${verticalNames[vertical]}`;
 }
 
+export const contentTypes = [
+  "Single Video Course",
+  "Full Length Course",
+  "Policy",
+  "Standard Course",
+] as const;
+
+export type ContentType = (typeof contentTypes)[number];
+
+export const updateTypes = ["Revamp", "Maintenance", "New"] as const;
+
+export type UpdateType = (typeof updateTypes)[number];
+
+export const authoringTools = ["Storyline", "Rise", "LMS"] as const;
+
+export type AuthoringTool = (typeof authoringTools)[number];
+
 export const managementClassifications = [
   "Lexipol managed",
   "Unclassified",

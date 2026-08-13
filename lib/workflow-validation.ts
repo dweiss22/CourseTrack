@@ -10,13 +10,13 @@ export const revampTaskSchema = z.object({
   score: z.number().int().min(0).max(100),
   targetPublicationDate: optionalDate,
   businessJustification: z.string().trim().min(10).max(2_000),
-  expectedUpdatedAt: z.string().datetime().optional(),
+  expectedUpdatedAt: z.string().datetime({ offset: true }).optional(),
 }).strict();
 
 export const revampMoveSchema = z.object({
   bucket: z.enum(["Submitted", "Under Review", "Approved", "In Progress"]),
   targetIndex: z.number().int().min(0),
-  expectedUpdatedAt: z.string().datetime(),
+  expectedUpdatedAt: z.string().datetime({ offset: true }),
 }).strict();
 
 export const accreditationSchema = z.object({
@@ -30,7 +30,7 @@ export const accreditationSchema = z.object({
   creditHours: z.number().min(0).max(10_000),
   effectiveDate: optionalDate,
   expirationDate: optionalDate,
-  expectedUpdatedAt: z.string().datetime().optional(),
+  expectedUpdatedAt: z.string().datetime({ offset: true }).optional(),
 }).strict().refine(
   (value) => !value.effectiveDate || !value.expirationDate || value.expirationDate >= value.effectiveDate,
   { message: "Expiration date must be on or after the effective date.", path: ["expirationDate"] },
@@ -45,7 +45,7 @@ export const versionSchema = z.object({
   releaseNotes: z.string().trim().max(2_000),
   authoringTool: z.string().trim().max(120),
   packageStandard: z.string().trim().max(120),
-  expectedUpdatedAt: z.string().datetime().optional(),
+  expectedUpdatedAt: z.string().datetime({ offset: true }).optional(),
 }).strict();
 
 export const flagSchema = z.object({
@@ -58,7 +58,7 @@ export const flagSchema = z.object({
   assigneeId: z.string().uuid().nullable(),
   dueDate: optionalDate,
   completionNotes: z.string().trim().max(5_000).nullable(),
-  expectedUpdatedAt: z.string().datetime().optional(),
+  expectedUpdatedAt: z.string().datetime({ offset: true }).optional(),
 }).strict().superRefine((value, context) => {
   if (value.recordKind === "Task" && value.status === "Resolved") {
     context.addIssue({ code: "custom", path: ["status"], message: "Tasks are completed, not resolved." });
@@ -72,7 +72,7 @@ export const noteSchema = z.object({
   type: z.string().trim().min(2).max(120),
   visibility: z.enum(["Private", "Team", "Role restricted", "Organization"]),
   body: z.string().trim().min(1).max(5_000),
-  expectedUpdatedAt: z.string().datetime().optional(),
+  expectedUpdatedAt: z.string().datetime({ offset: true }).optional(),
 }).strict();
 
 export const courseCreateSchema = z.object({
@@ -124,7 +124,7 @@ export const courseProjectionUpdateSchema = z.object({
   contentUpdatedAt: optionalFormDate,
   contentNotes: z.string().trim().max(2_000),
   internalSummary: z.string().trim().max(1_200),
-  expectedUpdatedAt: z.string().datetime(),
+  expectedUpdatedAt: z.string().datetime({ offset: true }),
 }).strict();
 
 export const editableCourseFields = [
@@ -154,7 +154,7 @@ const courseFieldValidators: Record<EditableCourseField, z.ZodType> = {
 };
 
 export const courseFieldMutationSchema = z.object({
-  field: z.enum(editableCourseFields), value: z.unknown(), expectedUpdatedAt: z.string().datetime(),
+  field: z.enum(editableCourseFields), value: z.unknown(), expectedUpdatedAt: z.string().datetime({ offset: true }),
 }).strict().transform((input, context) => {
   const parsed = courseFieldValidators[input.field].safeParse(input.value);
   if (!parsed.success) {

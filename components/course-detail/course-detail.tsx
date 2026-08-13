@@ -42,7 +42,7 @@ import type {
   AccreditationHistoryGroup,
   TaskCalloutActor,
 } from "@/types/course";
-import { managementClassifications, provenanceLabels, verticals } from "@/types/course";
+import { authoringTools, contentTypes, managementClassifications, provenanceLabels, updateTypes, verticals } from "@/types/course";
 import type { WrikeTaskCandidate } from "@/db";
 import { StatusBadge } from "../status-badge";
 import { HealthAboutDialog } from "../health-about-dialog";
@@ -401,17 +401,17 @@ export function CourseDetail({
               <div className="course-summary-health-detail">
                 <div>
                   <StatusBadge>{currentCourse.healthStatus}</StatusBadge>
-                  <strong>{currentCourse.metadataCompletenessScore}% CourseTrack data complete</strong>
+                  <strong>{currentCourse.healthScore}/100</strong>
                 </div>
                 <div
                   className="progress-track"
                   role="progressbar"
-                  aria-label="CourseTrack data completeness"
+                  aria-label="Course health score"
                   aria-valuemin={0}
                   aria-valuemax={100}
-                  aria-valuenow={currentCourse.metadataCompletenessScore}
+                  aria-valuenow={currentCourse.healthScore}
                 >
-                  <span style={{ width: `${currentCourse.metadataCompletenessScore}%` }} />
+                  <span className={`health-${currentCourse.healthStatus.toLowerCase().replaceAll(" ", "-")}`} style={{ width: `${currentCourse.healthScore}%` }} />
                 </div>
               </div>
             </div>
@@ -524,15 +524,15 @@ export function CourseDetail({
               <label className="form-field form-field-wide"><span>Learning audience</span><textarea value={form.learningAudience} onChange={(event) => updateForm("learningAudience", event.target.value)} maxLength={500} /></label>
             </fieldset>
             <fieldset><legend>Course metadata</legend>
-              <label className="form-field"><span>Content type</span><input value={form.contentType} onChange={(event) => updateForm("contentType", event.target.value)} /></label>
+              <label className="form-field"><span>Content type</span><select value={form.contentType} onChange={(event) => updateForm("contentType", event.target.value)}><option value="">Not supplied</option>{selectOptions(contentTypes, form.contentType)}</select></label>
               <label className="form-field"><span>Duration (minutes)</span><input type="number" min={0} value={form.durationMinutes ?? ""} onChange={(event) => updateForm("durationMinutes", event.target.value === "" ? null : Number(event.target.value))} /></label>
               <label className="form-field"><span>Training credit amount</span><input type="number" min={0} step="0.01" value={form.trainingCredits.amount ?? ""} onChange={(event) => updateForm("trainingCredits", { ...form.trainingCredits, amount: event.target.value === "" ? null : Number(event.target.value) })} /></label>
               <label className="form-field"><span>Training credit unit</span><input value={form.trainingCredits.unit ?? ""} onChange={(event) => updateForm("trainingCredits", { ...form.trainingCredits, unit: event.target.value || null })} placeholder="hours or minutes" /></label>
               <label className="form-field"><span>Publication status</span><select value={form.publicationStatus} onChange={(event) => updateForm("publicationStatus", event.target.value as ProjectionForm["publicationStatus"])}>{publicationStatuses.map((value) => <option key={value}>{value}</option>)}</select></label>
               <label className="form-field"><span>Published in LMS</span><select value={form.published === null ? "unknown" : form.published ? "yes" : "no"} onChange={(event) => updateForm("published", event.target.value === "unknown" ? null : event.target.value === "yes")}><option value="unknown">Not supplied</option><option value="yes">Published</option><option value="no">Not published</option></select></label>
               <label className="form-field"><span>Publication date</span><input type="date" value={form.publishedDate} onChange={(event) => updateForm("publishedDate", event.target.value)} /></label>
-              <label className="form-field"><span>Authoring tool</span><input value={form.authoringTool} onChange={(event) => updateForm("authoringTool", event.target.value)} /></label>
-              <label className="form-field"><span>Content update type</span><input value={form.updateType} onChange={(event) => updateForm("updateType", event.target.value)} /></label>
+              <label className="form-field"><span>Authoring tool</span><select value={form.authoringTool} onChange={(event) => updateForm("authoringTool", event.target.value)}><option value="">Not supplied</option>{selectOptions(authoringTools, form.authoringTool)}</select></label>
+              <label className="form-field"><span>Content update type</span><select value={form.updateType} onChange={(event) => updateForm("updateType", event.target.value)}><option value="">Not supplied</option>{selectOptions(updateTypes, form.updateType)}</select></label>
               <label className="form-field"><span>Content updated</span><input type="date" value={form.contentUpdatedAt} onChange={(event) => updateForm("contentUpdatedAt", event.target.value)} /></label>
               <label className="form-field"><span>Backend URL</span><input type="url" value={form.backendLink} onChange={(event) => updateForm("backendLink", event.target.value)} /></label>
               <label className="form-field"><span>Frontend URL</span><input type="url" value={form.frontendLink} onChange={(event) => updateForm("frontendLink", event.target.value)} /></label>
@@ -542,7 +542,7 @@ export function CourseDetail({
               <label className="form-field"><span>Verticals</span><select multiple value={form.verticals} onChange={(event) => updateForm("verticals", Array.from(event.currentTarget.selectedOptions, (option) => option.value) as ProjectionForm["verticals"])}>{verticals.map((value) => <option key={value}>{value}</option>)}</select></label>
               <label className="form-field"><span>Primary topic</span><input value={form.primaryTopic} onChange={(event) => updateForm("primaryTopic", event.target.value)} /></label>
               <label className="form-field"><span>Management classification</span><select value={form.managementClassification} disabled={Boolean(currentCourse.contentMetadata)} onChange={(event) => updateForm("managementClassification", event.target.value as ProjectionForm["managementClassification"])}>{managementClassifications.map((value) => <option key={value} value={value}>{managementLabel(value)}</option>)}</select>{currentCourse.contentMetadata && <small>Managed by the current uploaded master metadata record.</small>}</label>
-              <label className="form-field checkbox-field"><input type="checkbox" checked={form.monitoringEnabled} onChange={(event) => updateForm("monitoringEnabled", event.target.checked)} /><span>Monitoring enabled</span></label>
+              <label className="form-field checkbox-field toggle-switch"><input type="checkbox" checked={form.monitoringEnabled} onChange={(event) => updateForm("monitoringEnabled", event.target.checked)} /><span className="toggle-track" aria-hidden="true" /><span>Monitoring enabled</span></label>
               <label className="form-field"><span>Lifecycle</span><select value={form.lifecycleStatus} onChange={(event) => updateForm("lifecycleStatus", event.target.value as ProjectionForm["lifecycleStatus"])}>{editableLifecycleStatuses.map((value) => <option key={value}>{value}</option>)}</select></label>
               <label className="form-field"><span>Owner</span><input value={form.owner} onChange={(event) => updateForm("owner", event.target.value)} /></label>
               <label className="form-field"><span>Instructional designer</span><input value={form.instructionalDesigner} onChange={(event) => updateForm("instructionalDesigner", event.target.value)} /></label>
@@ -609,8 +609,14 @@ type InlineCourseField = {
   lmsKey?: string;
   multiline?: boolean;
   rows?: number;
-  kind?: "text" | "number" | "date" | "boolean" | "verticals" | "credits" | "richtext";
+  kind?: "text" | "number" | "date" | "boolean" | "verticals" | "credits" | "richtext" | "select";
+  options?: readonly string[];
 };
+
+function selectOptions(options: readonly string[], currentValue?: string) {
+  const all = currentValue && !options.includes(currentValue) ? [...options, currentValue] : options;
+  return all.map((value) => <option key={value} value={value}>{value}</option>);
+}
 
 const identityFields: InlineCourseField[] = [
   { field: "title", label: "Course name", lmsKey: "courseName" },
@@ -619,6 +625,7 @@ const identityFields: InlineCourseField[] = [
 
 const classificationFields: InlineCourseField[] = [
   { field: "verticals", label: "Verticals", kind: "verticals" },
+  { field: "contentType", label: "Content type", lmsKey: "contentType", kind: "select", options: contentTypes },
 ];
 
 const publishingFields: InlineCourseField[] = [
@@ -626,7 +633,7 @@ const publishingFields: InlineCourseField[] = [
   { field: "publishedDate", label: "Published date", lmsKey: "publishedDate", kind: "date" },
   { field: "contentUpdatedAt", label: "Last revision", lmsKey: "contentUpdatedAt", kind: "date" },
   { field: "nextReviewDate", label: "Next review", kind: "date" },
-  { field: "updateType", label: "Update type", lmsKey: "updateType" },
+  { field: "updateType", label: "Update type", lmsKey: "updateType", kind: "select", options: updateTypes },
 ];
 
 const durationFields: InlineCourseField[] = [
@@ -635,7 +642,7 @@ const durationFields: InlineCourseField[] = [
 ];
 
 const authoringFields: InlineCourseField[] = [
-  { field: "authoringTool", label: "Authoring tool", lmsKey: "authoringTool" },
+  { field: "authoringTool", label: "Authoring tool", lmsKey: "authoringTool", kind: "select", options: authoringTools },
   { field: "instructionalDesigner", label: "Instructional designer" },
 ];
 
@@ -710,6 +717,7 @@ function OverviewTab({ course, onCourseChange, canEdit, onNavigateToTopics }: { 
       <div className="inline-field-heading"><span>{definition.label}</span>{mismatch && <ComparisonState comparison={comparison} />}</div>
       {isEditing ? <div className="inline-field-editor">
         {definition.kind === "verticals" ? <select aria-label={`Edit ${definition.label}`} autoFocus multiple value={draft ? draft.split("|") : []} onChange={(event) => setDraft(Array.from(event.currentTarget.selectedOptions, (option) => option.value).join("|"))} onKeyDown={(event) => { if (event.key === "Escape") setEditingField(null); }}>{verticals.map((vertical) => <option key={vertical}>{vertical}</option>)}</select>
+          : definition.kind === "select" ? <select aria-label={`Edit ${definition.label}`} autoFocus value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setEditingField(null); }}><option value="">Not supplied</option>{selectOptions(definition.options ?? [], draft)}</select>
           : definition.kind === "boolean" ? <select aria-label={`Edit ${definition.label}`} autoFocus value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setEditingField(null); }}><option value="unknown">Not supplied</option><option value="true">Yes</option><option value="false">No</option></select>
             : definition.kind === "richtext" ? <RichTextField value={draft} onChange={setDraft} editable ariaLabel={definition.label} />
               : definition.multiline ? <textarea aria-label={`Edit ${definition.label}`} rows={definition.rows ?? 3} autoFocus value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setEditingField(null); if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); void save(definition); } }} />
@@ -760,9 +768,10 @@ function OverviewTab({ course, onCourseChange, canEdit, onNavigateToTopics }: { 
           </div>
           <div className="inline-field-cell">
             <div className="inline-field-heading"><span>Management</span></div>
-            <label className="form-field checkbox-field">
+            <label className="form-field checkbox-field toggle-switch">
               <input type="checkbox" checked={course.managementClassification === "Lexipol managed"} disabled={!editableManagement || pending}
                 onChange={(event) => void saveFieldValue("managementClassification", event.target.checked ? "Lexipol managed" : "Unclassified")} />
+              <span className="toggle-track" aria-hidden="true" />
               <span>Lexipol managed</span>
             </label>
             {course.contentMetadata && <small>Managed by the current uploaded master metadata record.</small>}
@@ -809,6 +818,7 @@ function OverviewTab({ course, onCourseChange, canEdit, onNavigateToTopics }: { 
 function formatSourceValue(value: unknown): string {
   if (value === null || value === undefined || value === "") return "Not supplied";
   if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (Array.isArray(value)) return value.length > 0 ? value.join(", ") : "Not supplied";
   if (typeof value === "object") {
     const credit = value as {
       rawDisplay?: string | null;

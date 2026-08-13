@@ -47,7 +47,7 @@ export const reportInputSchema = z.object({
   filters: z.array(filterSchema).max(20),
   sort: z.array(z.object({ field: z.string().min(1).max(80), direction: z.enum(["asc", "desc"]) }).strict()).max(5),
   group: z.object({ field: z.string().min(1).max(80) }).strict().nullable(),
-  expectedUpdatedAt: z.string().datetime().optional(),
+  expectedUpdatedAt: z.string().datetime({ offset: true }).optional(),
 }).strict();
 
 type PersistedReportDefinition = Pick<
