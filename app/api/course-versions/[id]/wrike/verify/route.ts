@@ -6,7 +6,7 @@ import { apiError, validationError } from "@/lib/api-response";
 
 const verifySchema = z.object({
   referenceId: z.string().trim().min(1),
-  expectedUpdatedAt: z.string().datetime(),
+  expectedUpdatedAt: z.string().datetime({ offset: true }),
 });
 
 export async function POST(request: Request) {
