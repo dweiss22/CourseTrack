@@ -11,8 +11,9 @@ begin;
 -- its tags/topics) into a `candidate` CTE that reads directly from
 -- public.courses and its join tables, so the expensive per-row subqueries in
 -- `base` only run over the rows that can actually match -- not the whole table.
--- Trigram indexes it relies on are created in 202608130001 (which must run
--- first and cannot be wrapped in a transaction).
+-- Trigram indexes it relies on are created in 202608130001-202608130003
+-- (each its own migration -- CONCURRENTLY can't share a transaction/pipeline
+-- with other statements), which must run first.
 
 create or replace function public.search_course_library_v2(
   p_search text default '', p_vertical text default '', p_lifecycle text default '', p_health text default '',
