@@ -48,3 +48,7 @@ next-env.d.ts
 # local discovery/source artifacts (kept outside application commits)
 /Files/
 /Images/
+
+# Supabase CLI local link state (per-machine, not shared)
+/supabase/.branches
+/supabase/.temp
