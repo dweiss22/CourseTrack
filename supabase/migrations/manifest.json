@@ -36,6 +36,7 @@
     { "version": "202608130009", "file": "202608130009_course_library_sort_index_duration_asc.sql", "sha256": "5bb67720d1b0bf88986f91fed80008bbf592146f8122a5876349109fd8822b2f" },
     { "version": "202608130010", "file": "202608130010_course_library_sort_index_duration_desc.sql", "sha256": "6bc197690596db9fb58442a89056e84a5138063c698a9118a56fb9f15c36dc21" },
     { "version": "202608130011", "file": "202608130011_course_library_search_dynamic_sort.sql", "sha256": "16675a06b730d1c3171aa22782b83521dbf43ce85173059ba9d158e1f4bfdd94" },
-    { "version": "202608130012", "file": "202608130012_course_library_search_update_type.sql", "sha256": "422de08d2af178c62aa6748426cf6047cdfc5f68731337d842bb31e9a15957ee" }
+    { "version": "202608130012", "file": "202608130012_course_library_search_update_type.sql", "sha256": "422de08d2af178c62aa6748426cf6047cdfc5f68731337d842bb31e9a15957ee" },
+    { "version": "202608130013", "file": "202608130013_course_health_score_redesign.sql", "sha256": "79a321a845d5e726ad2a5000f6c012c7d323721d2edf66366b71e2a783c40c4b" }
   ]
 }
