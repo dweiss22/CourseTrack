@@ -3,7 +3,13 @@ begin;
 -- The Course Library table gained an "Update type" column. search_course_library_v2
 -- already scans public.courses via `c.*` in `candidate`/`page`, so content_update_type
 -- is available on `p` without any new joins -- this just adds it to the returned columns.
-create or replace function public.search_course_library_v2(
+--
+-- Postgres refuses `create or replace function` when the OUT-parameter row type
+-- changes (adding update_type here isn't just appended at the end), so the old
+-- signature must be dropped first.
+drop function if exists public.search_course_library_v2(text,text,text,text,text,text,text,text,boolean,integer,integer);
+
+create function public.search_course_library_v2(
   p_search text default '', p_vertical text default '', p_lifecycle text default '', p_health text default '',
   p_classification text default 'Lexipol Managed', p_work_queue text default '', p_lms_link text default '',
   p_sort text default 'title', p_descending boolean default false, p_limit integer default 25, p_offset integer default 0
