@@ -512,11 +512,13 @@ function buildCourseFromRows(row: Row, maps: GraphMaps): Course {
       .filter((value): value is string => Boolean(value))
       .sort()[0] ?? null;
   const currentVersion = versions.find((version) => version.isCurrent && !version.archivedAt)?.versionNumber ?? (row.current_version as string) ?? "1.0";
+  const nextReviewDateValue = (row.next_review_date as string) ?? null;
   const health = calculateCourseHealth({
     metadataCompletenessScore: calculateMetadataCompleteness(contentMetadata),
     unresolvedConflictCount: conflictCount,
     importValidationErrorCount: ((row.import_validation_errors as string[]) ?? []).length,
     hasCurrentLmsSnapshot: Boolean(lmsSnapshot),
+    nextReviewOverdue: Boolean(nextReviewDateValue) && nextReviewDateValue! < new Date().toISOString().slice(0, 10),
   });
 
   const importHistory: SourceHistoryRecord[] = [
@@ -960,6 +962,7 @@ export async function fetchPortfolioSummaries(client: SupabaseClient): Promise<P
         unresolvedConflictCount: conflictCounts.get(courseDbId) ?? 0,
         importValidationErrorCount: ((row.import_validation_errors as string[]) ?? []).length,
         hasCurrentLmsSnapshot: snapshotCourseIds.has(courseDbId),
+        nextReviewOverdue: Boolean(row.next_review_date) && (row.next_review_date as string) < new Date().toISOString().slice(0, 10),
       }).status,
       lifecycleStatus: row.lifecycle_status as Course["lifecycleStatus"],
       primaryTopic: row.primary_topic as string,

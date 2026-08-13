@@ -83,14 +83,24 @@ describe("Course Detail inline workflow", () => {
   it("focuses select editors and lets Escape cancel without saving", async () => {
     const fetchMock = vi.fn(); vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup(); renderDetail();
-    const edit = screen.getByRole("button", { name: "Edit Monitoring enabled" });
+    const edit = screen.getByRole("button", { name: "Edit Verticals" });
     await user.click(edit);
-    const editor = screen.getByRole("combobox", { name: "Edit Monitoring enabled" });
+    const editor = screen.getByRole("listbox", { name: "Edit Verticals" });
     expect(editor).toHaveFocus();
     await user.keyboard("{Escape}");
-    expect(screen.queryByRole("combobox", { name: "Edit Monitoring enabled" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Edit Monitoring enabled" })).toBeInTheDocument();
+    expect(screen.queryByRole("listbox", { name: "Edit Verticals" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit Verticals" })).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("toggles the management checkbox directly without an edit/save step", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ course: course({ managementClassification: "Unclassified", updatedAt: "2026-08-02T00:00:00Z" }) }), { status: 200, headers: { "content-type": "application/json" } })));
+    const user = userEvent.setup(); renderDetail();
+    const checkbox = screen.getByRole("checkbox", { name: "Lexipol managed" });
+    expect(checkbox).toBeChecked();
+    await user.click(checkbox);
+    const body = await waitFor(() => JSON.parse(String((vi.mocked(fetch).mock.calls[0]?.[1] as RequestInit).body)));
+    expect(body).toEqual({ field: "managementClassification", value: "Unclassified", expectedUpdatedAt: "2026-08-01T00:00:00Z" });
   });
 
   it("groups active and archived accreditation and only offers permanent deletion for the archived CourseTrack entry", async () => {
