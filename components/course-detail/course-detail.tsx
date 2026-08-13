@@ -53,6 +53,8 @@ import { AsyncCourseSelect } from "../async-course-select";
 import { AccreditationRecordEditor, VersionRecordEditor } from "../record-editors";
 import { AlignmentGlossary, AlignmentStatusBadge } from "../alignment-help";
 import { LmsLinkAction, LmsLinkActions, RestrictedLinkPresence, type LmsLinkKind } from "../lms-link-actions";
+import { LinkFieldEditor } from "../link-field-editor";
+import { RichTextField } from "../rich-text-field";
 import type { EditableCourseField } from "@/lib/workflow-validation";
 import { TablePagination, useLocalTablePagination } from "../table-pagination";
 
@@ -311,11 +313,13 @@ export function CourseDetail({
               <StatusBadge tone={currentCourse.lmsLinkStatus === "linked" ? "success" : "neutral"}>{currentCourse.lmsLinkStatus === "linked" ? "LMS linked" : "Not LMS linked"}</StatusBadge>
               <StatusBadge>{currentCourse.lifecycleStatus}</StatusBadge>
               <StatusBadge>{currentCourse.healthStatus}</StatusBadge>
+              {currentCourse.deliveryFormat && <StatusBadge tone="info">{currentCourse.deliveryFormat}</StatusBadge>}
             </div>
             <h1>{currentCourse.title}</h1>
             <p>
               {currentCourse.courseCode} · {currentCourse.verticals.join(", ") || "No vertical"} · v
               {currentCourse.currentVersion}
+              {currentCourse.durationMinutes !== null && ` · ${currentCourse.durationMinutes} min`}
             </p>
             <div className="course-action-row" aria-label="Course actions">
               <LmsLinkActions backendLink={currentCourse.backendLink} frontendLink={currentCourse.frontendLink} courseName={currentCourse.title} compact />
@@ -516,7 +520,7 @@ export function CourseDetail({
       <section className="course-detail-grid course-detail-grid-single">
         <div className="detail-main">
           {activeTab === "Overview" && (
-            <OverviewTab course={currentCourse} onCourseChange={setCurrentCourse} canEdit={canEditCourse} />
+            <OverviewTab course={currentCourse} onCourseChange={setCurrentCourse} canEdit={canEditCourse} onNavigateToTopics={() => setActiveTab("Topics & Tags")} />
           )}
           {activeTab === "Versions" && (
             <VersionsTab course={currentCourse} onCourseChange={setCurrentCourse} canManage={canManageVersions} isAdministrator={isAdministrator} userId={userId} />
@@ -549,26 +553,38 @@ type InlineCourseField = {
   label: string;
   lmsKey?: string;
   multiline?: boolean;
-  kind?: "text" | "number" | "date" | "boolean" | "verticals" | "credits";
+  rows?: number;
+  kind?: "text" | "number" | "date" | "boolean" | "verticals" | "credits" | "richtext";
 };
 
-const inlineCourseFields: InlineCourseField[] = [
-  { field: "courseCode", label: "Course code" }, { field: "title", label: "Course name", lmsKey: "courseName" },
-  { field: "shortTitle", label: "Short title" }, { field: "description", label: "Description", lmsKey: "description", multiline: true },
-  { field: "learningAudience", label: "Learning audience", multiline: true }, { field: "verticals", label: "Verticals", kind: "verticals" },
-  { field: "primaryTopic", label: "Topic" }, { field: "managementClassification", label: "Management" },
-  { field: "monitoringEnabled", label: "Monitoring enabled", kind: "boolean" }, { field: "lifecycleStatus", label: "Lifecycle" },
-  { field: "publicationStatus", label: "Publication status" }, { field: "contentType", label: "Content type", lmsKey: "contentType" },
+const identityFields: InlineCourseField[] = [
+  { field: "title", label: "Course name", lmsKey: "courseName" },
+  { field: "description", label: "Description", lmsKey: "description", multiline: true, rows: 6 },
+];
+
+const classificationFields: InlineCourseField[] = [
+  { field: "verticals", label: "Verticals", kind: "verticals" },
+];
+
+const publishingFields: InlineCourseField[] = [
+  { field: "lifecycleStatus", label: "Status", lmsKey: "published" },
+  { field: "publishedDate", label: "Published date", lmsKey: "publishedDate", kind: "date" },
+  { field: "contentUpdatedAt", label: "Last revision", lmsKey: "contentUpdatedAt", kind: "date" },
+  { field: "nextReviewDate", label: "Next review", kind: "date" },
+  { field: "updateType", label: "Update type", lmsKey: "updateType" },
+];
+
+const durationFields: InlineCourseField[] = [
   { field: "durationMinutes", label: "Duration", lmsKey: "durationMinutes", kind: "number" },
   { field: "trainingCredits", label: "Training credits", lmsKey: "trainingCredits", kind: "credits" },
-  { field: "published", label: "Published", lmsKey: "published", kind: "boolean" }, { field: "authoringTool", label: "Authoring tool", lmsKey: "authoringTool" },
-  { field: "stateCode", label: "State code" }, { field: "owner", label: "Owner" },
-  { field: "instructionalDesigner", label: "Instructional designer" }, { field: "publishedDate", label: "Published date", lmsKey: "publishedDate", kind: "date" },
-  { field: "lastMajorRevisionDate", label: "Last major revision", kind: "date" }, { field: "nextReviewDate", label: "Next review", kind: "date" },
-  { field: "backendLink", label: "Backend link", lmsKey: "backendLink" }, { field: "frontendLink", label: "Course link", lmsKey: "frontendLink" },
-  { field: "updateType", label: "Update type", lmsKey: "updateType" }, { field: "contentUpdatedAt", label: "Content updated", lmsKey: "contentUpdatedAt", kind: "date" },
-  { field: "contentNotes", label: "Content notes", lmsKey: "notes", multiline: true }, { field: "internalSummary", label: "Internal summary", multiline: true },
 ];
+
+const authoringFields: InlineCourseField[] = [
+  { field: "authoringTool", label: "Authoring tool", lmsKey: "authoringTool" },
+  { field: "instructionalDesigner", label: "Instructional designer" },
+];
+
+const contentNotesField: InlineCourseField = { field: "contentNotes", label: "Content notes", kind: "richtext" };
 
 function courseFieldValue(course: Course, field: EditableCourseField): unknown {
   const values: Record<EditableCourseField, unknown> = {
@@ -601,62 +617,136 @@ function parsedDraft(draft: string, definition: InlineCourseField, course: Cours
   return draft;
 }
 
-function OverviewTab({ course, onCourseChange, canEdit }: { course: Course; onCourseChange: Dispatch<SetStateAction<Course>>; canEdit: boolean }) {
+function OverviewTab({ course, onCourseChange, canEdit, onNavigateToTopics }: { course: Course; onCourseChange: Dispatch<SetStateAction<Course>>; canEdit: boolean; onNavigateToTopics: () => void }) {
   const [editingField, setEditingField] = useState<EditableCourseField | null>(null);
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+
+  const saveFieldValue = async (field: EditableCourseField, value: unknown) => {
+    if (!course.updatedAt) { setError("Refresh the page before editing this course."); throw new Error("Refresh the page before editing this course."); }
+    setPending(true); setError("");
+    try {
+      const response = await fetch(`/api/courses/${course.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ field, value, expectedUpdatedAt: course.updatedAt }) });
+      const result = await response.json() as { course?: Course; message?: string };
+      if (!response.ok || !result.course) throw new Error(result.message || "The saved course was not returned.");
+      onCourseChange(result.course);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "This field could not be saved.");
+      throw saveError;
+    } finally { setPending(false); }
+  };
 
   const begin = (definition: InlineCourseField) => {
     setEditingField(definition.field); setDraft(draftValue(courseFieldValue(course, definition.field), definition.kind)); setError("");
   };
   const save = async (definition: InlineCourseField) => {
     if (pending) return;
-    if (!course.updatedAt) { setError("Refresh the page before editing this course."); return; }
-    setPending(true); setError("");
-    try {
-      const response = await fetch(`/api/courses/${course.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ field: definition.field, value: parsedDraft(draft, definition, course), expectedUpdatedAt: course.updatedAt }) });
-      const result = await response.json() as { course?: Course; message?: string };
-      if (!response.ok || !result.course) throw new Error(result.message || "The saved course was not returned.");
-      onCourseChange(result.course); setEditingField(null);
-    } catch (saveError) { setError(saveError instanceof Error ? saveError.message : "This field could not be saved."); }
-    finally { setPending(false); }
+    try { await saveFieldValue(definition.field, parsedDraft(draft, definition, course)); setEditingField(null); }
+    catch { /* draft is retained; error is already surfaced */ }
   };
+
+  const renderField = (definition: InlineCourseField) => {
+    const value = courseFieldValue(course, definition.field);
+    const comparison = course.fieldComparisons.find((item) => item.fieldKey === (definition.lmsKey ?? definition.field));
+    const mismatch = comparison && !["In sync", "Manually confirmed"].includes(comparison.alignmentStatus);
+    const isEditing = editingField === definition.field;
+    return <div className={`inline-field-cell ${definition.multiline ? "inline-field-cell-wide" : ""} ${mismatch ? "has-mismatch" : ""}`} key={definition.field}>
+      <div className="inline-field-heading"><span>{definition.label}</span>{mismatch && <ComparisonState comparison={comparison} />}</div>
+      {isEditing ? <div className="inline-field-editor">
+        {definition.kind === "verticals" ? <select aria-label={`Edit ${definition.label}`} autoFocus multiple value={draft ? draft.split("|") : []} onChange={(event) => setDraft(Array.from(event.currentTarget.selectedOptions, (option) => option.value).join("|"))} onKeyDown={(event) => { if (event.key === "Escape") setEditingField(null); }}>{verticals.map((vertical) => <option key={vertical}>{vertical}</option>)}</select>
+          : definition.kind === "boolean" ? <select aria-label={`Edit ${definition.label}`} autoFocus value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setEditingField(null); }}><option value="unknown">Not supplied</option><option value="true">Yes</option><option value="false">No</option></select>
+            : definition.kind === "richtext" ? <RichTextField value={draft} onChange={setDraft} editable ariaLabel={definition.label} />
+              : definition.multiline ? <textarea aria-label={`Edit ${definition.label}`} rows={definition.rows ?? 3} autoFocus value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setEditingField(null); if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); void save(definition); } }} />
+                : <input aria-label={`Edit ${definition.label}`} autoFocus type={definition.kind === "number" || definition.kind === "credits" ? "number" : definition.kind === "date" ? "date" : "text"} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setEditingField(null); if (event.key === "Enter") { event.preventDefault(); void save(definition); } }} />}
+        <div className="inline-field-actions"><button disabled={pending} onClick={() => void save(definition)}><Save size={13} /> Save</button><button disabled={pending} onClick={() => setEditingField(null)}>Cancel</button></div>
+        {error && <small className="taxonomy-editor-error" role="alert">{error}</small>}
+      </div> : <>
+        {definition.kind === "richtext"
+          ? <div className="source-lane source-lane-richtext"><small>CourseTrack</small><RichTextField value={typeof value === "string" ? value : ""} onChange={() => {}} editable={false} ariaLabel={definition.label} />{canEdit && <button aria-label={`Edit ${definition.label}`} onClick={() => begin(definition)}><Pencil size={13} /></button>}</div>
+          : <div className="source-lane"><small>CourseTrack</small><strong>{formatSourceValue(value)}</strong>{canEdit && <button aria-label={`Edit ${definition.label}`} onClick={() => begin(definition)}><Pencil size={13} /></button>}</div>}
+        {comparison && <div className="source-lane source-lane-lms"><small><LockKeyhole size={11} /> LMS</small><span>{formatSourceValue(comparison.lmsNormalizedValue)}</span></div>}
+      </>}
+    </div>;
+  };
+
+  const renderLinkCell = (field: "backendLink" | "frontendLink", kind: LmsLinkKind, label: string) => {
+    const value = field === "backendLink" ? course.backendLink : course.frontendLink;
+    const comparison = course.fieldComparisons.find((item) => item.fieldKey === field);
+    const mismatch = comparison && !["In sync", "Manually confirmed"].includes(comparison.alignmentStatus);
+    return <div className={`inline-field-cell ${mismatch ? "has-mismatch" : ""}`} key={field}>
+      <div className="inline-field-heading"><span>{label}</span>{mismatch && <ComparisonState comparison={comparison} />}</div>
+      <LinkFieldEditor kind={kind} value={value} label={label} editable={canEdit} pending={pending} onSave={(nextValue) => saveFieldValue(field, nextValue)} />
+      {comparison && <div className="source-lane source-lane-lms"><small><LockKeyhole size={11} /> LMS</small><LmsLinkAction kind={kind} value={comparison.lmsNormalizedValue} compact /></div>}
+    </div>;
+  };
+
+  const editableManagement = canEdit && !course.contentMetadata;
+  const isNextReviewOverdue = Boolean(course.nextReviewDate) && course.nextReviewDate! < new Date().toISOString().slice(0, 10);
 
   return (
     <div className="detail-section-stack">
       <article className="panel">
-        <div className="panel-heading">
-          <div>
-            <h2>Course overview</h2>
-            <p>Edit CourseTrack values in place. LMS values are reference-only.</p>
-          </div>
-          <StatusBadge tone={course.lmsLinkStatus === "linked" ? "success" : "neutral"}>{course.lmsLinkStatus === "linked" ? "LMS linked" : "Not LMS linked"}</StatusBadge>
-        </div>
+        <div className="panel-heading"><div><h2>Identity</h2></div></div>
+        <div className="inline-field-grid">{identityFields.map(renderField)}</div>
+      </article>
+
+      <article className="panel">
+        <div className="panel-heading"><div><h2>Classification</h2></div></div>
         <div className="inline-field-grid">
-          <div className="inline-field-cell inline-field-readonly"><span>LMS course ID</span><strong>{course.lmsCourseId ?? "Not LMS linked"}</strong><small><LockKeyhole size={11} /> LMS · read only</small></div>
-          {inlineCourseFields.map((definition) => {
-            const value = courseFieldValue(course, definition.field);
-            const comparison = course.fieldComparisons.find((item) => item.fieldKey === (definition.lmsKey ?? definition.field));
-            const mismatch = comparison && !["In sync", "Manually confirmed"].includes(comparison.alignmentStatus);
-            const editable = canEdit && !(definition.field === "managementClassification" && Boolean(course.contentMetadata));
-            const isEditing = editingField === definition.field;
-            return <div className={`inline-field-cell ${mismatch ? "has-mismatch" : ""}`} key={definition.field}>
-              <div className="inline-field-heading"><span>{definition.label}</span>{mismatch && <ComparisonState comparison={comparison} />}</div>
-              {isEditing ? <div className="inline-field-editor">
-                {definition.kind === "verticals" ? <select aria-label={`Edit ${definition.label}`} autoFocus multiple value={draft ? draft.split("|") : []} onChange={(event) => setDraft(Array.from(event.currentTarget.selectedOptions, (option) => option.value).join("|"))} onKeyDown={(event) => { if (event.key === "Escape") setEditingField(null); }}>{verticals.map((vertical) => <option key={vertical}>{vertical}</option>)}</select>
-                  : definition.kind === "boolean" ? <select aria-label={`Edit ${definition.label}`} autoFocus value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setEditingField(null); }}><option value="unknown">Not supplied</option><option value="true">Yes</option><option value="false">No</option></select>
-                    : definition.multiline ? <textarea aria-label={`Edit ${definition.label}`} autoFocus value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setEditingField(null); if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); void save(definition); } }} />
-                      : <input aria-label={`Edit ${definition.label}`} autoFocus type={definition.kind === "number" || definition.kind === "credits" ? "number" : definition.kind === "date" ? "date" : "text"} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setEditingField(null); if (event.key === "Enter") { event.preventDefault(); void save(definition); } }} />}
-                <div className="inline-field-actions"><button disabled={pending} onClick={() => void save(definition)}><Save size={13} /> Save</button><button disabled={pending} onClick={() => setEditingField(null)}>Cancel</button></div>
-                {error && <small className="taxonomy-editor-error" role="alert">{error}</small>}
-              </div> : <>
-                <div className="source-lane"><small>CourseTrack</small><strong>{definition.field === "managementClassification" ? managementLabel(value as Course["managementClassification"]) : formatSourceValue(value)}</strong>{editable && <button aria-label={`Edit ${definition.label}`} onClick={() => begin(definition)}><Pencil size={13} /></button>}</div>
-                {comparison && <div className="source-lane source-lane-lms"><small><LockKeyhole size={11} /> LMS</small><span>{formatSourceValue(comparison.lmsNormalizedValue)}</span></div>}
-              </>}
-            </div>;
+          {classificationFields.map(renderField)}
+          <div className="inline-field-cell">
+            <div className="inline-field-heading"><span>Topics</span></div>
+            <div className="source-lane">
+              <small>CourseTrack</small>
+              <strong>{course.topicAssignments.length} topics · {course.tagAssignments.length} tags</strong>
+              {canEdit && <button aria-label="Edit Topics" onClick={onNavigateToTopics}><Pencil size={13} /></button>}
+            </div>
+          </div>
+          <div className="inline-field-cell">
+            <div className="inline-field-heading"><span>Management</span></div>
+            <label className="form-field checkbox-field">
+              <input type="checkbox" checked={course.managementClassification === "Lexipol managed"} disabled={!editableManagement || pending}
+                onChange={(event) => void saveFieldValue("managementClassification", event.target.checked ? "Lexipol managed" : "Unclassified")} />
+              <span>Lexipol managed</span>
+            </label>
+            {course.contentMetadata && <small>Managed by the current uploaded master metadata record.</small>}
+          </div>
+        </div>
+      </article>
+
+      <article className="panel">
+        <div className="panel-heading"><div><h2>Publishing</h2></div></div>
+        <div className="inline-field-grid">
+          {publishingFields.map((definition) => {
+            if (definition.field !== "nextReviewDate") return renderField(definition);
+            const cell = renderField(definition);
+            return isNextReviewOverdue ? <div className="next-review-overdue" key="nextReviewDate-overdue">{cell}<StatusBadge tone="danger">Overdue</StatusBadge></div> : cell;
           })}
         </div>
+      </article>
+
+      <article className="panel">
+        <div className="panel-heading"><div><h2>Duration &amp; Credits</h2></div></div>
+        <div className="inline-field-grid">{durationFields.map(renderField)}</div>
+      </article>
+
+      <article className="panel">
+        <div className="panel-heading"><div><h2>Links</h2></div></div>
+        <div className="inline-field-grid">
+          {renderLinkCell("backendLink", "backend", "Backend link")}
+          {renderLinkCell("frontendLink", "course", "Frontend link")}
+        </div>
+      </article>
+
+      <article className="panel">
+        <div className="panel-heading"><div><h2>Authoring</h2></div></div>
+        <div className="inline-field-grid">{authoringFields.map(renderField)}</div>
+      </article>
+
+      <article className="panel">
+        <div className="panel-heading"><div><h2>Content Notes</h2><p>CourseTrack only — not sourced from the LMS.</p></div></div>
+        <div className="inline-field-grid">{renderField(contentNotesField)}</div>
       </article>
     </div>
   );
@@ -670,10 +760,10 @@ function formatSourceValue(value: unknown): string {
       amount?: number | null;
       unit?: string | null;
     };
-    if (credit.rawDisplay) return credit.rawDisplay;
+    if (credit.rawDisplay) return credit.rawDisplay.replace(/\[([^\]]+)\]/g, "$1");
     return JSON.stringify(value);
   }
-  return String(value);
+  return String(value).replace(/\[([^\]]+)\]/g, "$1");
 }
 function ComparisonState({ comparison }: { comparison: FieldComparison }) {
   const state = comparison.alignmentStatus === "In sync"
