@@ -1589,6 +1589,40 @@ kbd {
   font-size: 11px;
 }
 
+.loading-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.skeleton-row td {
+  padding: 10px 17px;
+}
+
+.skeleton-bar {
+  height: 16px;
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    var(--surface-muted) 25%,
+    var(--surface) 37%,
+    var(--surface-muted) 63%
+  );
+  background-size: 400% 100%;
+  animation: skeleton-shimmer 1.4s ease infinite;
+}
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0 50%;
+  }
+}
+
 .result-summary span {
   margin-left: 6px;
   color: var(--text-muted);
