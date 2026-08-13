@@ -7,6 +7,7 @@ import {
   Download,
   Grid2X2,
   List,
+  LoaderCircle,
   Plus,
   Search,
   SlidersHorizontal,
@@ -572,7 +573,10 @@ export function CourseLibrary({ courses: initialCourses, initialTotal, initialFa
         <div className="result-summary">
           <div>
             <strong>{total.toLocaleString()} courses</strong>
-            <span>{loading ? "Loading page…" : `Page ${pageIndex + 1}`} · {visibleColumns.length + 1} visible columns</span>
+            <span className="result-summary-status">
+              {loading && <LoaderCircle size={12} className="spin" aria-hidden="true" />}
+              {loading ? "Loading page…" : `Page ${pageIndex + 1}`} · {visibleColumns.length + 1} visible columns
+            </span>
           </div>
           <div className="column-picker">
             <button
@@ -622,6 +626,7 @@ export function CourseLibrary({ courses: initialCourses, initialTotal, initialFa
                         {header.column.getCanSort() ? <button
                           className="sortable-header"
                           onClick={header.column.getToggleSortingHandler()}
+                          disabled={loading}
                         >
                           {flexRender(
                             header.column.columnDef.header,

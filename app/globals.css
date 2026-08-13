@@ -1629,6 +1629,12 @@ kbd {
   font-size: 9px;
 }
 
+.result-summary-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
 .filter-helper-text {
   margin: -8px 2px 0;
   color: var(--text-muted);
@@ -1993,6 +1999,11 @@ kbd {
   color: inherit;
   font: inherit;
   text-transform: inherit;
+}
+
+.sortable-header:disabled {
+  cursor: progress;
+  opacity: 0.6;
 }
 
 .course-title-cell {
