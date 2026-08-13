@@ -14,7 +14,7 @@ const included: CourseLibraryRecord = {
   managementClassification: "Lexipol managed", lmsLinkStatus: "linked",
   retrievalStatus: "Retrieved", lastRetrievedAt: "2026-08-01T00:00:00Z", conflictCount: 0,
   healthStatus: "Healthy", lifecycleStatus: "Published", primaryTopic: "Leadership", tags: ["incident"],
-  owner: "Alex Admin", durationMinutes: 60, dataSource: "uploaded", topicAssignments: [{ topic: "Leadership" }],
+  owner: "Alex Admin", durationMinutes: 60, dataSource: "uploaded", updateType: "Content refresh", topicAssignments: [{ topic: "Leadership" }],
   hasLmsSnapshot: true, hasContentMetadata: true, importValidationErrorCount: 0,
   backendLink: "https://admin.example.test/courses/101", frontendLink: "https://learn.example.test/courses/101",
 };

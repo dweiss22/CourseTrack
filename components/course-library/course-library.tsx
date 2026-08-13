@@ -62,6 +62,7 @@ export type CourseLibraryRecord = Pick<
   | "owner"
   | "durationMinutes"
   | "dataSource"
+  | "updateType"
   | "backendLink"
   | "frontendLink"
 > & {
@@ -112,6 +113,11 @@ const columns = [
       </StatusBadge>
     ),
   }),
+  columnHelper.accessor("updateType", {
+    header: "Update type",
+    enableSorting: false,
+    cell: (info) => <span>{info.getValue() ?? "Not specified"}</span>,
+  }),
   columnHelper.accessor("lmsLinkStatus", {
     header: "LMS link",
     enableSorting: false,
@@ -159,6 +165,7 @@ const columns = [
 const optionalColumnLabels: Record<CourseLibraryOptionalColumn, string> = {
   verticals: "Verticals",
   managementClassification: "Management",
+  updateType: "Update type",
   lmsLinkStatus: "LMS link",
   retrievalStatus: "Source / freshness",
   conflictCount: "Conflicts",
@@ -193,6 +200,7 @@ function formatHiddenColumn(course: CourseLibraryRecord, column: CourseLibraryOp
     return course.topicAssignments.map((assignment) => assignment.topic).join(", ") || "No topics";
   }
   if (column === "verticals") return course.verticals.join(", ") || "No vertical";
+  if (column === "updateType") return course.updateType ?? "Not specified";
   if (column === "lmsLinkStatus") return course.lmsLinkStatus === "linked" ? "LMS linked" : "Not LMS linked";
   if (column === "lmsActions") {
     return `${course.backendLink ? "Backend link available" : "No backend link"}; ${course.frontendLink ? "Course link available" : "No course link"}`;

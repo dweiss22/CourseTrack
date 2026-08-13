@@ -512,11 +512,11 @@ function buildCourseFromRows(row: Row, maps: GraphMaps): Course {
       .filter((value): value is string => Boolean(value))
       .sort()[0] ?? null;
   const currentVersion = versions.find((version) => version.isCurrent && !version.archivedAt)?.versionNumber ?? (row.current_version as string) ?? "1.0";
+  const nextReviewDateValue = (row.next_review_date as string) ?? null;
   const health = calculateCourseHealth({
     metadataCompletenessScore: calculateMetadataCompleteness(contentMetadata),
     unresolvedConflictCount: conflictCount,
-    importValidationErrorCount: ((row.import_validation_errors as string[]) ?? []).length,
-    hasCurrentLmsSnapshot: Boolean(lmsSnapshot),
+    nextReviewDate: nextReviewDateValue,
   });
 
   const importHistory: SourceHistoryRecord[] = [
@@ -744,6 +744,7 @@ export interface PortfolioSummary {
   owner: string | null;
   durationMinutes: number | null;
   dataSource: Course["dataSource"];
+  updateType: string | null;
   nextReviewDate: string | null;
   metadataCompletenessScore: number;
   conflictCount: number;
@@ -886,7 +887,7 @@ export async function fetchPortfolioSummaries(client: SupabaseClient): Promise<P
     fetchAllRows(
       client,
       "courses",
-      "id,app_id,title,short_title,course_code,lms_course_id,description,primary_vertical_id,management_classification,reconciliation_status,retrieval_status,last_retrieved_at,health_status,lifecycle_status,primary_topic,owner_name,duration_minutes,data_source,next_review_date,metadata_completeness_score,source_difference_count,import_validation_errors,backend_link,frontend_link",
+      "id,app_id,title,short_title,course_code,lms_course_id,description,primary_vertical_id,management_classification,reconciliation_status,retrieval_status,last_retrieved_at,health_status,lifecycle_status,primary_topic,owner_name,duration_minutes,data_source,content_update_type,next_review_date,metadata_completeness_score,source_difference_count,import_validation_errors,backend_link,frontend_link",
     ),
     fetchAllRows(client, "course_verticals", "course_id,vertical_id"),
     fetchAllRows(client, "course_flags", "course_id", (query) => query.is("archived_at", null)),
@@ -958,8 +959,7 @@ export async function fetchPortfolioSummaries(client: SupabaseClient): Promise<P
       healthStatus: calculateCourseHealth({
         metadataCompletenessScore: calculateMetadataCompleteness(metadataByCourse.get(courseDbId)),
         unresolvedConflictCount: conflictCounts.get(courseDbId) ?? 0,
-        importValidationErrorCount: ((row.import_validation_errors as string[]) ?? []).length,
-        hasCurrentLmsSnapshot: snapshotCourseIds.has(courseDbId),
+        nextReviewDate: (row.next_review_date as string) ?? null,
       }).status,
       lifecycleStatus: row.lifecycle_status as Course["lifecycleStatus"],
       primaryTopic: row.primary_topic as string,
@@ -967,6 +967,7 @@ export async function fetchPortfolioSummaries(client: SupabaseClient): Promise<P
       owner: (row.owner_name as string) ?? null,
       durationMinutes: row.duration_minutes === null || row.duration_minutes === undefined ? null : Number(row.duration_minutes),
       dataSource: row.data_source as Course["dataSource"],
+      updateType: (row.content_update_type as string) ?? metadataByCourse.get(courseDbId)?.updateType ?? null,
       nextReviewDate: (row.next_review_date as string) ?? null,
       metadataCompletenessScore: calculateMetadataCompleteness(metadataByCourse.get(courseDbId)),
       conflictCount: conflictCounts.get(courseDbId) ?? 0,

@@ -1,6 +1,7 @@
 export const courseLibraryOptionalColumns = [
   "verticals",
   "managementClassification",
+  "updateType",
   "lmsLinkStatus",
   "retrievalStatus",
   "conflictCount",
@@ -19,6 +20,7 @@ export const DEFAULT_COURSE_LIBRARY_PREFERENCES: CourseLibraryPreferences = {
   visibleColumns: [
     "verticals",
     "managementClassification",
+    "updateType",
     "lmsLinkStatus",
     "retrievalStatus",
     "healthStatus",
